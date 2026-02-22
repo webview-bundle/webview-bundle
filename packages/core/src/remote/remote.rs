@@ -1,14 +1,14 @@
 use crate::remote::HttpConfig;
 use crate::{Bundle, BundleReader, Reader};
 use futures_util::StreamExt;
-use http::{header, uri::Uri, StatusCode};
+use http::{StatusCode, header, uri::Uri};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::str::FromStr;
 use std::sync::Arc;
 
 /// Representation of bundle list info from the remote server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListRemoteBundleInfo {
   /// Bundle name
   pub name: String,
@@ -17,7 +17,7 @@ pub struct ListRemoteBundleInfo {
 }
 
 /// Representation of bundle info from the remote server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteBundleInfo {
   /// Bundle name
   pub name: String,

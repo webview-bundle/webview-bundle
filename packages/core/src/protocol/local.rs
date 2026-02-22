@@ -247,8 +247,8 @@ mod tests {
   use std::collections::HashMap;
   use std::iter;
   use std::net::{SocketAddr, TcpListener};
-  use std::sync::atomic::{AtomicUsize, Ordering};
   use std::sync::Arc;
+  use std::sync::atomic::{AtomicUsize, Ordering};
   use tiny_http::{Header as TinyHeader, Method, Response as TinyResponse, Server as TinyServer};
 
   fn server() -> (SocketAddr, std::thread::JoinHandle<()>) {

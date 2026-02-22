@@ -1,5 +1,5 @@
-use crate::signature::Verifier as SignatureVerifier;
 use crate::Bundle;
+use crate::signature::Verifier as SignatureVerifier;
 use ed25519_dalek::pkcs8::DecodePublicKey;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 

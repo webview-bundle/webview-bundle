@@ -1,5 +1,5 @@
-use crate::signature::Verifier as SignatureVerifier;
 use crate::Bundle;
+use crate::signature::Verifier as SignatureVerifier;
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
 use p256::pkcs8::DecodePublicKey;

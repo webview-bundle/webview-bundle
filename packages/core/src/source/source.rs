@@ -1,5 +1,5 @@
 use crate::source::{
-  utils, BundleManifest, BundleManifestMetadata, ListBundleManifestItem, ReadOnly, ReadWrite,
+  BundleManifest, BundleManifestMetadata, ListBundleManifestItem, ReadOnly, ReadWrite, utils,
 };
 use crate::{
   AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, Bundle, BundleDescriptor,
@@ -261,6 +261,9 @@ impl BundleSource {
     metadata: BundleManifestMetadata,
   ) -> crate::Result<()> {
     let filepath = self.get_remote_filepath(bundle_name, version);
+    if let Some(parent) = filepath.parent() {
+      let _ = tokio::fs::create_dir_all(parent).await;
+    }
     let mut file = File::create(&filepath).await?;
     AsyncBundleWriter::new(&mut file).write(bundle).await?;
     self

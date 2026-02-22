@@ -1,5 +1,5 @@
 use crate::builder::BundleBuilder;
-use crate::checksum::{parse_checksum, CHECKSUM_LEN};
+use crate::checksum::{CHECKSUM_LEN, parse_checksum};
 use crate::header::{Header, HeaderReader, HeaderWriter};
 use crate::index::{Index, IndexEntry, IndexReader, IndexWriter};
 use crate::reader::Reader;
@@ -456,9 +456,9 @@ impl<W: AsyncWrite + Unpin> AsyncWriter<Bundle> for AsyncBundleWriter<W> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::version::Version;
   use crate::BundleEntry;
-  use http::{header, HeaderMap};
+  use crate::version::Version;
+  use http::{HeaderMap, header};
   use std::io::Cursor;
 
   const INDEX_HTML: &str = r#"<!DOCTYPE html>
@@ -492,7 +492,7 @@ mod tests {
 
     let html = descriptor.index.get_entry("/index.html").unwrap();
     assert_eq!(html.content_type(), "text/html");
-    assert_eq!(html.content_length(), INDEX_HTML.as_bytes().len() as u64);
+    assert_eq!(html.content_length(), INDEX_HTML.len() as u64);
     assert_eq!(html.offset(), 0);
     assert_eq!(html.len(), 98);
   }
