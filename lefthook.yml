@@ -3,7 +3,7 @@ pre-commit:
   commands:
     rustfmt:
       glob: '*.rs'
-      run: cargo fmt -- {staged_files}
+      run: cargo fmt --all
       stage_fixed: true
     clippy:
       glob: '*.rs'
