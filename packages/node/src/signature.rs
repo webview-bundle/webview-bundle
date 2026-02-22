@@ -1,6 +1,6 @@
 use crate::js::{JsCallback, JsCallbackExt};
 use napi::bindgen_prelude::{Buffer, FnArgs, FromNapiValue, Promise, TypeName, ValidateNapiValue};
-use napi::{sys, Either, ValueType};
+use napi::{Either, ValueType, sys};
 use napi_derive::napi;
 use std::sync::Arc;
 use wvb::signature;

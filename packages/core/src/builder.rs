@@ -1,4 +1,4 @@
-use crate::checksum::{make_checksum, CHECKSUM_LEN};
+use crate::checksum::{CHECKSUM_LEN, make_checksum};
 use crate::header::HeaderWriterOptions;
 use crate::index::{Index, IndexEntry, IndexWriterOptions};
 use crate::version::Version;

@@ -243,11 +243,13 @@ mod tests {
       .await
       .unwrap()
       .unwrap();
-    assert!(manifest
-      .load_metadata("app", "not_exists")
-      .await
-      .unwrap()
-      .is_none());
+    assert!(
+      manifest
+        .load_metadata("app", "not_exists")
+        .await
+        .unwrap()
+        .is_none()
+    );
   }
 
   #[tokio::test]
@@ -398,11 +400,13 @@ mod tests {
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
     let removed = manifest.remove_entry("app", "1.1.0").await.unwrap();
     assert!(removed);
-    assert!(manifest
-      .load_metadata("app", "1.1.0")
-      .await
-      .unwrap()
-      .is_none());
+    assert!(
+      manifest
+        .load_metadata("app", "1.1.0")
+        .await
+        .unwrap()
+        .is_none()
+    );
   }
 
   #[tokio::test]

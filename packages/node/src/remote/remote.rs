@@ -1,8 +1,8 @@
 use crate::bundle::Bundle;
 use crate::js::{JsCallback, JsCallbackExt};
 use crate::remote::HttpOptions;
-use napi::bindgen_prelude::*;
 use napi::Status;
+use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::sync::Arc;
 use wvb::remote;

@@ -1,7 +1,7 @@
 use crate::protocol::uri::{DefaultUriResolver, UriResolver};
 use crate::source::BundleSource;
 use async_trait::async_trait;
-use http::{header, HeaderValue, Method, Request, Response, StatusCode};
+use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_range::HttpRange;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
@@ -639,13 +639,15 @@ mod tests {
       .unwrap();
     assert_eq!(resp.status(), 206);
     assert_eq!(resp.headers().get(header::ACCEPT_RANGES).unwrap(), "bytes");
-    assert!(resp
-      .headers()
-      .get(header::CONTENT_TYPE)
-      .unwrap()
-      .to_str()
-      .unwrap()
-      .starts_with("multipart/byteranges; boundary="));
+    assert!(
+      resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("multipart/byteranges; boundary=")
+    );
   }
 
   #[tokio::test]

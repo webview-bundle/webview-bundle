@@ -1,10 +1,10 @@
 [package]
-authors      = ["Seokju Na <seokju.me@gmail.com>"]
+authors      = { workspace = true }
 description  = "Offline-first web resources delivery system for webview mounted frameworks/platforms"
-edition      = "2021"
-license      = "MIT"
+edition      = { workspace = true }
+license      = { workspace = true }
 name         = "wvb"
-repository   = "https://github.com/webview-bundle/webview-bundle"
+repository   = { workspace = true }
 rust-version = "1.85.0"
 version      = "0.2.0"
 
@@ -40,8 +40,12 @@ twox-hash        = { workspace = true, features = ["serialize"] }
 urlencoding      = { workspace = true, optional = true }
 
 [dev-dependencies]
-tiny_http = { workspace = true }
-tokio     = { workspace = true, features = ["full"] }
+httpmock   = { workspace = true }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+time       = { workspace = true, features = ["formatting", "local-offset"] }
+tiny_http  = { workspace = true }
+tokio      = { workspace = true, features = ["full"] }
 
 [features]
 _reqwest = ["dep:reqwest"]

@@ -1,6 +1,6 @@
-use crate::checksum::{make_checksum, parse_checksum, write_checksum, CHECKSUM_LEN};
+use crate::checksum::{CHECKSUM_LEN, make_checksum, parse_checksum, write_checksum};
 use crate::reader::Reader;
-use crate::version::{Version, VERSION_LEN};
+use crate::version::{VERSION_LEN, Version};
 use crate::writer::Writer;
 use std::io::{Read, Seek, SeekFrom, Write};
 
@@ -477,7 +477,9 @@ mod tests {
     writer.write(&header).unwrap();
     assert_eq!(
       buf,
-      [240, 159, 140, 144, 240, 159, 142, 129, 1, 0, 0, 4, 210, 49, 56, 3, 16]
+      [
+        240, 159, 140, 144, 240, 159, 142, 129, 1, 0, 0, 4, 210, 49, 56, 3, 16
+      ]
     );
     let mut reader = HeaderReader::new(Cursor::new(&buf));
     let read_header = reader.read().unwrap();
@@ -495,7 +497,9 @@ mod tests {
     writer.write(&header).await.unwrap();
     assert_eq!(
       buf,
-      [240, 159, 140, 144, 240, 159, 142, 129, 1, 0, 0, 4, 210, 49, 56, 3, 16]
+      [
+        240, 159, 140, 144, 240, 159, 142, 129, 1, 0, 0, 4, 210, 49, 56, 3, 16
+      ]
     );
     let mut reader = AsyncHeaderReader::new(Cursor::new(&buf));
     let read_header = reader.read().await.unwrap();

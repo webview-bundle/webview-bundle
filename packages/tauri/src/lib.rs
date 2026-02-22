@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use tauri::{
-  http,
+  Manager, Runtime, UriSchemeContext, http,
   plugin::{Builder, TauriPlugin},
-  Manager, Runtime, UriSchemeContext,
 };
 
 pub use config::{Config, Http, Protocol, Remote, Source};

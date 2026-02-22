@@ -123,13 +123,13 @@ impl Updater {
   pub async fn download_update(
     &self,
     bundle_name: impl Into<String>,
-    version: Option<impl Into<String>>,
+    version: Option<String>,
   ) -> crate::Result<RemoteBundleInfo> {
     let (info, bundle, data) = match version {
       Some(ver) => {
         self
           .remote
-          .download_version(&bundle_name.into(), &ver.into())
+          .download_version(&bundle_name.into(), &ver)
           .await
       }
       None => {

@@ -1,11 +1,11 @@
-use crate::checksum::{make_checksum, parse_checksum, write_checksum, CHECKSUM_LEN};
+use crate::checksum::{CHECKSUM_LEN, make_checksum, parse_checksum, write_checksum};
 use crate::header::Header;
 use crate::reader::Reader;
 use crate::writer::Writer;
 use bincode::de::Decoder;
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
-use bincode::{config, decode_from_slice, encode_to_vec, Decode, Encode};
+use bincode::{Decode, Encode, config, decode_from_slice, encode_to_vec};
 use http::{HeaderMap, HeaderName, HeaderValue};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};

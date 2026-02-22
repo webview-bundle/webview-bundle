@@ -1,11 +1,11 @@
-use crate::signature::Verifier as SignatureVerifier;
 use crate::Bundle;
+use crate::signature::Verifier as SignatureVerifier;
+use rsa::RsaPublicKey;
 use rsa::pkcs1::DecodeRsaPublicKey;
 use rsa::pkcs1v15::{Signature, VerifyingKey};
 use rsa::pkcs8::DecodePublicKey;
 use rsa::sha2::Sha256;
 use rsa::signature::Verifier;
-use rsa::RsaPublicKey;
 
 pub struct RsaPkcs1V15Verifier {
   key: VerifyingKey<Sha256>,

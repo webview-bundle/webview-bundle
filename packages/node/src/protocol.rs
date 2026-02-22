@@ -1,6 +1,6 @@
-use crate::http::request;
 use crate::http::HttpMethod;
 use crate::http::HttpResponse;
+use crate::http::request;
 use crate::source::BundleSource;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
