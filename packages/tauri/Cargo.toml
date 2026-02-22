@@ -1,11 +1,11 @@
 [package]
-authors      = ["Seokju Na <seokju.me@gmail.com>"]
-description  = "TBD"
-edition      = "2021"
-license      = "MIT"
+authors      = { workspace = true }
+description  = "Webview bundle API for Tauri"
+edition      = { workspace = true }
+license      = { workspace = true }
 links        = "wvb-tauri"
 name         = "wvb-tauri"
-repository   = "https://github.com/webview-bundle/webview-bundle"
+repository   = { workspace = true }
 rust-version = "1.85.0"
 version      = "0.1.0"
 
