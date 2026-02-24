@@ -52,7 +52,7 @@
     "cli-progress": "^3.12.0",
     "clipanion": "4.0.0-rc.4",
     "es-toolkit": "^1.43.0",
-    "hono": "^4.10.3",
+    "hono": "^4.11.10",
     "kleur": "^4.1.5",
     "picomatch": "^4.0.3",
     "rolldown": "1.0.0-beta.51",
