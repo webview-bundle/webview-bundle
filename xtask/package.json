@@ -24,7 +24,7 @@
     "fast-glob": "^3.3.2",
     "kleur": "^4.1.5",
     "micromatch": "^4.0.8",
-    "minimatch": "^10.1.2",
+    "minimatch": "^10.2.1",
     "p-all": "^5.0.0",
     "semver": "^7",
     "supports-color": "^10.0.0",
