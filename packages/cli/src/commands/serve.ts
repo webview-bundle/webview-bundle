@@ -1,8 +1,8 @@
 import { Command, Option } from 'clipanion';
 import { cascade, isBoolean, isInExclusiveRange, isInteger, isNumber } from 'typanion';
+import { serve } from '../api/serve.js';
 import { defaultOutFile, resolveConfig } from '../config.js';
 import { isColorEnabled } from '../console.js';
-import { serve } from '../operations/serve.js';
 import { BaseCommand } from './base.js';
 
 export class ServeCommand extends BaseCommand {

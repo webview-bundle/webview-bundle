@@ -11,7 +11,7 @@ import type { Logger } from '../log.js';
 import { c } from '../console.js';
 import { pathExists, toAbsolutePath } from '../fs.js';
 import { coerceArray } from '../utils/coerce.js';
-import { OperationError } from './error.js';
+import { ApiError } from './error.js';
 
 type RemoteBundleMatches =
   | string
@@ -33,6 +33,9 @@ export interface BuiltinParams {
   progress?: boolean;
 }
 
+/**
+ * Install builtin Webview Bundles from remote.
+ */
 export async function builtin(params: BuiltinParams): Promise<BundleManifestData> {
   const {
     remoteEndpoint,
@@ -145,7 +148,7 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
   if (remoteBundlesToDownload.length === 0) {
     const message = 'No remote bundles to install.';
     logger?.error(message);
-    throw new OperationError(message);
+    throw new ApiError(message);
   }
 
   const result = await Promise.all(remoteBundlesToDownload.map(install));
@@ -158,7 +161,7 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
         error: failure.error,
       });
     }
-    throw new OperationError(
+    throw new ApiError(
       `Install failed: ${failures.map(x => x.bundleName).join(', ')}`,
       failures.map(x => x.error)
     );

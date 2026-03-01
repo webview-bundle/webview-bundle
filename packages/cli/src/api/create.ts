@@ -10,7 +10,7 @@ import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
 import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
 import { isLogLevelAtLeast, type Logger, type LogLevel } from '../log.js';
-import { OperationError } from './error.js';
+import { ApiError } from './error.js';
 
 export interface CreateParams {
   dir: string;
@@ -25,6 +25,9 @@ export interface CreateParams {
   logger?: Logger;
 }
 
+/**
+ * Create Webview Bundle archive.
+ */
 export async function create(params: CreateParams): Promise<Bundle> {
   const {
     dir: dirInput,
@@ -59,7 +62,7 @@ export async function create(params: CreateParams): Promise<Bundle> {
   if (files.length === 0) {
     const message = 'No files to create bundle';
     logger?.error(message);
-    throw new OperationError(message);
+    throw new ApiError(message);
   }
   logger?.info(`Target ${files.length} files:`);
   const builder = new BundleBuilder();
@@ -84,7 +87,7 @@ export async function create(params: CreateParams): Promise<Bundle> {
     if (await pathExists(outFilepath)) {
       const message = `Outfile already exists: ${c.bold(c.error(outFile))}`;
       logger?.error(message);
-      throw new OperationError(message);
+      throw new ApiError(message);
     }
   }
   await fs.mkdir(path.dirname(outFilepath), { recursive: true });
