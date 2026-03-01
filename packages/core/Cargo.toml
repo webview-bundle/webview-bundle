@@ -41,12 +41,12 @@ twox-hash        = { workspace = true, features = ["serialize"] }
 urlencoding      = { workspace = true, optional = true }
 
 [dev-dependencies]
-httpmock           = { workspace = true }
-serde              = { workspace = true, features = ["derive"] }
-serde_json         = { workspace = true }
-time               = { workspace = true, features = ["formatting", "local-offset"] }
-tiny_http          = { workspace = true }
-tokio              = { workspace = true, features = ["full"] }
+httpmock   = { workspace = true }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+time       = { workspace = true, features = ["formatting", "local-offset"] }
+tiny_http  = { workspace = true }
+tokio      = { workspace = true, features = ["full"] }
 
 [features]
 _reqwest = ["dep:reqwest"]
