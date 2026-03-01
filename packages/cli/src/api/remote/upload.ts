@@ -12,7 +12,7 @@ import type { Logger } from '../../log.js';
 import { c } from '../../console.js';
 import { formatByteLength } from '../../format.js';
 import { pathExists, toAbsolutePath } from '../../fs.js';
-import { OperationError } from '../error.js';
+import { ApiError } from '../error.js';
 
 export interface RemoteUploadParams {
   file: string | Bundle;
@@ -26,6 +26,9 @@ export interface RemoteUploadParams {
   cwd?: string;
 }
 
+/**
+ * Upload Webview Bundle to remote server.
+ */
 export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
   const {
     file,
@@ -45,7 +48,7 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
     if (!(await pathExists(filepath))) {
       const message = `File does not exist: ${filepath}`;
       logger?.error(message);
-      throw new OperationError(message);
+      throw new ApiError(message);
     }
     bundle = await readBundle(filepath);
   } else {
@@ -56,7 +59,7 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
   if (bundleName == null) {
     const message = `Cannot get bundle name. If you pass "file" as bundle object, you must provide "bundleName" field.`;
     logger?.error(message);
-    throw new OperationError(message);
+    throw new ApiError(message);
   }
   logger?.info(
     `Will upload Remote Webview Bundle: ${c.bold(c.info(bundleName))} (Version: ${c.info(version)}`
@@ -79,7 +82,7 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
       const message =
         'Cannot make signature without integrity. Make sure integrity making option is enabled.';
       logger?.error(message);
-      throw new OperationError(message);
+      throw new ApiError(message);
     }
     signature = await signSignature(signatureConfig, Buffer.from(integrity, 'utf8'));
     logger?.info(`Signature: ${signature}`);

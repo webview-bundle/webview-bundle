@@ -33,6 +33,10 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
+    "./api": {
+      "import": "./dist/api/index.mjs",
+      "require": "./dist/api/index.cjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
