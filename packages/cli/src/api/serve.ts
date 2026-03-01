@@ -3,7 +3,7 @@ import { readBundle } from '@wvb/node';
 import type { Logger } from '../log.js';
 import { c, isColorEnabled } from '../console.js';
 import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
-import { OperationError } from './error.js';
+import { ApiError } from './error.js';
 
 export interface ServeParams {
   file: string;
@@ -19,6 +19,9 @@ export interface ServeInstance {
   shutdown(): Promise<void>;
 }
 
+/**
+ * Serve Webview Bundle files with localhost server.
+ */
 export async function serve(params: ServeParams): Promise<ServeInstance> {
   const {
     file,
@@ -33,7 +36,7 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
   if (!(await pathExists(filepath))) {
     const message = `File does not exist: ${filepath}`;
     logger?.error(message);
-    throw new OperationError(message);
+    throw new ApiError(message);
   }
 
   const { Hono } = await import('hono');

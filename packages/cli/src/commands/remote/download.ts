@@ -4,11 +4,11 @@ import { Command, Option } from 'clipanion';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isBoolean } from 'typanion';
+import { logRemoteBundleInfo } from '../../api/remote/logging.js';
 import { resolveConfig } from '../../config.js';
 import { c } from '../../console.js';
 import { formatByteLength } from '../../format.js';
 import { pathExists, toAbsolutePath, withWVBExtension } from '../../fs.js';
-import { logRemoteBundleInfo } from '../../operations/remote/logging.js';
 import { BaseCommand } from '../base.js';
 
 export class RemoteDownloadCommand extends BaseCommand {
