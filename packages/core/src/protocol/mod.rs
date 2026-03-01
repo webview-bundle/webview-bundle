@@ -1,4 +1,5 @@
 mod bundle;
+mod http_ext;
 #[cfg(feature = "protocol-local")]
 mod local;
 mod uri;

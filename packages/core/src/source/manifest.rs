@@ -46,11 +46,16 @@ pub struct ListBundleManifestItem {
 }
 
 pub trait BundleManifestMode: Send + Sync + 'static {}
+
+#[derive(Debug)]
 pub struct ReadOnly;
 impl BundleManifestMode for ReadOnly {}
+
+#[derive(Debug)]
 pub struct ReadWrite;
 impl BundleManifestMode for ReadWrite {}
 
+#[derive(Debug)]
 pub struct BundleManifest<Mode: BundleManifestMode> {
   _mode: std::marker::PhantomData<Mode>,
   filepath: PathBuf,
