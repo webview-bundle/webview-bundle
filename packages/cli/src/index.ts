@@ -1,12 +1,3 @@
 export type { InlineConfig, ResolvedConfig } from './config.js';
 export { defaultOutDir, defaultOutFile, loadConfigFile, resolveConfig } from './config.js';
-export type { BuiltinParams } from './api/builtin.js';
-export { builtin } from './api/builtin.js';
-export type { CreateParams } from './api/create.js';
-export { create } from './api/create.js';
-export type { ExtractParams } from './api/extract.js';
-export { extract } from './api/extract.js';
-export type { RemoteUploadParams } from './api/remote/upload.js';
-export { remoteUpload } from './api/remote/upload.js';
-export type { ServeInstance, ServeParams } from './api/serve.js';
-export { serve } from './api/serve.js';
+export { defineConfig } from '@wvb/config';
