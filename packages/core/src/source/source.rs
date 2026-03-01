@@ -129,6 +129,7 @@ pub struct ListBundleItem {
   pub item: ListBundleManifestItem,
 }
 
+#[derive(Debug)]
 pub struct BundleSource {
   builtin_dir: PathBuf,
   builtin_manifest: BundleManifest<ReadOnly>,

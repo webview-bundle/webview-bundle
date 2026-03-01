@@ -2,8 +2,8 @@ import { Command, Option } from 'clipanion';
 import { isNotNil } from 'es-toolkit';
 import path from 'node:path';
 import { cascade, isBoolean, isInteger, isNumber } from 'typanion';
+import { builtin } from '../api/builtin.js';
 import { resolveConfig } from '../config.js';
-import { builtin } from '../operations/builtin.js';
 import { BaseCommand } from './base.js';
 
 export class BuiltinCommand extends BaseCommand {

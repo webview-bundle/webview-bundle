@@ -196,6 +196,11 @@ impl LocalProtocol {
 
 #[async_trait]
 impl super::Protocol for LocalProtocol {
+  #[cfg_attr(feature = "tracing", tracing::instrument(
+    skip_all,
+    fields(request.method = request.method().to_string(), request.uri = request.uri().to_string()),
+    err(level = "error")
+  ))]
   async fn handle(
     &self,
     request: http::Request<Vec<u8>>,
@@ -204,6 +209,9 @@ impl super::Protocol for LocalProtocol {
       .uri_resolver
       .get_localhost_uri(request.uri())
       .ok_or(crate::Error::CannotResolveLocalHost)?;
+
+    #[cfg(feature = "tracing")]
+    tracing::info!(localhost_uri = url);
 
     let mut builder = http::Response::builder();
 
@@ -235,6 +243,14 @@ impl super::Protocol for LocalProtocol {
     let resp = builder
       .status(response.status)
       .body(response.body.to_vec().into())?;
+    #[cfg(feature = "tracing")]
+    {
+      use crate::protocol::http_ext::HttpHeadersTracingInfo;
+      tracing::info!(
+        response.status = resp.status().as_u16(),
+        response.headers = resp.headers().tracing_info()
+      );
+    }
     Ok(resp)
   }
 }

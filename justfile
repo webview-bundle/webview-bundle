@@ -35,7 +35,7 @@ test-rs:
     cargo test --workspace --no-fail-fast --all-features
 
 # Format all files
-format: format-rs format-js
+format: format-rs format-js format-toml
 
 # Format Rust files
 format-rs:
@@ -44,6 +44,10 @@ format-rs:
 # Format JS files via oxfmt
 format-js:
     yarn oxfmt
+
+# Format TOML files via taplo
+format-toml:
+    yarn taplo format
 
 # Lint all files
 lint: lint-rs lint-js

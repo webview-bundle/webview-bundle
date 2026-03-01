@@ -1,7 +1,7 @@
 import { Command, Option } from 'clipanion';
 import { isBoolean } from 'typanion';
+import { extract } from '../api/extract.js';
 import { defaultOutFile, resolveConfig } from '../config.js';
-import { extract } from '../operations/extract.js';
 import { BaseCommand } from './base.js';
 
 export class ExtractCommand extends BaseCommand {

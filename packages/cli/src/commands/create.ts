@@ -2,8 +2,8 @@ import type { HeadersConfig } from '@wvb/config';
 import { Command, Option } from 'clipanion';
 import { isNotNil } from 'es-toolkit';
 import { isBoolean } from 'typanion';
+import { create } from '../api/create.js';
 import { defaultOutDir, defaultOutFile, resolveConfig } from '../config.js';
-import { create } from '../operations/create.js';
 import { BaseCommand } from './base.js';
 
 export class CreateCommand extends BaseCommand {
