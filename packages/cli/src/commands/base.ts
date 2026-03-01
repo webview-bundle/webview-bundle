@@ -1,4 +1,5 @@
 import { Command } from 'clipanion';
+import { isOperationError } from '../api/error.js';
 import { ColorOption, configureColor } from '../console.js';
 import {
   configureLogger,
@@ -7,7 +8,6 @@ import {
   LogLevelOption,
   LogVerboseOption,
 } from '../log.js';
-import { isOperationError } from '../operations/error.js';
 
 export abstract class BaseCommand extends Command {
   abstract readonly name: string;

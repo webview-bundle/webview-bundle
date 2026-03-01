@@ -1,9 +1,9 @@
 import { Command, Option } from 'clipanion';
 import path from 'node:path';
 import { isBoolean } from 'typanion';
+import { remoteUpload } from '../../api/remote/upload.js';
 import { defaultOutDir, defaultOutFile, resolveConfig } from '../../config.js';
 import { c } from '../../console.js';
-import { remoteUpload } from '../../operations/remote/upload.js';
 import { buildURL } from '../../utils/url.js';
 import { BaseCommand } from '../base.js';
 
