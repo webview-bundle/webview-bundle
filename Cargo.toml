@@ -9,44 +9,46 @@ license    = "MIT"
 repository = "https://github.com/webview-bundle/webview-bundle"
 
 [workspace.dependencies]
-async-trait      = "0.1"
-base64ct         = "1.8.0"
-bincode          = "2.0.1"
-bytes            = { version = "1" }
-dashmap          = "7.0.0-rc2"
-ed25519-dalek    = "2.2.0"
-futures-util     = "0.3.31"
-getrandom        = "0.4.0-rc.0"
-http             = { version = "1" }
-http-range       = "0.1.5"
-httpmock         = "0.8.3"
-infer            = "0.19.0"
-lz4_flex         = "0.12.0"
-napi             = "=3.5.2"
-napi-build       = "=2.3.1"
-napi-derive      = "=3.3.3"
-p256             = "0.13.2"
-p384             = "0.13.1"
-percent-encoding = "2.3.2"
-reqwest          = { version = "0.12", default-features = false }
-rsa              = "0.9.8"
-semver           = "1.0"
-serde            = "1.0"
-serde_json       = "1.0"
-serde_repr       = "0.1"
-sha3             = "0.10.8"
-tauri            = "2.8.5"
-tauri-build      = "2.4.1"
-tauri-plugin     = "2.4.0"
-thiserror        = "2"
-time             = "0.3"
-tiny_http        = "0.12.0"
-tokio            = "1.47.1"
-twox-hash        = "2.1.0"
-urlencoding      = "2.1.3"
-wvb              = { version = "0.2.0", path = "./packages/core" }
-wvb-node         = { version = "0.0.0", path = "./packages/node" }
-wvb-tauri        = { version = "0.1.0", path = "./packages/tauri" }
+async-trait        = "0.1"
+base64ct           = "1.8.0"
+bincode            = "2.0.1"
+bytes              = { version = "1" }
+dashmap            = "7.0.0-rc2"
+ed25519-dalek      = "2.2.0"
+futures-util       = "0.3.31"
+getrandom          = "0.4.0-rc.0"
+http               = { version = "1" }
+http-range         = "0.1.5"
+httpmock           = "0.8.3"
+infer              = "0.19.0"
+lz4_flex           = "0.12.0"
+napi               = "=3.5.2"
+napi-build         = "=2.3.1"
+napi-derive        = "=3.3.3"
+p256               = "0.13.2"
+p384               = "0.13.1"
+percent-encoding   = "2.3.2"
+reqwest            = { version = "0.12", default-features = false }
+rsa                = "0.9.8"
+semver             = "1.0"
+serde              = "1.0"
+serde_json         = "1.0"
+serde_repr         = "0.1"
+sha3               = "0.10.8"
+tauri              = "2.8.5"
+tauri-build        = "2.4.1"
+tauri-plugin       = "2.4.0"
+thiserror          = "2"
+time               = "0.3"
+tiny_http          = "0.12.0"
+tokio              = "1.47.1"
+tracing            = "0.1.44"
+tracing-subscriber = "0.3.22"
+twox-hash          = "2.1.0"
+urlencoding        = "2.1.3"
+wvb                = { version = "0.2.0", path = "./packages/core" }
+wvb-node           = { version = "0.0.0", path = "./packages/node" }
+wvb-tauri          = { version = "0.1.0", path = "./packages/tauri" }
 
 [profile.release]
 lto   = true

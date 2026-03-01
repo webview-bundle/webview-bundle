@@ -3,6 +3,7 @@ use crate::source::BundleSource;
 use async_trait::async_trait;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_range::HttpRange;
+use std::fmt::Formatter;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 
@@ -82,6 +83,12 @@ pub struct BundleProtocol {
   uri_resolver: Box<dyn UriResolver + 'static>,
 }
 
+impl std::fmt::Debug for BundleProtocol {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    write!(f, "BundleProtocol {{ source: {:?} }}", self.source)
+  }
+}
+
 impl BundleProtocol {
   /// Creates a new `BundleProtocol` with the default URI resolver.
   ///
@@ -115,6 +122,11 @@ impl BundleProtocol {
 
 #[async_trait]
 impl super::Protocol for BundleProtocol {
+  #[cfg_attr(feature = "tracing", tracing::instrument(
+    skip_all,
+    fields(request.method = request.method().to_string(), request.uri = request.uri().to_string()),
+    err(level = "error")
+  ))]
   async fn handle(&self, request: Request<Vec<u8>>) -> crate::Result<super::ProtocolResponse> {
     let name = self
       .uri_resolver
@@ -122,6 +134,31 @@ impl super::Protocol for BundleProtocol {
       .ok_or(crate::Error::BundleNotFound)?;
     let path = self.uri_resolver.resolve_path(request.uri());
 
+    #[cfg(feature = "tracing")]
+    tracing::info!(bundle_name = name, path = path);
+
+    let response = self.handle_inner(&name, &path, request).await?;
+
+    #[cfg(feature = "tracing")]
+    {
+      use crate::protocol::http_ext::HttpHeadersTracingInfo;
+      tracing::info!(
+        response.status = response.status().as_u16(),
+        response.headers = response.headers().tracing_info()
+      );
+    }
+
+    Ok(response)
+  }
+}
+
+impl BundleProtocol {
+  async fn handle_inner(
+    &self,
+    bundle_name: &str,
+    path: &str,
+    request: Request<Vec<u8>>,
+  ) -> crate::Result<super::ProtocolResponse> {
     if !(request.method() == Method::GET || request.method() == Method::HEAD) {
       let response = Response::builder()
         .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -130,7 +167,7 @@ impl super::Protocol for BundleProtocol {
     }
 
     let mut resp = Response::builder();
-    let descriptor = self.source.load_descriptor(&name).await?;
+    let descriptor = self.source.load_descriptor(bundle_name).await?;
 
     if let Some(entry) = descriptor.index().get_entry(&path) {
       let resp_headers = resp.headers_mut().unwrap();
@@ -156,7 +193,7 @@ impl super::Protocol for BundleProtocol {
         );
 
         let len = entry.content_length();
-        let not_stisifiable = || {
+        let not_satisfiable = || {
           Response::builder()
             .status(StatusCode::RANGE_NOT_SATISFIABLE)
             .header(header::CONTENT_RANGE, format!("bytes */{len}"))
@@ -171,7 +208,7 @@ impl super::Protocol for BundleProtocol {
             .map(|x| (x.start, x.start + x.length - 1))
             .collect::<Vec<_>>()
         } else {
-          return not_stisifiable();
+          return not_satisfiable();
         };
 
         /// The Maximum bytes we send in one range
@@ -179,7 +216,7 @@ impl super::Protocol for BundleProtocol {
         let adjust_end =
           |start: u64, end: u64, len: u64| start + (end - start).min(len - start).min(MAX_LEN - 1);
 
-        // signle-part range header
+        // single-part range header
         let response = if ranges.len() == 1 {
           let &(start, mut end) = ranges.first().unwrap();
           // check if a range is not satisfiable
@@ -187,7 +224,7 @@ impl super::Protocol for BundleProtocol {
           // this should be already taken care of by the range parsing library
           // but checking here again for extra assurance
           if start >= len || end >= len || end < start {
-            return not_stisifiable();
+            return not_satisfiable();
           }
           end = adjust_end(start, end, len);
 
@@ -201,7 +238,7 @@ impl super::Protocol for BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = self.source.reader(&name).await?;
+            let reader = self.source.reader(bundle_name).await?;
             let buf = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
               extract_buf(&data, start, end)
             } else {
@@ -239,7 +276,7 @@ impl super::Protocol for BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = self.source.reader(&name).await?;
+            let reader = self.source.reader(bundle_name).await?;
             let buf = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
               let mut buf = Vec::new();
               for (start, end) in ranges {
@@ -275,7 +312,7 @@ impl super::Protocol for BundleProtocol {
         return Ok(response);
       }
 
-      let reader = self.source.reader(&name).await?;
+      let reader = self.source.reader(bundle_name).await?;
       let data = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
         data
       } else {
