@@ -5,7 +5,7 @@ import type { Logger } from '../log.js';
 import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
 import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
-import { OperationError } from './error.js';
+import { ApiError } from './error.js';
 
 export interface ExtractParams {
   file: string;
@@ -16,6 +16,9 @@ export interface ExtractParams {
   logger?: Logger;
 }
 
+/**
+ * Extract Webview Bundle files.
+ */
 export async function extract(params: ExtractParams): Promise<Bundle> {
   const { file, outDir: outDirInput, cwd, write = true, clean = false, logger } = params;
 
@@ -23,7 +26,7 @@ export async function extract(params: ExtractParams): Promise<Bundle> {
   if (!(await pathExists(filepath))) {
     const message = `File does not exist: ${filepath}`;
     logger?.error(message);
-    throw new OperationError(message);
+    throw new ApiError(message);
   }
   const bundle = await readBundle(filepath);
   logger?.info(`Webview Bundle info for ${c.info(filepath)}`);
@@ -49,7 +52,7 @@ export async function extract(params: ExtractParams): Promise<Bundle> {
     if (!clean) {
       const message = `Output directory already exists: ${outDirPath}`;
       logger?.warn(message);
-      throw new OperationError(message);
+      throw new ApiError(message);
     }
     await fs.rm(outDirPath, { recursive: true });
   }

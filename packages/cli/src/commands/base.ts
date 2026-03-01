@@ -1,5 +1,5 @@
 import { Command } from 'clipanion';
-import { isOperationError } from '../api/error.js';
+import { isApiError } from '../api/error.js';
 import { ColorOption, configureColor } from '../console.js';
 import {
   configureLogger,
@@ -44,7 +44,7 @@ export abstract class BaseCommand extends Command {
       return 0;
     } catch (error) {
       // Ignore logging for operation error, because it's intent to be already logged in operation.
-      if (!isOperationError(error)) {
+      if (!isApiError(error)) {
         this._logger.error(`"${this.name}" command failed with error: {error}`, { error });
       }
       return 1;

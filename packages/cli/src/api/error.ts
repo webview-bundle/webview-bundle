@@ -1,6 +1,6 @@
 import { stripColor } from '../console.js';
 
-export class OperationError extends Error {
+export class ApiError extends Error {
   readonly name = 'OperationError';
   readonly originalErrors?: unknown;
 
@@ -10,9 +10,9 @@ export class OperationError extends Error {
   }
 }
 
-export function isOperationError(e: unknown): e is OperationError {
+export function isApiError(e: unknown): e is ApiError {
   return (
-    e instanceof OperationError ||
-    (e != null && typeof e === 'object' && (e as OperationError)?.name === 'OperationError')
+    e instanceof ApiError ||
+    (e != null && typeof e === 'object' && (e as ApiError)?.name === 'OperationError')
   );
 }
