@@ -58,7 +58,7 @@
     "es-toolkit": "^1.43.0",
     "hono": "^4.11.10",
     "kleur": "^4.1.5",
-    "picomatch": "^4.0.3",
+    "picomatch": "^4.0.4",
     "rolldown": "1.0.0-beta.51",
     "supports-color": "^10.0.0",
     "tinyglobby": "^0.2.14",
