@@ -20,7 +20,7 @@
     "@electron-forge/plugin-fuses": "^7.10.2",
     "@electron-forge/plugin-vite": "^7.10.2",
     "@electron/fuses": "^1.0.0",
-    "electron": "^35.7.5",
+    "electron": "^41.1.1",
     "typescript": "5.9.3",
     "vite": "^7.3.0"
   },

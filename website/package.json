@@ -14,12 +14,12 @@
     "typegen:cloudflare": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
-    "@opennextjs/cloudflare": "1.16.1",
+    "@opennextjs/cloudflare": "1.17.1",
     "fumadocs-core": "16.4.11",
     "fumadocs-mdx": "14.2.6",
     "fumadocs-ui": "16.4.11",
     "lucide-react": "0.563.0",
-    "next": "16.1.6",
+    "next": "16.1.7",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "3.4.0"
