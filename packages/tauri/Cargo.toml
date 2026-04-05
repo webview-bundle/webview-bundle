@@ -13,7 +13,7 @@ version      = "0.1.0"
 serde     = { workspace = true }
 tauri     = { workspace = true, features = ["unstable"] }
 thiserror = { workspace = true }
-wvb       = { workspace = true, features = ["protocol", "protocol-local", "remote", "updater"] }
+wvb       = { workspace = true, features = ["source", "protocol", "protocol-local", "remote", "updater"] }
 
 [build-dependencies]
 tauri-plugin = { workspace = true, features = ["build"] }

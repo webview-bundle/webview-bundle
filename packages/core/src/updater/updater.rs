@@ -4,11 +4,11 @@ use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
 #[cfg(feature = "signature")]
 use crate::signature::SignatureVerifier;
 use crate::source::{BundleManifestMetadata, BundleSource};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct BundleUpdateInfo {
   pub name: String,
   pub version: String,

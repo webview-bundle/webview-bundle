@@ -8522,7 +8522,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tauri-apps/api@npm:^2.8.0":
+"@tauri-apps/api@npm:^2, @tauri-apps/api@npm:^2.8.0":
   version: 2.10.1
   resolution: "@tauri-apps/api@npm:2.10.1"
   checksum: 10c0/f3c0b2ba67a0b887440a7faa1e0589e847760ee30ec29b964f22573a46b817cb3af2199d6f5f7dfdda54d65b465ebaaa280454c610a5c53d808a0911fa15e45d
@@ -9429,6 +9429,20 @@ __metadata:
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
+  languageName: unknown
+  linkType: soft
+
+"@wvb/tauri@workspace:packages/tauri":
+  version: 0.0.0-use.local
+  resolution: "@wvb/tauri@workspace:packages/tauri"
+  dependencies:
+    "@tauri-apps/api": "npm:^2"
+    "@types/node": "catalog:"
+    tsdown: "catalog:"
+    typescript: "catalog:"
+    vitest: "catalog:"
+  peerDependencies:
+    "@tauri-apps/api": ^2
   languageName: unknown
   linkType: soft
 

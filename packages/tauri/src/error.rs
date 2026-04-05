@@ -12,6 +12,10 @@ pub enum Error {
   Tauri(#[from] tauri::Error),
   #[error("duplicated protocol scheme: {scheme}")]
   ProtocolSchemeDuplicated { scheme: String },
+  #[error("remote is not initialized")]
+  RemoteIsNotInitialized,
+  #[error("updater is not initialized")]
+  UpdaterIsNotInitialized,
 }
 
 impl Serialize for Error {

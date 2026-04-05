@@ -9,6 +9,7 @@ pub use config::{Config, Http, Protocol, Remote, Source};
 #[cfg(desktop)]
 mod desktop;
 
+mod commands;
 mod config;
 mod error;
 
@@ -35,12 +36,14 @@ impl<R: Runtime, T: Manager<R>> WebviewBundleExtra<R> for T {
 pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
   let config = Arc::new(config);
   let c = config.clone();
-  let mut builder = Builder::<R>::new("webview-bundle").setup(move |app, _api| {
+
+  let mut builder = Builder::<R>::new("wvb").setup(move |app, _api| {
     #[cfg(desktop)]
     let webview_bundle = desktop::init(app, c)?;
     app.manage(webview_bundle);
     Ok(())
   });
+
   for protocol_config in &config.protocols {
     let scheme = protocol_config.scheme().to_string();
     builder = builder.register_asynchronous_uri_scheme_protocol(
@@ -72,5 +75,22 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
       },
     )
   }
-  builder.build()
+  builder
+    .invoke_handler(tauri::generate_handler![
+      // source
+      commands::source_list_bundles,
+      commands::source_load_version,
+      commands::source_update_version,
+      commands::source_filepath,
+      // remote
+      commands::remote_list_bundles,
+      commands::remote_get_info,
+      commands::remote_download,
+      commands::remote_download_version,
+      // updater
+      commands::updater_list_remotes,
+      commands::updater_get_update,
+      commands::updater_download_update,
+    ])
+    .build()
 }

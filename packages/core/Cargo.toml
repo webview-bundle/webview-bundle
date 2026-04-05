@@ -39,12 +39,12 @@ tokio            = { workspace = true, optional = true }
 tracing          = { workspace = true, optional = true }
 twox-hash        = { workspace = true, features = ["serialize"] }
 urlencoding      = { workspace = true, optional = true }
+time       = { workspace = true, features = ["formatting", "local-offset"], optional = true }
+httpmock   = { workspace = true, optional = true }
 
 [dev-dependencies]
-httpmock   = { workspace = true }
 serde      = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-time       = { workspace = true, features = ["formatting", "local-offset"] }
 tiny_http  = { workspace = true }
 tokio      = { workspace = true, features = ["full"] }
 
@@ -52,7 +52,9 @@ tokio      = { workspace = true, features = ["full"] }
 _reqwest = ["dep:reqwest"]
 _serde = ["dep:serde", "dep:serde_json", "dep:serde_repr"]
 async = ["dep:tokio", "tokio/io-util", "tokio/rt", "tokio/rt-multi-thread", "tokio/fs", "tokio/sync"]
+serde = ["_serde"]
 full = [
+  "serde",
   "async",
   "source",
   "protocol",
@@ -67,6 +69,7 @@ full = [
   "signature-rsa_pkcs1_v1_5",
   "signature-rsa_pss",
   "tracing",
+  "testing"
 ]
 integrity = ["_serde", "sha3", "base64ct", "base64ct/alloc"]
 protocol = ["source", "dep:bytes", "dep:percent-encoding", "dep:http-range", "dep:getrandom"]
@@ -91,6 +94,12 @@ signature-rsa_pss = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
 source = ["dep:dashmap", "async", "_serde", "dep:semver"]
 tracing = ["dep:tracing"]
 updater = ["remote", "source"]
+testing = [
+  "source",
+  "remote",
+  "dep:httpmock",
+  "dep:time"
+]
 
 [lints.clippy]
 module_inception = "allow"

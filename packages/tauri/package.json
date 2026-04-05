@@ -1,0 +1,61 @@
+{
+  "name": "@wvb/tauri",
+  "version": "0.0.0",
+  "description": "Webview Bundle API for Tauri",
+  "homepage": "https://github.com/webview-bundle/webview-bundle",
+  "bugs": {
+    "url": "https://github.com/webview-bundle/webview-bundle/issues"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Seokju Na",
+    "email": "seokju.me@gmail.com",
+    "url": "https://github.com/seokju-na"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webview-bundle/webview-bundle",
+    "directory": "packages/tauri"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./api": {
+      "import": "./dist/api/index.mjs",
+      "require": "./dist/api/index.cjs"
+    },
+    "./api/remote": {
+      "import": "./dist/api/remote.mjs",
+      "require": "./dist/api/remote.cjs"
+    },
+    "./api/source": {
+      "import": "./dist/api/source.mjs",
+      "require": "./dist/api/source.cjs"
+    },
+    "./api/updater": {
+      "import": "./dist/api/updater.mjs",
+      "require": "./dist/api/updater.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "prepack": "yarn build",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": "^2"
+  }
+}
