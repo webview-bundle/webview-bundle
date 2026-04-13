@@ -23,6 +23,7 @@ futures-util     = { workspace = true, optional = true }
 getrandom        = { workspace = true, optional = true }
 http             = { workspace = true }
 http-range       = { workspace = true, optional = true }
+httpmock         = { workspace = true, optional = true }
 lz4_flex         = { workspace = true }
 p256             = { workspace = true, optional = true }
 p384             = { workspace = true, optional = true }
@@ -35,12 +36,11 @@ serde_json       = { workspace = true, optional = true }
 serde_repr       = { workspace = true, optional = true }
 sha3             = { workspace = true, optional = true }
 thiserror        = { workspace = true }
+time             = { workspace = true, features = ["formatting", "local-offset"], optional = true }
 tokio            = { workspace = true, optional = true }
 tracing          = { workspace = true, optional = true }
 twox-hash        = { workspace = true, features = ["serialize"] }
 urlencoding      = { workspace = true, optional = true }
-time       = { workspace = true, features = ["formatting", "local-offset"], optional = true }
-httpmock   = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde      = { workspace = true, features = ["derive"] }
@@ -52,7 +52,6 @@ tokio      = { workspace = true, features = ["full"] }
 _reqwest = ["dep:reqwest"]
 _serde = ["dep:serde", "dep:serde_json", "dep:serde_repr"]
 async = ["dep:tokio", "tokio/io-util", "tokio/rt", "tokio/rt-multi-thread", "tokio/fs", "tokio/sync"]
-serde = ["_serde"]
 full = [
   "serde",
   "async",
@@ -69,7 +68,7 @@ full = [
   "signature-rsa_pkcs1_v1_5",
   "signature-rsa_pss",
   "tracing",
-  "testing"
+  "testing",
 ]
 integrity = ["_serde", "sha3", "base64ct", "base64ct/alloc"]
 protocol = ["source", "dep:bytes", "dep:percent-encoding", "dep:http-range", "dep:getrandom"]
@@ -85,6 +84,7 @@ remote = [
   "dep:urlencoding",
   "dep:futures-util",
 ]
+serde = ["_serde"]
 signature = ["integrity"]
 signature-ecdsa_secp256r1 = ["dep:p256"]
 signature-ecdsa_secp384r1 = ["dep:p384"]
@@ -92,14 +92,9 @@ signature-edd25519 = ["dep:ed25519-dalek", "ed25519-dalek/pem"]
 signature-rsa_pkcs1_v1_5 = ["dep:rsa", "rsa/sha2"]
 signature-rsa_pss = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
 source = ["dep:dashmap", "async", "_serde", "dep:semver"]
+testing = ["source", "remote", "dep:httpmock", "dep:time"]
 tracing = ["dep:tracing"]
 updater = ["remote", "source"]
-testing = [
-  "source",
-  "remote",
-  "dep:httpmock",
-  "dep:time"
-]
 
 [lints.clippy]
 module_inception = "allow"
