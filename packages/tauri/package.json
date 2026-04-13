@@ -38,7 +38,7 @@
       "require": "./dist/api/source/index.cjs"
     },
     "./api/updater": {
-      "import": "./dist/api/updater/index/js",
+      "import": "./dist/api/updater/index.js",
       "require": "./dist/api/updater/index.cjs"
     },
     "./package.json": "./package.json"
