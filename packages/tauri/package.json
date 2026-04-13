@@ -26,20 +26,20 @@
   "sideEffects": false,
   "exports": {
     "./api": {
-      "import": "./dist/api/index.mjs",
+      "import": "./dist/api/index.js",
       "require": "./dist/api/index.cjs"
     },
     "./api/remote": {
-      "import": "./dist/api/remote.mjs",
-      "require": "./dist/api/remote.cjs"
+      "import": "./dist/api/remote/index.js",
+      "require": "./dist/api/remote/index.cjs"
     },
     "./api/source": {
-      "import": "./dist/api/source.mjs",
-      "require": "./dist/api/source.cjs"
+      "import": "./dist/api/source/index.js",
+      "require": "./dist/api/source/index.cjs"
     },
     "./api/updater": {
-      "import": "./dist/api/updater.mjs",
-      "require": "./dist/api/updater.cjs"
+      "import": "./dist/api/updater/index/js",
+      "require": "./dist/api/updater/index.cjs"
     },
     "./package.json": "./package.json"
   },
