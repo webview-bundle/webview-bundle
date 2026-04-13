@@ -6,15 +6,15 @@ use crate::{
   EXTENSION, MANIFEST_FILENAME,
 };
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::sync::OnceCell;
 
 /// The type of bundle source: builtin or remote.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub enum BundleSourceKind {
   /// Bundles shipped with the application (read-only, fallback)
   Builtin,
@@ -26,8 +26,11 @@ pub enum BundleSourceKind {
 ///
 /// This indicates which source (builtin or remote) provides a bundle version.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct BundleSourceVersion {
   /// The source kind (builtin or remote)
+  #[cfg_attr(feature = "_serde", serde(rename = "type"))]
   pub kind: BundleSourceKind,
   /// The version string (e.g., "1.0.0")
   pub version: String,
@@ -123,8 +126,11 @@ impl BundleSourceBuilder {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct ListBundleItem {
+  #[cfg_attr(feature = "_serde", serde(rename = "type"))]
   pub kind: BundleSourceKind,
   pub item: ListBundleManifestItem,
 }

@@ -17,7 +17,10 @@ pub(crate) enum Dir<R: Runtime> {
 impl<R: Runtime> Dir<R> {
   pub fn resolve(&self, app: &AppHandle<R>) -> Result<PathBuf, Box<dyn std::error::Error>> {
     match self {
-      Self::Static(dir) => Ok(PathBuf::from(dir)),
+      Self::Static(dir) => {
+        let parsed = app.path().parse(dir)?;
+        Ok(parsed)
+      }
       Self::Dynamic(f) => {
         let dir = f(app)?;
         Ok(dir)

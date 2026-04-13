@@ -1,5 +1,4 @@
 import type { IpcMainInvokeEvent } from 'electron';
-import type { Buffer } from 'node:buffer';
 import type {
   BundleSourceVersion,
   BundleUpdateInfo,
@@ -57,11 +56,11 @@ export type IpcHandlerSpecs = {
     [bundleName: string, channel?: string | undefined]
   >;
   'webview-bundle:remote:download': IpcHandler<
-    [info: RemoteBundleInfo, bundle: Buffer],
+    RemoteBundleInfo,
     [bundleName: string, channel?: string | undefined]
   >;
   'webview-bundle:remote:download-version': IpcHandler<
-    [info: RemoteBundleInfo, bundle: Buffer],
+    RemoteBundleInfo,
     [bundleName: string, version: string]
   >;
   // updater

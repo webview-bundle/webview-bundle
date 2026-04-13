@@ -2,16 +2,16 @@ use reqwest::header::HeaderMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct HttpConfig {
-  pub(crate) default_headers: Option<HeaderMap>,
-  pub(crate) user_agent: Option<String>,
-  pub(crate) timeout: Option<u64>,
-  pub(crate) read_timeout: Option<u64>,
-  pub(crate) connect_timeout: Option<u64>,
-  pub(crate) pool_idle_timeout: Option<u64>,
-  pub(crate) pool_max_idle_per_host: Option<usize>,
-  pub(crate) referer: Option<bool>,
-  pub(crate) tcp_nodelay: Option<bool>,
-  pub(crate) hickory_dns: Option<bool>,
+  pub default_headers: Option<HeaderMap>,
+  pub user_agent: Option<String>,
+  pub timeout: Option<u64>,
+  pub read_timeout: Option<u64>,
+  pub connect_timeout: Option<u64>,
+  pub pool_idle_timeout: Option<u64>,
+  pub pool_max_idle_per_host: Option<usize>,
+  pub referer: Option<bool>,
+  pub tcp_nodelay: Option<bool>,
+  pub hickory_dns: Option<bool>,
 }
 
 impl HttpConfig {

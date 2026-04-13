@@ -27,11 +27,17 @@ pub struct TempDir {
   dir: PathBuf,
 }
 
-impl TempDir {
-  pub fn new() -> Self {
+impl Default for TempDir {
+  fn default() -> Self {
     Self {
       dir: Self::next_dir_for_today(),
     }
+  }
+}
+
+impl TempDir {
+  pub fn new() -> Self {
+    Self::default()
   }
 
   pub fn dir(&self) -> &Path {

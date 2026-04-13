@@ -35,12 +35,12 @@ function registerRemoteIpc(wvb: WebviewBundle): void {
     [IpcChannels.Remote.GetInfo]: async (_, bundleName, channel) =>
       remote().getInfo(bundleName, channel),
     [IpcChannels.Remote.Download]: async (_, bundleName, channel) => {
-      const [info, __, bundle] = await remote().download(bundleName, channel);
-      return [info, bundle];
+      const [info] = await remote().download(bundleName, channel);
+      return info;
     },
     [IpcChannels.Remote.DownloadVersion]: async (_, bundleName, version) => {
-      const [info, __, bundle] = await remote().downloadVersion(bundleName, version);
-      return [info, bundle];
+      const [info] = await remote().downloadVersion(bundleName, version);
+      return info;
     },
   } satisfies IpcHandlerSpecsByScope<'remote'>;
 

@@ -2,13 +2,14 @@ use crate::remote::HttpConfig;
 use crate::{Bundle, BundleReader, Reader};
 use futures_util::StreamExt;
 use http::{StatusCode, header, uri::Uri};
-use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::str::FromStr;
 use std::sync::Arc;
 
 /// Representation of bundle list info from the remote server.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct ListRemoteBundleInfo {
   /// Bundle name
   pub name: String,
@@ -17,7 +18,9 @@ pub struct ListRemoteBundleInfo {
 }
 
 /// Representation of bundle info from the remote server.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct RemoteBundleInfo {
   /// Bundle name
   pub name: String,
@@ -34,7 +37,9 @@ pub struct RemoteBundleInfo {
 }
 
 /// Error string representation for remote operations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct RemoteError {
   /// Error message.
   pub message: Option<String>,

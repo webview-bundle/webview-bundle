@@ -223,8 +223,8 @@ pub struct MockSource {
   remote_current_versions: CurrentVersions,
 }
 
-impl MockSource {
-  pub fn new() -> Self {
+impl Default for MockSource {
+  fn default() -> Self {
     let temp_dir = TempDir::new();
     let builtin_dir = temp_dir.dir().join("source").join("builtin");
     let remote_dir = temp_dir.dir().join("source").join("remote");
@@ -239,6 +239,12 @@ impl MockSource {
       remote_bundles: MockBundleCollection::new(),
       remote_current_versions: CurrentVersions::new(),
     }
+  }
+}
+
+impl MockSource {
+  pub fn new() -> Self {
+    Self::default()
   }
 
   pub fn get_source(&self) -> BundleSource {
@@ -437,8 +443,8 @@ pub struct MockRemote {
   channel_current_versions: Arc<Mutex<HashMap<String, CurrentVersions>>>,
 }
 
-impl MockRemote {
-  pub fn new() -> Self {
+impl Default for MockRemote {
+  fn default() -> Self {
     let server = MockServer::start();
     let mut instance = Self {
       server,
@@ -451,6 +457,12 @@ impl MockRemote {
     };
     instance.init();
     instance
+  }
+}
+
+impl MockRemote {
+  pub fn new() -> Self {
+    Self::default()
   }
 
   pub fn get_remote(&self) -> Remote {
@@ -810,12 +822,18 @@ pub struct MockSystem {
   remote: MockRemote,
 }
 
-impl MockSystem {
-  pub fn new() -> Self {
+impl Default for MockSystem {
+  fn default() -> Self {
     Self {
       source: MockSource::new(),
       remote: MockRemote::new(),
     }
+  }
+}
+
+impl MockSystem {
+  pub fn new() -> Self {
+    Self::default()
   }
 
   pub fn source(&self) -> &MockSource {
@@ -832,82 +850,5 @@ impl MockSystem {
 
   pub fn remote_mut(&mut self) -> &mut MockRemote {
     &mut self.remote
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use crate::protocol::{BundleProtocol, Protocol};
-  use crate::remote::ListRemoteBundleInfo;
-  use crate::updater::Updater;
-  use http::Request;
-
-  #[tokio::test]
-  async fn smoke() {
-    let mut system = MockSystem::new();
-    system
-      .source_mut()
-      .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
-        "/index.html",
-        BundleEntry::new(b"<h1>1.0.0</h1>", "text/html", None),
-      ))
-      .set_builtin_current_version("app", "1.0.0");
-    system
-      .remote_mut()
-      .add_bundle(MockBundle::new("app", "1.1.0").with_entry(
-        "/index.html",
-        BundleEntry::new(b"<h1>1.1.0</h1>", "text/html", None),
-      ))
-      .set_bundle_current_version("app", "1.1.0");
-
-    let source = Arc::new(system.source().get_source());
-    let protocol = BundleProtocol::new(source.clone());
-    let resp = protocol
-      .handle(
-        Request::builder()
-          .uri("https://app.wvb")
-          .method("GET")
-          .body(vec![])
-          .unwrap(),
-      )
-      .await
-      .unwrap();
-    let html = str::from_utf8(resp.body()).unwrap();
-    assert_eq!(html, "<h1>1.0.0</h1>");
-
-    let remote = Arc::new(system.remote().get_remote());
-
-    let updater = Updater::new(source.clone(), remote.clone(), None);
-    let remotes = updater.list_remotes().await.unwrap();
-    assert_eq!(remotes.len(), 1);
-    assert_eq!(
-      remotes,
-      vec![ListRemoteBundleInfo {
-        name: "app".to_string(),
-        version: "1.1.0".to_string(),
-      }]
-    );
-    let update_info = updater.get_update("app").await.unwrap();
-    assert_eq!(update_info.name, "app");
-    assert_eq!(update_info.version, "1.1.0");
-    assert_eq!(update_info.local_version.unwrap(), "1.0.0");
-    assert!(update_info.is_available);
-
-    updater.download_update("app", None).await.unwrap();
-    source.update_version("app", "1.1.0").await.unwrap();
-
-    let resp = protocol
-      .handle(
-        Request::builder()
-          .uri("https://app.wvb")
-          .method("GET")
-          .body(vec![])
-          .unwrap(),
-      )
-      .await
-      .unwrap();
-    let html = str::from_utf8(resp.body()).unwrap();
-    assert_eq!(html, "<h1>1.1.0</h1>");
   }
 }

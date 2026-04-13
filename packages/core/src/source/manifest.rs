@@ -1,19 +1,22 @@
-use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use tokio::sync::{OnceCell, RwLock};
 
-#[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(
+  feature = "_serde",
+  derive(serde_repr::Serialize_repr, serde_repr::Deserialize_repr)
+)]
+#[cfg_attr(feature = "_serde", repr(u8))]
 pub enum BundleManifestVersion {
   #[default]
   V1 = 1,
 }
 
-#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct BundleManifestMetadata {
   pub etag: Option<String>,
   pub integrity: Option<String>,
@@ -21,15 +24,17 @@ pub struct BundleManifestMetadata {
   pub last_modified: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct BundleManifestEntry {
   pub versions: HashMap<String, BundleManifestMetadata>,
   pub current_version: String,
 }
 
-#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct BundleManifestData {
   pub manifest_version: BundleManifestVersion,
@@ -37,6 +42,8 @@ pub struct BundleManifestData {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct ListBundleManifestItem {
   pub name: String,
