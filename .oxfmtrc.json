@@ -13,7 +13,8 @@
     "**/index.cjs",
     "**/index.js",
     "**/*.d.ts",
-    "**/*.d.cts"
+    "**/*.d.cts",
+    "**/*.gen.ts"
   ],
   "printWidth": 100,
   "singleQuote": true,

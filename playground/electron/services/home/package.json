@@ -1,0 +1,16 @@
+{
+  "name": "@wvb-playground-electron/home",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tanstack/react-router": "^1.169.1",
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "catalog:",
+    "vite": "^7.1.11"
+  }
+}
