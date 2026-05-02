@@ -10748,13 +10748,19 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wvb-playground-electron/home@workspace:playground/electron/services/home"
   dependencies:
+    "@cloudflare/kumo": "npm:2.0.2"
+    "@phosphor-icons/react": "npm:^2.1.10"
+    "@tailwindcss/vite": "npm:^4.2.4"
     "@tanstack/react-router": "npm:^1.169.1"
+    "@tanstack/router-plugin": "npm:^1.167.32"
     "@types/react": "npm:^19"
     "@types/react-dom": "npm:^19"
+    "@vitejs/plugin-react": "npm:^6.0.1"
     react: "npm:19.2.5"
     react-dom: "npm:19.2.5"
+    tailwindcss: "npm:^4.2.4"
     typescript: "catalog:"
-    vite: "npm:^7.1.11"
+    vite: "npm:^8.0.10"
   languageName: unknown
   linkType: soft
 
@@ -10766,7 +10772,7 @@ __metadata:
     "@electron-forge/maker-dmg": "npm:^7.11.1"
     "@electron-forge/plugin-auto-unpack-natives": "npm:^7.11.1"
     "@electron-forge/plugin-vite": "npm:^7.11.1"
-    "@wvb/electron": "workspace:^"
+    "@wvb/electron": "file:../../../.npm/locals/wvb-electron-0.1.0.tgz"
     electron: "npm:^35.7.5"
     typescript: "catalog:"
     vite: "npm:^8.0.10"
@@ -10787,7 +10793,8 @@ __metadata:
     "@vitejs/plugin-react": "npm:^6.0.1"
     react: "npm:19.2.5"
     react-dom: "npm:19.2.5"
-    tailwindcss: "npm:^3.4.14"
+    tailwindcss: "npm:^4.2.4"
+    typescript: "catalog:"
     vite: "npm:^8.0.10"
   languageName: unknown
   linkType: soft
@@ -10834,12 +10841,23 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/electron@file:../../../.npm/locals/wvb-electron-0.1.0.tgz::locator=%40wvb-playground-electron%2Fnative%40workspace%3Aplayground%2Felectron%2Fnative":
+  version: 0.1.0
+  resolution: "@wvb/electron@file:../../../.npm/locals/wvb-electron-0.1.0.tgz#../../../.npm/locals/wvb-electron-0.1.0.tgz::hash=c483c9&locator=%40wvb-playground-electron%2Fnative%40workspace%3Aplayground%2Felectron%2Fnative"
+  dependencies:
+    "@wvb/node": "file:/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz"
+  peerDependencies:
+    electron: ">= 15"
+  checksum: 10c0/38d08a56e8c44479f5e209f89f1a24dfe9af11d5d5d4a8a574f235611894fa816ebceb0439bfc4437479f0efaffb67e9ee2af37ed3682eca2b5c591828b91801
+  languageName: node
+  linkType: hard
+
 "@wvb/electron@workspace:^, @wvb/electron@workspace:packages/electron":
   version: 0.0.0-use.local
   resolution: "@wvb/electron@workspace:packages/electron"
   dependencies:
     "@types/node": "catalog:"
-    "@wvb/node": "workspace:^"
+    "@wvb/node": "file:/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz"
     electron: "npm:^35.7.5"
     tsdown: "catalog:"
     typescript: "catalog:"
@@ -10849,11 +10867,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/node-android-arm-eabi@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-android-arm-eabi@npm:0.1.0"
+  conditions: os=android & cpu=arm
+  languageName: node
+  linkType: hard
+
 "@wvb/node-android-arm-eabi@workspace:^, @wvb/node-android-arm-eabi@workspace:packages/node/npm/android-arm-eabi":
   version: 0.0.0-use.local
   resolution: "@wvb/node-android-arm-eabi@workspace:packages/node/npm/android-arm-eabi"
   languageName: unknown
   linkType: soft
+
+"@wvb/node-android-arm64@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-android-arm64@npm:0.1.0"
+  conditions: os=android & cpu=arm64
+  languageName: node
+  linkType: hard
 
 "@wvb/node-android-arm64@workspace:^, @wvb/node-android-arm64@workspace:packages/node/npm/android-arm64":
   version: 0.0.0-use.local
@@ -10861,11 +10893,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/node-darwin-arm64@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-darwin-arm64@npm:0.1.0"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
 "@wvb/node-darwin-arm64@workspace:^, @wvb/node-darwin-arm64@workspace:packages/node/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "@wvb/node-darwin-arm64@workspace:packages/node/npm/darwin-arm64"
   languageName: unknown
   linkType: soft
+
+"@wvb/node-darwin-x64@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-darwin-x64@npm:0.1.0"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
 
 "@wvb/node-darwin-x64@workspace:^, @wvb/node-darwin-x64@workspace:packages/node/npm/darwin-x64":
   version: 0.0.0-use.local
@@ -10873,11 +10919,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/node-linux-arm-gnueabihf@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-linux-arm-gnueabihf@npm:0.1.0"
+  conditions: os=linux & cpu=arm
+  languageName: node
+  linkType: hard
+
 "@wvb/node-linux-arm-gnueabihf@workspace:^, @wvb/node-linux-arm-gnueabihf@workspace:packages/node/npm/linux-arm-gnueabihf":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-arm-gnueabihf@workspace:packages/node/npm/linux-arm-gnueabihf"
   languageName: unknown
   linkType: soft
+
+"@wvb/node-linux-arm64-gnu@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-linux-arm64-gnu@npm:0.1.0"
+  conditions: os=linux & cpu=arm64 & libc=glibc
+  languageName: node
+  linkType: hard
 
 "@wvb/node-linux-arm64-gnu@workspace:^, @wvb/node-linux-arm64-gnu@workspace:packages/node/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
@@ -10885,11 +10945,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/node-linux-arm64-musl@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-linux-arm64-musl@npm:0.1.0"
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
 "@wvb/node-linux-arm64-musl@workspace:^, @wvb/node-linux-arm64-musl@workspace:packages/node/npm/linux-arm64-musl":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-arm64-musl@workspace:packages/node/npm/linux-arm64-musl"
   languageName: unknown
   linkType: soft
+
+"@wvb/node-linux-x64-gnu@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-linux-x64-gnu@npm:0.1.0"
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
 
 "@wvb/node-linux-x64-gnu@workspace:^, @wvb/node-linux-x64-gnu@workspace:packages/node/npm/linux-x64-gnu":
   version: 0.0.0-use.local
@@ -10897,11 +10971,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/node-linux-x64-musl@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-linux-x64-musl@npm:0.1.0"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
 "@wvb/node-linux-x64-musl@workspace:^, @wvb/node-linux-x64-musl@workspace:packages/node/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-x64-musl@workspace:packages/node/npm/linux-x64-musl"
   languageName: unknown
   linkType: soft
+
+"@wvb/node-win32-arm64-msvc@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-win32-arm64-msvc@npm:0.1.0"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
 
 "@wvb/node-win32-arm64-msvc@workspace:^, @wvb/node-win32-arm64-msvc@workspace:packages/node/npm/win32-arm64-msvc":
   version: 0.0.0-use.local
@@ -10909,17 +10997,121 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/node-win32-ia32-msvc@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-win32-ia32-msvc@npm:0.1.0"
+  conditions: os=win32 & cpu=ia32
+  languageName: node
+  linkType: hard
+
 "@wvb/node-win32-ia32-msvc@workspace:^, @wvb/node-win32-ia32-msvc@workspace:packages/node/npm/win32-ia32-msvc":
   version: 0.0.0-use.local
   resolution: "@wvb/node-win32-ia32-msvc@workspace:packages/node/npm/win32-ia32-msvc"
   languageName: unknown
   linkType: soft
 
+"@wvb/node-win32-x64-msvc@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@wvb/node-win32-x64-msvc@npm:0.1.0"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
 "@wvb/node-win32-x64-msvc@workspace:^, @wvb/node-win32-x64-msvc@workspace:packages/node/npm/win32-x64-msvc":
   version: 0.0.0-use.local
   resolution: "@wvb/node-win32-x64-msvc@workspace:packages/node/npm/win32-x64-msvc"
   languageName: unknown
   linkType: soft
+
+"@wvb/node@file:/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz::locator=%40wvb%2Felectron%40file%3A..%2F..%2F..%2F.npm%2Flocals%2Fwvb-electron-0.1.0.tgz%23..%2F..%2F..%2F.npm%2Flocals%2Fwvb-electron-0.1.0.tgz%3A%3Ahash%3Dc483c9%26locator%3D%2540wvb-playground-electron%252Fnative%2540workspace%253Aplayground%252Felectron%252Fnative":
+  version: 0.1.0
+  resolution: "@wvb/node@file:/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz#/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz::hash=6d5b1c&locator=%40wvb%2Felectron%40file%3A..%2F..%2F..%2F.npm%2Flocals%2Fwvb-electron-0.1.0.tgz%23..%2F..%2F..%2F.npm%2Flocals%2Fwvb-electron-0.1.0.tgz%3A%3Ahash%3Dc483c9%26locator%3D%2540wvb-playground-electron%252Fnative%2540workspace%253Aplayground%252Felectron%252Fnative"
+  dependencies:
+    "@wvb/node-android-arm-eabi": "npm:^0.1.0"
+    "@wvb/node-android-arm64": "npm:^0.1.0"
+    "@wvb/node-darwin-arm64": "npm:^0.1.0"
+    "@wvb/node-darwin-x64": "npm:^0.1.0"
+    "@wvb/node-linux-arm-gnueabihf": "npm:^0.1.0"
+    "@wvb/node-linux-arm64-gnu": "npm:^0.1.0"
+    "@wvb/node-linux-arm64-musl": "npm:^0.1.0"
+    "@wvb/node-linux-x64-gnu": "npm:^0.1.0"
+    "@wvb/node-linux-x64-musl": "npm:^0.1.0"
+    "@wvb/node-win32-arm64-msvc": "npm:^0.1.0"
+    "@wvb/node-win32-ia32-msvc": "npm:^0.1.0"
+    "@wvb/node-win32-x64-msvc": "npm:^0.1.0"
+  dependenciesMeta:
+    "@wvb/node-android-arm-eabi":
+      optional: true
+    "@wvb/node-android-arm64":
+      optional: true
+    "@wvb/node-darwin-arm64":
+      optional: true
+    "@wvb/node-darwin-x64":
+      optional: true
+    "@wvb/node-linux-arm-gnueabihf":
+      optional: true
+    "@wvb/node-linux-arm64-gnu":
+      optional: true
+    "@wvb/node-linux-arm64-musl":
+      optional: true
+    "@wvb/node-linux-x64-gnu":
+      optional: true
+    "@wvb/node-linux-x64-musl":
+      optional: true
+    "@wvb/node-win32-arm64-msvc":
+      optional: true
+    "@wvb/node-win32-ia32-msvc":
+      optional: true
+    "@wvb/node-win32-x64-msvc":
+      optional: true
+  checksum: 10c0/e76b64d7fb3ab7cddafe34cb087da679ef81d8453bf19419587f98baca3c6c96b2b1218e85b8b964111fab0da0171c96d1ef650ad1b15e7fafe4630ba512747b
+  languageName: node
+  linkType: hard
+
+"@wvb/node@file:/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz::locator=%40wvb%2Felectron%40workspace%3Apackages%2Felectron":
+  version: 0.1.0
+  resolution: "@wvb/node@file:/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz#/Users/seokju.me/workspaces/webview-bundle/.npm/locals/wvb-node-0.1.0.tgz::hash=6d5b1c&locator=%40wvb%2Felectron%40workspace%3Apackages%2Felectron"
+  dependencies:
+    "@wvb/node-android-arm-eabi": "npm:^0.1.0"
+    "@wvb/node-android-arm64": "npm:^0.1.0"
+    "@wvb/node-darwin-arm64": "npm:^0.1.0"
+    "@wvb/node-darwin-x64": "npm:^0.1.0"
+    "@wvb/node-linux-arm-gnueabihf": "npm:^0.1.0"
+    "@wvb/node-linux-arm64-gnu": "npm:^0.1.0"
+    "@wvb/node-linux-arm64-musl": "npm:^0.1.0"
+    "@wvb/node-linux-x64-gnu": "npm:^0.1.0"
+    "@wvb/node-linux-x64-musl": "npm:^0.1.0"
+    "@wvb/node-win32-arm64-msvc": "npm:^0.1.0"
+    "@wvb/node-win32-ia32-msvc": "npm:^0.1.0"
+    "@wvb/node-win32-x64-msvc": "npm:^0.1.0"
+  dependenciesMeta:
+    "@wvb/node-android-arm-eabi":
+      optional: true
+    "@wvb/node-android-arm64":
+      optional: true
+    "@wvb/node-darwin-arm64":
+      optional: true
+    "@wvb/node-darwin-x64":
+      optional: true
+    "@wvb/node-linux-arm-gnueabihf":
+      optional: true
+    "@wvb/node-linux-arm64-gnu":
+      optional: true
+    "@wvb/node-linux-arm64-musl":
+      optional: true
+    "@wvb/node-linux-x64-gnu":
+      optional: true
+    "@wvb/node-linux-x64-musl":
+      optional: true
+    "@wvb/node-win32-arm64-msvc":
+      optional: true
+    "@wvb/node-win32-ia32-msvc":
+      optional: true
+    "@wvb/node-win32-x64-msvc":
+      optional: true
+  checksum: 10c0/e76b64d7fb3ab7cddafe34cb087da679ef81d8453bf19419587f98baca3c6c96b2b1218e85b8b964111fab0da0171c96d1ef650ad1b15e7fafe4630ba512747b
+  languageName: node
+  linkType: hard
 
 "@wvb/node@workspace:^, @wvb/node@workspace:packages/node":
   version: 0.0.0-use.local
@@ -20947,7 +21139,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tailwindcss@npm:4.2.4":
+"tailwindcss@npm:4.2.4, tailwindcss@npm:^4.2.4":
   version: 4.2.4
   resolution: "tailwindcss@npm:4.2.4"
   checksum: 10c0/1069304b6bf2855daa029ac4af382abb95ed26ae4d05bc09ea01a56e6af3de8b6fb1b4d508d8bbb39abf30a69766e6f2f75835e112ac6fc39ed94ae5d4901048

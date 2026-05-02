@@ -1,5 +1,6 @@
 {
   "name": "@wvb-playground-electron/native",
+  "version": "0.0.0",
   "private": true,
   "main": ".vite/build/main.js",
   "scripts": {
@@ -9,7 +10,7 @@
     "publish": "electron-forge publish"
   },
   "dependencies": {
-    "@wvb/electron": "workspace:^"
+    "@wvb/electron": "file:../../../.npm/locals/wvb-electron-0.1.0.tgz"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",

@@ -1,0 +1,2 @@
+GET http://localhost:7001/src/main.css
+# Accept: text/css

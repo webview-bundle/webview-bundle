@@ -6,10 +6,10 @@ import { defineConfig } from 'vite';
 // https://vitejs.dev/config/
 export default defineConfig({
   server: {
-    port: 7001,
+    port: 7002,
     hmr: {
       host: 'localhost',
-      port: 7001,
+      port: 7002,
     },
   },
   plugins: [

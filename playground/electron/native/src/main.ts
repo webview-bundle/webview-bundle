@@ -4,15 +4,16 @@ import path from 'node:path';
 
 wvb({
   protocols: [
-    localProtocol('app-local', {
-      hosts: {
-        'splash.wvb': 'http://localhost:7000',
-        'home.wvb': 'http://localhost:7001',
-      },
-    }),
-    bundleProtocol('app', {
-      onError: e => console.error(e),
-    }),
+    app.isPackaged
+      ? bundleProtocol('app', {
+          onError: e => console.error(e),
+        })
+      : localProtocol('app', {
+          hosts: {
+            'splash.wvb': 'http://localhost:7001',
+            'home.wvb': 'http://localhost:7002',
+          },
+        }),
   ],
 });
 
@@ -27,7 +28,7 @@ const createWindow = async () => {
       nodeIntegration: false,
     },
   });
-  await mainWindow.loadURL('app://simple.wvb');
+  await mainWindow.loadURL('app://splash.wvb');
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
