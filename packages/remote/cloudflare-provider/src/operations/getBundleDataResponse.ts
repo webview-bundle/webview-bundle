@@ -25,9 +25,10 @@ function makeHeaders(obj: R2ObjectBody, bundleName: string, version: string): He
   }
   const contentType = obj.httpMetadata?.contentType ?? 'application/webview-bundle';
   headers.set('content-type', contentType);
-  if (obj.httpMetadata?.contentDisposition != null) {
-    headers.set('content-disposition', obj.httpMetadata.contentDisposition);
-  }
+  headers.set(
+    'content-disposition',
+    obj.httpMetadata?.contentDisposition ?? `attachment; filename="${bundleName}.wvb"`
+  );
   if (obj.httpMetadata?.cacheControl != null) {
     headers.set('cache-control', obj.httpMetadata.cacheControl);
   }
