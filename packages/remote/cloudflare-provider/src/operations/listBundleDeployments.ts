@@ -26,12 +26,9 @@ export async function listBundleDeployments(
   if (keysResult.keys.length === 0) {
     return { deployments: [], nextCursor: undefined };
   }
-  const values = await context.kv.get<string>(
+  const values = await context.kv.get(
     keysResult.keys.map(x => x.name),
-    {
-      type: 'json',
-      cacheTtl,
-    }
+    { cacheTtl }
   );
   const deployments = new Map<string, RemoteBundleDeployment>();
   for (const [versionKey, version] of values.entries()) {

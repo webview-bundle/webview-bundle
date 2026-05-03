@@ -6,5 +6,5 @@ export async function getBundleVersion(
   channel?: string
 ): Promise<string | null> {
   const key = channel != null ? `${bundleName}/${channel}` : bundleName;
-  return context.kv.get<string>(key, { type: 'json' });
+  return context.kv.get(key);
 }
