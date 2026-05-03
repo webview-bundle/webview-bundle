@@ -217,6 +217,7 @@ impl super::Protocol for LocalProtocol {
 
     let client = reqwest::ClientBuilder::new();
     let mut proxy_builder = client.build()?.request(request.method().clone(), &url);
+    proxy_builder = proxy_builder.headers(request.headers().clone());
     proxy_builder = proxy_builder.body(request.body().clone());
     let r = proxy_builder.send().await?;
     let mut response = None;
