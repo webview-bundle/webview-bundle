@@ -20,8 +20,7 @@ function makeHeaders(obj: R2ObjectBody, bundleName: string, version: string): He
   const headers = new Headers();
   for (const [name, value] of Object.entries(obj.customMetadata ?? {})) {
     if (name.startsWith('webview-bundle-')) {
-      const headerName = name.replace('webview-bundle-', '');
-      headers.set(headerName, value);
+      headers.set(name, value);
     }
   }
   const contentType = obj.httpMetadata?.contentType ?? 'application/webview-bundle';
