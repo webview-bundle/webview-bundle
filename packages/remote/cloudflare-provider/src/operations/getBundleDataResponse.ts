@@ -5,7 +5,7 @@ export async function getBundleDataResponse(
   bundleName: string,
   version: string
 ): Promise<Response | null> {
-  const key = `bundles/${bundleName}/${version}/${bundleName}_${version}.wvb`;
+  const key = `bundles/${bundleName}/${bundleName}_${version}.wvb`;
   const obj = await context.r2.get(key);
   if (obj == null) {
     return null;
