@@ -1,16 +1,17 @@
 import type { BaseRemoteDeployer, BaseRemoteUploader } from '@wvb/config/remote';
 import type { AwsRemoteConfig } from '@wvb/remote-aws';
-import type { CloudflareClientConfigLike, PartialBy } from './utils.js';
 import { type CloudflareRemoteDeployerConfig, cloudflareRemoteDeployer } from './deployer.js';
 import { type CloudflareRemoteUploaderConfig, cloudflareRemoteUploader } from './uploader.js';
+import type { CloudflareClientConfigLike } from './utils.js';
 
-export interface CloudflareRemoteConfig extends CloudflareClientConfigLike {
+export interface CloudflareRemoteConfig
+  extends CloudflareClientConfigLike,
+    Pick<AwsRemoteConfig, 'aws'> {
   bucket: string;
   accountId: string;
-  namespaceId: string;
-  uploader?: PartialBy<CloudflareRemoteUploaderConfig, 'accountId' | 'bucket'>;
-  deployer?: PartialBy<CloudflareRemoteDeployerConfig, 'accountId' | 'namespaceId'>;
-  s3?: AwsRemoteConfig;
+  kvNamespaceId: string;
+  uploader?: Omit<CloudflareRemoteUploaderConfig, 'accountId' | 'bucket'>;
+  deployer?: Omit<CloudflareRemoteDeployerConfig, 'accountId' | 'kvNamespaceId'>;
 }
 
 export interface CloudflareRemote {
@@ -24,13 +25,13 @@ export function cloudflareRemote(config: CloudflareRemoteConfig): CloudflareRemo
     accountId: config.accountId,
     ...config.uploader,
     s3ClientConfig: {
-      ...config.s3,
+      ...config.aws,
       ...config.uploader?.s3ClientConfig,
     },
   });
   const deployer = cloudflareRemoteDeployer({
     accountId: config.accountId,
-    namespaceId: config.namespaceId,
+    kvNamespaceId: config.kvNamespaceId,
     ...config.deployer,
     cloudflare: config.deployer?.cloudflare ?? config.cloudflare,
     cloudflareConfig: {

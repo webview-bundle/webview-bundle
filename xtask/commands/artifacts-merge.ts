@@ -1,7 +1,7 @@
-import { Command, Option } from 'clipanion';
-import glob from 'fast-glob';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { Command, Option } from 'clipanion';
+import glob from 'fast-glob';
 import { loadConfig } from '../config.ts';
 import { ColorModeOption, colors, setColorMode } from '../console.ts';
 import { ROOT_DIR } from '../consts.ts';

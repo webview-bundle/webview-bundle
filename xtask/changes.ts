@@ -1,8 +1,8 @@
 import type { Commit, Repository } from 'es-git';
 import { isNotNil } from 'es-toolkit';
+import { ConventionalCommit } from './conventional-commit.ts';
 import type { BumpRule } from './version.ts';
 import type { VersionedGitTag } from './versioned-git-tag.ts';
-import { ConventionalCommit } from './conventional-commit.ts';
 
 export class Change {
   public readonly commit: ConventionalCommit;

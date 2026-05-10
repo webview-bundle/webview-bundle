@@ -1,8 +1,8 @@
-import type { PackageJson } from 'type-fest';
-import glob from 'fast-glob';
-import micromatch from 'micromatch';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import glob from 'fast-glob';
+import micromatch from 'micromatch';
+import type { PackageJson } from 'type-fest';
 import { runCommand } from './child_process.ts';
 import { colors } from './console.ts';
 import { ROOT_DIR } from './consts.ts';

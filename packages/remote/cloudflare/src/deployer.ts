@@ -3,7 +3,7 @@ import { type CloudflareClientConfigLike, getCloudflareClient } from './utils.js
 
 export interface CloudflareRemoteDeployerConfig extends CloudflareClientConfigLike {
   accountId: string;
-  namespaceId: string;
+  kvNamespaceId: string;
   key?: string | ((bundleName: string, version: string, channel?: string) => string);
   expiration?: number;
   expirationTtl?: number;
@@ -14,10 +14,10 @@ class CloudflareRemoteDeployerImpl implements BaseRemoteDeployer {
   constructor(private readonly config: CloudflareRemoteDeployerConfig) {}
 
   async deploy(params: RemoteDeployParams): Promise<void> {
-    const { namespaceId, key, accountId, expiration, expirationTtl, metadata } = this.config;
+    const { kvNamespaceId, key, accountId, expiration, expirationTtl, metadata } = this.config;
     const { version } = params;
     const client = await getCloudflareClient(this.config);
-    await client.kv.namespaces.values.update(namespaceId, this.getKey(params, key), {
+    await client.kv.namespaces.values.update(kvNamespaceId, this.getKey(params, key), {
       account_id: accountId,
       value: version,
       expiration,

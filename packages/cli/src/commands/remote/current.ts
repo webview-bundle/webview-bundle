@@ -1,6 +1,6 @@
 import { Remote } from '@wvb/node';
 import { Command, Option } from 'clipanion';
-import { resolveConfig } from '../../config.js';
+import { resolveBundleName, resolveConfig } from '../../config.js';
 import { c } from '../../console.js';
 import { BaseCommand } from '../base.js';
 
@@ -10,25 +10,24 @@ export class RemoteCurrentCommand extends BaseCommand {
   static paths = [['remote', 'current']];
   static usage = Command.Usage({
     description: 'Show current Webview Bundle information from remote server.',
-    details: `
-      This command fetches and displays metadata about the currently deployed
-      Webview Bundle version from a remote server.
+    details: `This command fetches and displays metadata about the currently deployed
+Webview Bundle version from a remote server.
 
-      **Use Cases:**
-        - Verify which version is currently active in production
-        - Check bundle integrity and signature before client rollout
-        - Debug deployment issues by inspecting remote state
-        - Validate that a deployment completed successfully
+**Use Cases:**
+  - Verify which version is currently active in production
+  - Check bundle integrity and signature before client rollout
+  - Debug deployment issues by inspecting remote state
+  - Validate that a deployment completed successfully
 
-      **Displayed Information:**
-        - \`Version\`: The currently deployed semantic version
-        - \`ETag\`: Server-side identifier for cache validation
-        - \`Integrity\`: Content hash for verification (e.g., sha384-...)
-        - \`Signature\`: Cryptographic signature for authenticity
-        - \`Last-Modified\`: Timestamp of the last deployment
+**Displayed Information:**
+  - \`Version\`: The currently deployed semantic version
+  - \`ETag\`: Server-side identifier for cache validation
+  - \`Integrity\`: Content hash for verification (e.g., sha384-...)
+  - \`Signature\`: Cryptographic signature for authenticity
+  - \`Last-Modified\`: Timestamp of the last deployment
 
-      This command only fetches metadata and does not download the bundle content.
-      Use \`remote download\` if you need the actual bundle file.
+This command only fetches metadata and does not download the bundle content.
+Use \`remote download\` if you need the actual bundle file.
     `,
     examples: [
       [
@@ -68,7 +67,7 @@ export class RemoteCurrentCommand extends BaseCommand {
       this.logger.error('"endpoint" is required for remote operations.');
       return 1;
     }
-    const bundleName = this.bundleName ?? config.remote?.bundleName;
+    const bundleName = this.bundleName ?? (await resolveBundleName(config));
     if (bundleName == null) {
       this.logger.error('"bundleName" is required for remote operations.');
       return 1;

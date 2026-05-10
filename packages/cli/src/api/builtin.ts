@@ -1,15 +1,15 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { type BundleManifestData, type ListRemoteBundleInfo, Remote } from '@wvb/node';
 import { MultiBar, Presets, type SingleBar } from 'cli-progress';
 import { filterAsync } from 'es-toolkit';
 import { limitAsync } from 'es-toolkit/array';
 import { isRegExp } from 'es-toolkit/predicate';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import pm from 'picomatch';
-import type { Logger } from '../log.js';
 import { c } from '../console.js';
 import { pathExists, toAbsolutePath } from '../fs.js';
+import type { Logger } from '../log.js';
 import { coerceArray } from '../utils/coerce.js';
 import { ApiError } from './error.js';
 
@@ -29,7 +29,7 @@ export interface BuiltinParams {
   cwd?: string;
   write?: boolean;
   logger?: Logger;
-  concurrency?: number;
+  downloadConcurrency?: number;
   progress?: boolean;
 }
 
@@ -39,15 +39,15 @@ export interface BuiltinParams {
 export async function builtin(params: BuiltinParams): Promise<BundleManifestData> {
   const {
     remoteEndpoint,
-    dir: dirInput = path.join('.wvb', 'builtin'),
+    dir: dirInput = path.join('.wvb', 'builtin', 'bundles'),
     include,
     exclude,
     channel,
     clean = true,
     write = true,
-    cwd,
+    cwd = process.cwd(),
     logger,
-    concurrency = defaultConcurrency(),
+    downloadConcurrency = defaultConcurrency(),
     progress: showProgress = false,
   } = params;
   const dir = toAbsolutePath(dirInput, cwd);
@@ -129,7 +129,7 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
     } finally {
       progressBars.get(bundleName)?.stop();
     }
-  }, concurrency);
+  }, downloadConcurrency);
 
   const remoteBundlesToDownload = await filterAsync(remoteBundles, async remoteBundle => {
     const shouldInclude = include != null ? await isInMatches(remoteBundle, include, true) : true;
@@ -186,7 +186,7 @@ function findBundleNameFromEndpoint(endpoint: string): string | undefined {
   try {
     const url = new URL(endpoint);
     const segments = url.pathname.slice(1).split('/');
-    const bundlesIndex = segments.findIndex(x => x === 'bundles');
+    const bundlesIndex = segments.indexOf('bundles');
     return bundlesIndex > -1 ? segments[bundlesIndex + 1] : undefined;
   } catch {
     return undefined;

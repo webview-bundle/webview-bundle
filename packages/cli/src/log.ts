@@ -1,3 +1,4 @@
+import util from 'node:util';
 import {
   type LogLevel as AllLogLevel,
   configure,
@@ -7,7 +8,6 @@ import {
   type LogRecord,
 } from '@logtape/logtape';
 import { Option } from 'clipanion';
-import util from 'node:util';
 import { isBoolean, isEnum } from 'typanion';
 import { c } from './console.js';
 

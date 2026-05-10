@@ -1,14 +1,16 @@
 import { Cli } from 'clipanion';
+// biome-ignore lint/correctness/useImportExtensions: import json file
 import pkg from '../package.json' with { type: 'json' };
 import { BuiltinCommand } from './commands/builtin.js';
-import { CreateCommand } from './commands/create.js';
+import { DeployCommand } from './commands/deploy.js';
+import { DownloadCommand } from './commands/download.js';
 import { ExtractCommand } from './commands/extract.js';
+import { PackCommand } from './commands/pack.js';
 import { RemoteCurrentCommand } from './commands/remote/current.js';
-import { RemoteDeployCommand } from './commands/remote/deploy.js';
-import { RemoteDownloadCommand } from './commands/remote/download.js';
 import { RemoteListCommand } from './commands/remote/list.js';
-import { RemoteUploadCommand } from './commands/remote/upload.js';
+import { RemoteLocalCommand } from './commands/remote/local.js';
 import { ServeCommand } from './commands/serve.js';
+import { UploadCommand } from './commands/upload.js';
 
 const [, , ...args] = process.argv;
 
@@ -18,13 +20,14 @@ const cli = new Cli({
   binaryVersion: pkg.version,
 });
 
-cli.register(CreateCommand);
+cli.register(PackCommand);
 cli.register(ExtractCommand);
 cli.register(ServeCommand);
+cli.register(UploadCommand);
+cli.register(DeployCommand);
+cli.register(DownloadCommand);
 cli.register(RemoteCurrentCommand);
 cli.register(RemoteListCommand);
-cli.register(RemoteUploadCommand);
-cli.register(RemoteDeployCommand);
-cli.register(RemoteDownloadCommand);
+cli.register(RemoteLocalCommand);
 cli.register(BuiltinCommand);
 cli.runExit(args);

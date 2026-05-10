@@ -1,7 +1,7 @@
+import { Buffer } from 'node:buffer';
 import { type ServerType, serve } from '@hono/node-server';
 import getPort from 'get-port';
 import { Hono } from 'hono';
-import { Buffer } from 'node:buffer';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BundleBuilder, Remote, writeBundleIntoBuffer } from '../index.js';
 

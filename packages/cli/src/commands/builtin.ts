@@ -1,6 +1,6 @@
+import path from 'node:path';
 import { Command, Option } from 'clipanion';
 import { isNotNil } from 'es-toolkit';
-import path from 'node:path';
 import { cascade, isBoolean, isInteger, isNumber } from 'typanion';
 import { builtin } from '../api/builtin.js';
 import { resolveConfig } from '../config.js';
@@ -16,7 +16,7 @@ export class BuiltinCommand extends BaseCommand {
   });
 
   readonly out = Option.String('--out,-O', {
-    description: 'Output directory path.',
+    description: 'Output directory path. [Default: ".wvb/builtin/bundles"]',
   });
   readonly endpoint = Option.String('--endpoint,-E', {
     description: 'Endpoint of remote server.',
@@ -69,7 +69,8 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       this.logger.error('"endpoint" is required for remote operations.');
       return 1;
     }
-    const dir = this.out ?? config.builtin?.outDir ?? path.join(config.outDir ?? '.wvb', 'builtin');
+    const dir =
+      this.out ?? config.builtin?.outDir ?? path.join(config.root ?? '.wvb', 'builtin', 'bundles');
     const include = [this.include, config.builtin?.include].filter(isNotNil);
     const exclude = [this.exclude, config.builtin?.exclude].filter(isNotNil);
     const clean = this.clean ?? config.builtin?.clean ?? true;
@@ -83,7 +84,7 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       write: this.write,
       cwd: config.root,
       logger: this.logger,
-      concurrency: this.concurrency,
+      downloadConcurrency: this.concurrency,
       progress: this.progress,
     });
   }

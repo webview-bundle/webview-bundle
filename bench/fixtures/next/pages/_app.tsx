@@ -1,6 +1,6 @@
+import { getLayout } from '@vercel/examples-ui';
 import type { LayoutProps } from '@vercel/examples-ui/layout';
 import type { AppProps } from 'next/app';
-import { getLayout } from '@vercel/examples-ui';
 import '@vercel/examples-ui/globals.css';
 
 function App({ Component, pageProps }: AppProps) {

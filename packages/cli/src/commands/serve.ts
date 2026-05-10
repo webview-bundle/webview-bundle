@@ -1,7 +1,7 @@
 import { Command, Option } from 'clipanion';
 import { cascade, isBoolean, isInExclusiveRange, isInteger, isNumber } from 'typanion';
 import { serve } from '../api/serve.js';
-import { defaultOutFile, resolveConfig } from '../config.js';
+import { resolveConfig, resolveOutFile } from '../config.js';
 import { isColorEnabled } from '../console.js';
 import { BaseCommand } from './base.js';
 
@@ -12,13 +12,18 @@ export class ServeCommand extends BaseCommand {
     description: 'Serve webview bundle files with localhost server.',
     examples: [
       ['A basic usage', '$0 serve ./dist.wvb'],
-      ['Specify localhost port', '$0 serve ./dist.wvb --port 4312'],
+      ['Start server with hostname', '$0 serve ./dist.wvb --hostname 0.0.0.0'],
+      ['Specify server port', '$0 serve ./dist.wvb --port 4312'],
     ],
   });
 
   readonly file = Option.String({
     name: 'FILE',
     required: false,
+  });
+  readonly hostname = Option.String('--hostname,-H', {
+    description: 'Specify a hostname on which to start the http server. [Default: localhost]',
+    env: 'HOSTNAME',
   });
   readonly port = Option.String('--port,-P', '4312', {
     description:
@@ -43,7 +48,7 @@ export class ServeCommand extends BaseCommand {
       root: this.cwd,
       configFile: this.configFile,
     });
-    const file = this.file ?? config.serve?.file ?? defaultOutFile(config);
+    const file = this.file ?? resolveOutFile(config);
     if (file == null) {
       this.logger.error(
         'Webview Bundle file is not specified. Set "serve.file" in the config file ' +
@@ -55,6 +60,7 @@ export class ServeCommand extends BaseCommand {
     const port = this.port ?? config.serve?.port ?? 4312;
     const instance = await serve({
       file,
+      hostname: this.hostname,
       port,
       silent,
       cwd: config.root,

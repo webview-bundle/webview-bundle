@@ -1,6 +1,5 @@
 import type { BuiltinConfig } from './builtin.js';
-import type { CreateConfig } from './create.js';
-import type { ExtractConfig } from './extract.js';
+import type { PackConfig } from './pack.js';
 import type { RemoteConfig } from './remote/index.js';
 import type { ServeConfig } from './serve.js';
 
@@ -32,25 +31,7 @@ export interface Config {
    * @default process.cwd()
    */
   root?: string;
-  /**
-   * Path to the source directory.
-   *
-   * All files under this directory will be included in the Webview Bundle.
-   * Use "create.ignore" to exclude files you don't want to pack.
-   */
-  srcDir?: string;
-  /**
-   * Directory that out-file should be created.
-   * @default ".wvb"
-   */
-  outDir?: string;
-  /**
-   * Outfile name to create Webview Bundle archive.
-   * If not provided, default to name field in "package.json" with normalized.
-   */
-  outFile?: string;
-  create?: CreateConfig;
-  extract?: ExtractConfig;
+  pack?: PackConfig;
   remote?: RemoteConfig;
   serve?: ServeConfig;
   builtin?: BuiltinConfig;

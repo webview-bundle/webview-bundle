@@ -1,6 +1,7 @@
 // @ts-expect-error
-import type { ExecaArrayLong } from 'execa/types/methods/main-async.js';
+
 import { execa } from 'execa';
+import type { ExecaArrayLong } from 'execa/types/methods/main-async.js';
 
 export interface RunCommandOptions {
   cwd?: string;

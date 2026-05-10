@@ -1,7 +1,7 @@
-import { diffLines } from 'diff';
 import fs from 'node:fs/promises';
 import { EOL } from 'node:os';
 import path from 'node:path';
+import { diffLines } from 'diff';
 import { match } from 'ts-pattern';
 import { runCommand } from './child_process.ts';
 import { c } from './console.ts';

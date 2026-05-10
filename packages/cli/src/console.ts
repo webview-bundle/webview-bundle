@@ -1,7 +1,7 @@
+import util from 'node:util';
 import CI from 'ci-info';
 import { Option } from 'clipanion';
 import kleur from 'kleur';
-import util from 'node:util';
 import supportsColor from 'supports-color';
 import { isEnum } from 'typanion';
 

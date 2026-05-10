@@ -1,7 +1,7 @@
-import type { PackageJson as PackageJsonType } from 'type-fest';
-import glob from 'fast-glob';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import glob from 'fast-glob';
+import type { PackageJson as PackageJsonType } from 'type-fest';
 import { z } from 'zod';
 import type { Action } from './action.ts';
 import {

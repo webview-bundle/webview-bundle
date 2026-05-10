@@ -1,6 +1,6 @@
+import path from 'node:path';
 import { BundleSource, type BundleSourceConfig } from '@wvb/node';
 import { app } from 'electron';
-import path from 'node:path';
 
 export interface SourceOptions extends Omit<BundleSourceConfig, 'builtinDir' | 'remoteDir'> {
   builtinDir?: string;

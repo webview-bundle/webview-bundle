@@ -1,4 +1,4 @@
-import type { Protocol as ElectronProtocol, Privileges } from 'electron';
+import { Buffer } from 'node:buffer';
 import {
   BundleProtocol,
   type BundleSource,
@@ -6,8 +6,8 @@ import {
   type HttpResponse,
   LocalProtocol,
 } from '@wvb/node';
+import type { Protocol as ElectronProtocol, Privileges } from 'electron';
 import { app, protocol as electronProtocol } from 'electron';
-import { Buffer } from 'node:buffer';
 import { makeError } from './utils.js';
 
 export interface ProtocolHandler {

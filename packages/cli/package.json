@@ -52,6 +52,7 @@
     "@logtape/logtape": "1.3.5",
     "@wvb/config": "workspace:^",
     "@wvb/node": "workspace:^",
+    "@wvb/remote-local-provider": "workspace:^",
     "ci-info": "^4.2.0",
     "cli-progress": "^3.12.0",
     "clipanion": "4.0.0-rc.4",

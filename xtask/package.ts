@@ -1,5 +1,5 @@
-import { uniq } from 'es-toolkit';
 import path from 'node:path';
+import { uniq } from 'es-toolkit';
 import type { Action } from './action.ts';
 import type { Config, PackageConfig, ScriptConfig } from './config.ts';
 import type { BumpRule, Version } from './version.ts';

@@ -1,10 +1,10 @@
-import type * as inputs from '@pulumi/aws/types/input.js';
-import type { AssetArchive } from '@pulumi/pulumi/asset/archive.js';
 import * as aws from '@pulumi/aws';
+import type * as inputs from '@pulumi/aws/types/input.js';
 import * as pulumi from '@pulumi/pulumi';
+import type { AssetArchive } from '@pulumi/pulumi/asset/archive.js';
 import { uniq } from 'es-toolkit';
-import type { LambdaRuntime } from './types.js';
 import { getLambdaCode } from './lambda.js';
+import type { LambdaRuntime } from './types.js';
 
 export interface WebviewBundleRemoteLambdaCodeConfig {
   name?: pulumi.Input<string>;

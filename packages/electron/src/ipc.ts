@@ -1,7 +1,7 @@
 import type { Remote, Updater } from '@wvb/node';
 import { ipcMain } from 'electron';
-import type { WebviewBundle } from './webview-bundle.js';
 import { IpcChannels, type IpcHandlerSpecsByScope } from './ipc-spec.js';
+import type { WebviewBundle } from './webview-bundle.js';
 
 export function registerIpc(wvb: WebviewBundle): void {
   registerSourceIpc(wvb);

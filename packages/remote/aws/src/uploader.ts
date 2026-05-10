@@ -1,17 +1,14 @@
-import type { S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
 import type { Configuration as UploadConfig } from '@aws-sdk/lib-storage';
 import type { BaseRemoteUploader, RemoteUploadParams } from '@wvb/config/remote';
-import { filterS3Metadata, getS3Client } from './utils.js';
+import { type AwsS3ClientConfigLike, filterS3Metadata, getS3Client } from './utils.js';
 
-export interface AwsS3RemoteUploaderConfig {
+export interface AwsS3RemoteUploaderConfig extends AwsS3ClientConfigLike {
   bucket: string;
   key?: string | ((bundleName: string, version: string) => string);
   contentType?: string;
   cacheControl?: string;
   contentDisposition?: string;
   metadata?: Record<string, string | null | undefined>;
-  s3Client?: S3Client;
-  s3ClientConfig?: S3ClientConfig;
   upload?: UploadConfig;
 }
 

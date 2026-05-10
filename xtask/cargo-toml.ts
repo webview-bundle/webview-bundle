@@ -1,10 +1,10 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import * as TOML from '@ltd/j-toml';
 import taploLib from '@taplo/lib';
 import { camelCase, mapKeys, mapValues } from 'es-toolkit';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import type { Version } from './version.ts';
 import { ROOT_DIR } from './consts.ts';
+import type { Version } from './version.ts';
 
 const taplo = await taploLib.Taplo.initialize();
 const taploConfigRaw = await fs.readFile(path.join(ROOT_DIR, 'taplo.toml'), 'utf8');

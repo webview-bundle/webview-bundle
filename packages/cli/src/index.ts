@@ -1,3 +1,3 @@
-export type { InlineConfig, ResolvedConfig } from './config.js';
-export { defaultOutDir, defaultOutFile, loadConfigFile, resolveConfig } from './config.js';
 export { defineConfig } from '@wvb/config';
+export type { InlineConfig, ResolvedConfig } from './config.js';
+export { loadConfigFile, resolveConfig, resolveOutDir, resolveOutFile } from './config.js';

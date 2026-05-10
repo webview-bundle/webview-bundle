@@ -8,7 +8,7 @@ pre-commit:
     clippy:
       glob: '*.rs'
       run: cargo clippy --workspace
-    oxc:
+    biome:
       glob: '*.{js,ts,jsx,tsx,cjs,mjs,cts,mts,json}'
-      run: yarn oxlint {staged_files} --type-aware --fix && yarn oxfmt --no-error-on-unmatched-pattern {staged_files}
+      run: yarn biome check --write --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}
       stage_fixed: true
