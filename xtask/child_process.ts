@@ -1,7 +1,4 @@
-// @ts-expect-error
-
 import { execa } from 'execa';
-import type { ExecaArrayLong } from 'execa/types/methods/main-async.js';
 
 export interface RunCommandOptions {
   cwd?: string;
@@ -17,7 +14,7 @@ export async function runCommand(cmd: string, args: string[], options: RunComman
   const stderr = function* (line: string) {
     yield `${prefix}${line}`;
   };
-  const { exitCode } = await (execa as ExecaArrayLong)(cmd, args, {
+  const { exitCode } = await (execa as any)(cmd, args, {
     cwd,
     stdout: [stdout, 'inherit'],
     stderr: [stderr, 'inherit'],
