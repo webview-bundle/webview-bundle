@@ -50,6 +50,14 @@
     "remote-cloudflare-provider-pulumi": {
       "path": "packages/remote/cloudflare-provider-pulumi",
       "scopes": ["remote"]
+    },
+    "remote-local": {
+      "path": "packages/remote/local",
+      "scopes": ["remote"]
+    },
+    "remote-local-provider": {
+      "path": "packages/remote/local-provider",
+      "scopes": ["remote"]
     }
   },
   "artifacts": {
