@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { EOL } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import pkgJson from './package.json' with { type: 'json' };
+import pkgJson from './package.js' with { type: 'json' };
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(dirname, '..', '..');

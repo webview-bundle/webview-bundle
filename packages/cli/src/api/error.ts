@@ -1,7 +1,7 @@
 import { stripColor } from '../console.js';
 
 export class ApiError extends Error {
-  readonly name = 'OperationError';
+  readonly name = 'ApiError';
   readonly originalErrors?: unknown;
 
   constructor(message?: string, originalErrors?: unknown) {
@@ -13,6 +13,6 @@ export class ApiError extends Error {
 export function isApiError(e: unknown): e is ApiError {
   return (
     e instanceof ApiError ||
-    (e != null && typeof e === 'object' && (e as ApiError)?.name === 'OperationError')
+    (e != null && typeof e === 'object' && (e as ApiError)?.name === 'ApiError')
   );
 }

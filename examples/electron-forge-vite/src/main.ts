@@ -1,6 +1,6 @@
+import path from 'node:path';
 import { bundleProtocol, localProtocol, wvb } from '@wvb/electron';
 import { app, BrowserWindow } from 'electron';
-import path from 'node:path';
 
 wvb({
   protocols: [

@@ -24,8 +24,8 @@ jobs:
         run: cargo fmt --all --check
       - name: Run taplo
         run: yarn taplo format --check
-      - name: Run oxfmt
-        run: yarn oxfmt --check
+      - name: Run biome
+        run: yarn biome format
   test:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     name: test (${{ matrix.settings.host }}, ${{ matrix.settings.target }})
@@ -188,8 +188,8 @@ jobs:
       - run: yarn install --immutable
       - name: Run build
         run: just build
-      - name: Run oxlint
-        run: yarn oxlint --type-aware
+      - name: Run biome
+        run: yarn biome check
       - name: Run typecheck
         run: yarn workspaces foreach -Apt run typecheck
   attw:

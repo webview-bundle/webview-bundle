@@ -1,7 +1,7 @@
-import type { WebviewBundleRemoteConfig } from '@wvb/remote-aws-provider';
-import * as pulumi from '@pulumi/pulumi';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as pulumi from '@pulumi/pulumi';
+import type { WebviewBundleRemoteConfig } from '@wvb/remote-aws-provider';
 import { generateCode } from './code.js';
 import { getLambdaRuntimeTarget, type LambdaRuntime } from './types.js';
 

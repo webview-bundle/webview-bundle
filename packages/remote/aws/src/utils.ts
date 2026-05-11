@@ -19,8 +19,6 @@ export type AwsClientDefaults = Pick<
   | 'followRegionRedirects'
 >;
 
-export type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
-
 export interface AwsS3ClientConfigLike {
   s3Client?: S3Client;
   s3ClientConfig?: S3ClientConfig;

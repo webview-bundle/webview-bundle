@@ -1,3 +1,4 @@
+export type { RemoteConfig } from './config.js';
 export type { BaseRemoteDeployer, RemoteDeployParams } from './deployer.js';
 export type {
   IntegrityAlgorithm,
@@ -6,7 +7,6 @@ export type {
   IntegrityMaker,
 } from './integrity.js';
 export { makeIntegrity } from './integrity.js';
-export type { RemoteConfig } from './remote.js';
 export type {
   SignatureAlgorithm,
   SignatureEcdsaCurve,

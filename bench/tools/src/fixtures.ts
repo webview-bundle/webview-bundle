@@ -1,9 +1,9 @@
-import { execa } from 'execa';
-import { Listr } from 'listr2';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execa } from 'execa';
+import { Listr } from 'listr2';
 import { glob } from 'tinyglobby';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));

@@ -4,10 +4,17 @@ export type RemoteBundleMatches =
   | Array<string | RegExp>
   | ((info: { name: string; version: string }) => boolean | Promise<boolean>);
 
+export interface BuiltinDownloadConfig {
+  /**
+   * Concurrency of the download bundles.
+   */
+  concurrency?: number;
+}
+
 export interface BuiltinConfig {
   /**
    * Directory path where to download builtin bundles from remote.
-   * @default ".wvb/builtin"
+   * @default ".wvb/builtin/bundles"
    */
   outDir?: string;
   /**
@@ -23,8 +30,5 @@ export interface BuiltinConfig {
    * @default true
    */
   clean?: boolean;
-  /**
-   * Concurrency of the download bundles.
-   */
-  concurrency?: number;
+  download?: BuiltinDownloadConfig;
 }

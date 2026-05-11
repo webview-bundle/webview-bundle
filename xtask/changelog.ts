@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Action } from './action.ts';
 import type { Changes } from './changes.ts';
-import type { Package } from './package.ts';
 import { ROOT_DIR } from './consts.ts';
+import type { Package } from './package.ts';
 
 export class Changelog {
   public readonly path: string;
@@ -38,6 +38,7 @@ export class Changelog {
     } else {
       const packages = pkg.versionedFiles
         .filter(x => x.canPublish)
+        // biome-ignore lint/suspicious/useIterableCallbackReturn: ts issue
         .map((file): string => {
           const name = file.name;
           const version = file.nextVersion.toString();

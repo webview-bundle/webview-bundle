@@ -1,8 +1,6 @@
 import type Cloudflare from 'cloudflare';
 import type { ClientOptions } from 'cloudflare';
 
-export type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
-
 export interface CloudflareClientConfigLike {
   cloudflare?: Cloudflare;
   cloudflareConfig?: ClientOptions;

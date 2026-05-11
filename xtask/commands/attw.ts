@@ -1,5 +1,5 @@
-import { Command, Option } from 'clipanion';
 import path from 'node:path';
+import { Command, Option } from 'clipanion';
 import pAll from 'p-all';
 import * as t from 'typanion';
 import { runCommand } from '../child_process.ts';

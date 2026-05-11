@@ -1,8 +1,8 @@
-import type { Config } from '@wvb/config';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Config } from '@wvb/config';
 import { DEFAULT_CONFIG_FILES } from './constants.js';
 import {
   findNearestPackageJson,
@@ -164,15 +164,16 @@ export interface InlineConfig extends Config {
   configFile?: string | false;
 }
 
-export interface ResolvedConfig extends Readonly<
-  Omit<Config, 'root'> & {
-    root: string;
-    configFile: string | undefined;
-    configFileDependencies: string[] | undefined;
-    inlineConfig: InlineConfig;
-    packageJson: PackageJson | null;
-  }
-> {}
+export interface ResolvedConfig
+  extends Readonly<
+    Omit<Config, 'root'> & {
+      root: string;
+      configFile: string | undefined;
+      configFileDependencies: string[] | undefined;
+      inlineConfig: InlineConfig;
+      packageJson: PackageJson | null;
+    }
+  > {}
 
 export async function resolveConfig(inlineConfig: InlineConfig): Promise<ResolvedConfig> {
   let config = inlineConfig;
@@ -199,17 +200,38 @@ export async function resolveConfig(inlineConfig: InlineConfig): Promise<Resolve
   return resolved;
 }
 
-export function defaultOutFile(config: ResolvedConfig): string | undefined {
-  if (config.outFile != null) {
-    return config.outFile;
+export function resolveOutFile(config: ResolvedConfig): string | undefined {
+  if (config.pack?.outFile != null) {
+    return config.pack.outFile;
   }
   const pkgName = config.packageJson?.name;
   if (pkgName != null) {
-    return pkgName.replace(/^@/, '').replace(/\//g, '-');
+    const name = pkgName.includes('/') ? pkgName.split('/')[1]! : pkgName;
+    return name;
   }
   return undefined;
 }
 
-export function defaultOutDir(config: ResolvedConfig): string {
-  return config.outDir ?? '.wvb';
+export function resolveOutDir(config: ResolvedConfig): string {
+  return config.pack?.outDir ?? '.wvb';
+}
+
+export async function resolveVersion(config: ResolvedConfig): Promise<string | undefined> {
+  if (typeof config.remote?.version === 'function') {
+    return await config.remote.version();
+  }
+  if (typeof config.remote?.version === 'string') {
+    return config.remote.version;
+  }
+  return config.packageJson?.version;
+}
+
+export async function resolveBundleName(config: ResolvedConfig): Promise<string | undefined> {
+  if (typeof config.remote?.bundleName === 'function') {
+    return await config.remote.bundleName();
+  }
+  if (typeof config.remote?.bundleName === 'string') {
+    return config.remote.bundleName;
+  }
+  return undefined;
 }

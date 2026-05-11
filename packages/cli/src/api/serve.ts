@@ -1,12 +1,13 @@
 import type { ServerType } from '@hono/node-server';
 import { readBundle } from '@wvb/node';
-import type { Logger } from '../log.js';
 import { c, isColorEnabled } from '../console.js';
 import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
+import type { Logger } from '../log.js';
 import { ApiError } from './error.js';
 
 export interface ServeParams {
   file: string;
+  hostname?: string;
   port?: number;
   silent?: boolean;
   cwd?: string;
@@ -25,8 +26,9 @@ export interface ServeInstance {
 export async function serve(params: ServeParams): Promise<ServeInstance> {
   const {
     file,
+    hostname,
     port = 4312,
-    cwd,
+    cwd = process.cwd(),
     silent = false,
     logger,
     colorEnabled = isColorEnabled(),
@@ -69,8 +71,8 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
     c.header('content-length', String(entry.contentLength));
     return c.body(data as Uint8Array<ArrayBuffer>, 200);
   });
-  const server = serve({ fetch: app.fetch, port }, info => {
-    logger?.info(`Server started: ${c.success(`http://localhost:${info.port}`)}`);
+  const server = serve({ fetch: app.fetch, hostname, port }, info => {
+    logger?.info(`Server started: ${c.success(`http://${info.address}:${info.port}`)}`);
   });
   const shutdown = () => {
     return new Promise<void>((resolve, reject) => {

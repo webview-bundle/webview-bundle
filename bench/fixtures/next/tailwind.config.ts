@@ -1,5 +1,5 @@
-import type { Config } from 'tailwindcss';
 import path from 'node:path';
+import type { Config } from 'tailwindcss';
 
 const config: Config = {
   presets: [require('@vercel/examples-ui/tailwind')],

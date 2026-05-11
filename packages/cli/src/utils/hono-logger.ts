@@ -17,7 +17,7 @@ function colorStatus(status: number): string {
 
 function humanize(times: string[]): string {
   const [delimiter, separator] = [',', '.'];
-  const orderTimes = times.map(v => v.replace(/(\d)(?=(\d\d\d)+(?!\d))/g, '$1' + delimiter));
+  const orderTimes = times.map(v => v.replace(/(\d)(?=(\d\d\d)+(?!\d))/g, `$1${delimiter}`));
   return orderTimes.join(separator);
 }
 

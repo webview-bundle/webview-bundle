@@ -6,17 +6,14 @@
     "examples/*",
     "!examples/electron-forge-vite",
     "bench/**/*",
-    "xtask",
-    "website"
+    "xtask"
   ],
   "type": "module",
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.2",
+    "@biomejs/biome": "2.4.15",
     "@taplo/cli": "0.7.0",
     "lefthook": "1.13.6",
-    "oxfmt": "0.32.0",
-    "oxlint": "1.47.0",
-    "oxlint-tsgolint": "0.12.2",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

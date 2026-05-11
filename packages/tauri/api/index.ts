@@ -1,12 +1,12 @@
-export type { RemoteApi, ListRemoteBundleInfo, RemoteBundleInfo } from './remote.js';
+export type { ListRemoteBundleInfo, RemoteApi, RemoteBundleInfo } from './remote.js';
 export { remote } from './remote.js';
 export type {
-  BundleSourceVersion,
   BundleManifestMetadata,
   BundleSourceType,
+  BundleSourceVersion,
   ListBundleItem,
   ListBundleManifestItem,
 } from './source.js';
 export { source } from './source.js';
-export type { UpdaterApi, BundleUpdateInfo } from './updater.js';
+export type { BundleUpdateInfo, UpdaterApi } from './updater.js';
 export { updater } from './updater.js';

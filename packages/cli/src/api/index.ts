@@ -1,10 +1,12 @@
 export type { BuiltinParams } from './builtin.js';
 export { builtin } from './builtin.js';
-export type { CreateParams } from './create.js';
-export { create } from './create.js';
 export type { ExtractParams } from './extract.js';
 export { extract } from './extract.js';
-export type { RemoteUploadParams } from './remote/upload.js';
-export { remoteUpload } from './remote/upload.js';
+export type { PackParams } from './pack.js';
+export { pack } from './pack.js';
+export type { LocalRemoteInstance, LocalRemoteParams } from './remote/local.js';
+export { localRemote } from './remote/local.js';
 export type { ServeInstance, ServeParams } from './serve.js';
 export { serve } from './serve.js';
+export type { RemoteUploadParams } from './upload.js';
+export { remoteUpload } from './upload.js';

@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { checkbox } from '@inquirer/prompts';
 import { retry } from '@octokit/plugin-retry';
 import { Octokit } from '@octokit/rest';
@@ -5,18 +7,16 @@ import { isCI } from 'ci-info';
 import { Command, Option } from 'clipanion';
 import { openRepository, type Repository } from 'es-git';
 import { differenceBy, isNotNil, omit } from 'es-toolkit';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { type Action, runActions } from '../action.ts';
 import { editCargoTomlVersion, formatCargoToml, parseCargoToml } from '../cargo-toml.ts';
 import { Changelog } from '../changelog.ts';
 import { Changes } from '../changes.ts';
 import { type Config, loadConfig } from '../config.ts';
-import { c, ColorModeOption, setColorMode } from '../console.ts';
+import { ColorModeOption, c, setColorMode } from '../console.ts';
 import { ROOT_DIR } from '../consts.ts';
 import { GIT_SIGNATURE } from '../git.ts';
 import { Package } from '../package.ts';
-import { loadStaged, removeStaged, saveStaged, type Staged } from '../staged.ts';
+import { loadStaged, removeStaged, type Staged, saveStaged } from '../staged.ts';
 import { parsePrerelease } from '../version.ts';
 
 interface ReleaseTarget {

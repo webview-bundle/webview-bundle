@@ -1,13 +1,21 @@
-import type { CloudFrontClient, CloudFrontClientConfig } from '@aws-sdk/client-cloudfront';
-import type { S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
+import type { CloudFrontClient } from '@aws-sdk/client-cloudfront';
+import type { S3Client } from '@aws-sdk/client-s3';
 import type {
   BaseRemoteDeployer,
   RemoteBundleDeployment,
   RemoteDeployParams,
 } from '@wvb/config/remote';
-import { getCloudFrontClient, getS3Client, isNoSuchKeyError } from './utils.js';
+import {
+  type AwsCloudFrontClientConfigLike,
+  type AwsS3ClientConfigLike,
+  getCloudFrontClient,
+  getS3Client,
+  isNoSuchKeyError,
+} from './utils.js';
 
-export interface AwsRemoteDeployerConfig {
+export interface AwsRemoteDeployerConfig
+  extends AwsS3ClientConfigLike,
+    AwsCloudFrontClientConfigLike {
   bucket: string;
   key?: string | ((bundleName: string, version: string, channel?: string) => string);
   cacheControl?: string;
@@ -15,10 +23,6 @@ export interface AwsRemoteDeployerConfig {
     distributionId: string;
     callerReference?: string | (() => string);
   };
-  s3Client?: S3Client;
-  s3ClientConfig?: S3ClientConfig;
-  cloudFrontClient?: CloudFrontClient;
-  cloudFrontClientConfig?: CloudFrontClientConfig;
 }
 
 class AwsRemoteDeployerImpl implements BaseRemoteDeployer {

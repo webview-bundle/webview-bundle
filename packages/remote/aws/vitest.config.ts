@@ -6,4 +6,5 @@ const config: UserWorkspaceConfig = defineProject({
     environment: 'node',
   },
 });
+
 export { config as default };

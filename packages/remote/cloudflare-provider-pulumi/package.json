@@ -44,7 +44,7 @@
   },
   "devDependencies": {
     "@pulumi/cloudflare": "^6.10.0",
-    "@pulumi/pulumi": "^3.201.0",
+    "@pulumi/pulumi": "^3.237.0",
     "@types/node": "catalog:",
     "esbuild": "0.25.3",
     "tsdown": "catalog:",

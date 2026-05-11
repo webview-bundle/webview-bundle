@@ -12,24 +12,23 @@ export class RemoteListCommand extends BaseCommand {
   ];
   static usage = Command.Usage({
     description: 'List all Webview Bundles available on remote server.',
-    details: `
-      This command retrieves and displays a list of all Webview Bundles
-      stored on the remote server.
+    details: `This command retrieves and displays a list of all Webview Bundles
+stored on the remote server.
 
-      **Use Cases:**
-        - Discover available bundles on a remote server
-        - Audit deployed bundles across environments
-        - Find bundle names for use with other commands
-        - Inventory check before cleanup or migration
+**Use Cases:**
+  - Discover available bundles on a remote server
+  - Audit deployed bundles across environments
+  - Find bundle names for use with other commands
+  - Inventory check before cleanup or migration
 
-      **Output Format:**
-        The bundle list is displayed as JSON, making it easy to:
-          - Parse in scripts and CI pipelines
-          - Pipe to tools like \`jq\` for filtering
-          - Integrate with monitoring and alerting systems
+**Output Format:**
+  The bundle list is displayed as JSON, making it easy to:
+    - Parse in scripts and CI pipelines
+    - Pipe to tools like \`jq\` for filtering
+    - Integrate with monitoring and alerting systems
 
-      **Aliases:**
-        This command can be invoked as either \`remote list\` or \`remote ls\`.
+**Aliases:**
+  This command can be invoked as either \`remote list\` or \`remote ls\`.
     `,
     examples: [
       ['List all bundles on a server', '$0 remote ls --endpoint https://cdn.example.com'],

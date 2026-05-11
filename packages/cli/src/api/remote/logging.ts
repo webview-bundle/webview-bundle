@@ -1,7 +1,7 @@
 import type { RemoteBundleInfo } from '@wvb/node';
-import type { Logger } from '../../log.js';
 import { c } from '../../console.js';
 import { formatByteLength } from '../../format.js';
+import type { Logger } from '../../log.js';
 
 export function logRemoteBundleInfo(
   logger: Logger,

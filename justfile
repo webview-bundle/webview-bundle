@@ -41,9 +41,9 @@ format: format-rs format-js format-toml
 format-rs:
     cargo fmt --all
 
-# Format JS files via oxfmt
+# Format JS files via biome
 format-js:
-    yarn oxfmt
+    yarn biome format --write
 
 # Format TOML files via taplo
 format-toml:
@@ -52,9 +52,9 @@ format-toml:
 # Lint all files
 lint: lint-rs lint-js
 
-# Lint JS files via oxlint
+# Lint JS files via biome
 lint-js:
-    yarn oxlint --type-aware
+    yarn biome check
 
 # Lint Rust files via Clippy
 lint-rs:
@@ -82,11 +82,6 @@ build-js:
 # Run benchmarks
 benchmark: build
     yarn workspaces foreach -Apt --include='@benchmark/*' run bench
-
-# Start website dev server
-website:
-    yarn workspace wvb-website run typegen
-    yarn workspace wvb-website run dev
 
 # Run xtask
 xtask *ARGS:

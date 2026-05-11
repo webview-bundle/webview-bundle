@@ -1,10 +1,10 @@
-import { type Bundle, type IndexEntry, readBundle } from '@wvb/node';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Logger } from '../log.js';
+import { type Bundle, type IndexEntry, readBundle } from '@wvb/node';
 import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
 import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
+import type { Logger } from '../log.js';
 import { ApiError } from './error.js';
 
 export interface ExtractParams {
@@ -20,16 +20,24 @@ export interface ExtractParams {
  * Extract Webview Bundle files.
  */
 export async function extract(params: ExtractParams): Promise<Bundle> {
-  const { file, outDir: outDirInput, cwd, write = true, clean = false, logger } = params;
+  const {
+    file,
+    outDir: outDirInput,
+    cwd = process.cwd(),
+    write = true,
+    clean = false,
+    logger,
+  } = params;
 
-  const filepath = toAbsolutePath(withWVBExtension(file), cwd);
-  if (!(await pathExists(filepath))) {
-    const message = `File does not exist: ${filepath}`;
+  const filePath = toAbsolutePath(withWVBExtension(file), cwd);
+  const displayFilePath = path.relative(cwd, filePath);
+  if (!(await pathExists(filePath))) {
+    const message = `File does not exist: ${displayFilePath}`;
     logger?.error(message);
     throw new ApiError(message);
   }
-  const bundle = await readBundle(filepath);
-  logger?.info(`Webview Bundle info for ${c.info(filepath)}`);
+  const bundle = await readBundle(filePath);
+  logger?.info(`Webview Bundle info for ${c.info(displayFilePath)}`);
   logger?.info(`Version: ${c.bold(c.info(bundle.descriptor().header().version()))}`);
   logger?.info(`Entries:`);
   const entries = Object.entries(bundle.descriptor().index().entries());
@@ -47,22 +55,26 @@ export async function extract(params: ExtractParams): Promise<Bundle> {
   if (!write) {
     return bundle;
   }
-  const outDirPath = toAbsolutePath(outDirInput ?? path.basename(filepath, '.wvb'), cwd);
-  if (await pathExists(outDirPath)) {
+  const outDir = toAbsolutePath(
+    outDirInput ?? path.join('.wvb', path.basename(filePath, '.wvb')),
+    cwd
+  );
+  const displayOutDir = path.relative(cwd, outDir);
+  if (await pathExists(outDir)) {
     if (!clean) {
-      const message = `Output directory already exists: ${outDirPath}`;
+      const message = `Output directory already exists: ${displayOutDir}`;
       logger?.warn(message);
       throw new ApiError(message);
     }
-    await fs.rm(outDirPath, { recursive: true });
+    await fs.rm(outDir, { recursive: true });
   }
   const entryPaths = Object.keys(bundle.descriptor().index().entries());
   for (const p of entryPaths) {
-    const filepath = path.join(outDirPath, p);
+    const filepath = path.join(outDir, p);
     await fs.mkdir(path.dirname(filepath), { recursive: true });
     await fs.writeFile(filepath, bundle.getData(p)!);
   }
-  logger?.info(`Extract completed: ${c.bold(c.success(outDirPath))}`);
+  logger?.info(`Extract completed: ${c.bold(c.success(displayOutDir))}`);
   return bundle;
 }
 
