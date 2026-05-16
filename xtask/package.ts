@@ -1,7 +1,14 @@
 import path from 'node:path';
 import { uniq } from 'es-toolkit';
+import { glob } from 'tinyglobby';
 import type { Action } from './action.ts';
-import type { Config, PackageConfig, ScriptConfig } from './config.ts';
+import { ROOT_DIR } from './consts.ts';
+import {
+  type Artifact,
+  loadPackageConfig,
+  type PackageConfig,
+  type Script,
+} from './package-config.ts';
 import type { BumpRule, Version } from './version.ts';
 import { VersionedFile } from './versioned-file.ts';
 import { VersionedGitTag } from './versioned-git-tag.ts';
@@ -14,29 +21,53 @@ function isNonEmptyArray<T>(x: readonly T[]): x is NonEmptyArray<T> {
 
 export class Package {
   public readonly name: string;
+  public readonly path: string;
   public readonly versionedFiles: NonEmptyArray<VersionedFile>;
   private readonly config: PackageConfig;
 
-  static async loadAll(config: Config): Promise<Package[]> {
+  static async loadAll(): Promise<Package[]> {
     const packages: Package[] = [];
-    for (const [name, pkgConfig] of Object.entries(config.packages)) {
-      const versionedFiles = await VersionedFile.loadAll(pkgConfig.path);
+    const configFiles = await glob('packages/**/xtask.config.json', {
+      cwd: ROOT_DIR,
+      onlyFiles: true,
+    });
+
+    for (const configFile of configFiles) {
+      const config = await loadPackageConfig(path.join(ROOT_DIR, configFile));
+
+      const pkgPath = path.relative(ROOT_DIR, path.dirname(configFile));
+      const dirName = path.basename(path.dirname(configFile));
+      const pkgName = config.name ?? dirName;
+
+      const versionedFiles = await VersionedFile.loadAll(pkgPath);
       if (!isNonEmptyArray(versionedFiles)) {
-        throw new Error(`Cannot load versioned files from "${name}"`);
+        throw new Error(`Cannot load versioned files from "${pkgPath}"`);
       }
-      packages.push(new Package(name, versionedFiles, pkgConfig));
+
+      packages.push(new Package(pkgName, pkgPath, versionedFiles, config));
     }
+
     return packages;
   }
 
-  constructor(name: string, versionedFiles: NonEmptyArray<VersionedFile>, config: PackageConfig) {
+  constructor(
+    name: string,
+    path: string,
+    versionedFiles: NonEmptyArray<VersionedFile>,
+    config: PackageConfig
+  ) {
     this.name = name;
+    this.path = path;
     this.versionedFiles = versionedFiles;
     this.config = config;
   }
 
+  get absolutePath(): string {
+    return path.join(ROOT_DIR, this.path);
+  }
+
   get changelog(): string {
-    return this.config.changelog ?? path.join(this.config.path, 'CHANGELOG.md');
+    return this.config.changelog ?? path.join(this.path, 'CHANGELOG.md');
   }
 
   get scopes(): readonly string[] {
@@ -44,8 +75,16 @@ export class Package {
     return uniq([...scopes, this.name, 'all']);
   }
 
-  get beforePublishScripts(): ScriptConfig[] {
+  get artifacts(): readonly Artifact[] {
+    return this.config.artifacts ?? [];
+  }
+
+  get beforePublishScripts(): readonly Script[] {
     return this.config.beforePublishScripts ?? [];
+  }
+
+  get assets(): readonly string[] {
+    return this.config.assets ?? [];
   }
 
   get version(): Version {

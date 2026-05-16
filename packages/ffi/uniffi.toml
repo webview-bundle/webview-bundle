@@ -1,0 +1,7 @@
+[bindings.kotlin]
+cdylib_name  = "wvb_ffi"
+package_name = "dev.wvb"
+
+[bindings.swift]
+ffi_module_name = "wvb_ffi"
+module_name     = "WebViewBundle"
