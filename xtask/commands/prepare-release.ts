@@ -2,7 +2,6 @@ import { checkbox, select } from '@inquirer/prompts';
 import { Command, Option } from 'clipanion';
 import { openRepository } from 'es-git';
 import { Change, Changes } from '../changes.ts';
-import { loadConfig } from '../config.ts';
 import { ColorModeOption, colors, setColorMode } from '../console.ts';
 import { ROOT_DIR } from '../consts.ts';
 import { Package } from '../package.ts';
@@ -11,21 +10,19 @@ import { loadStaged, type Staged, saveStaged } from '../staged.ts';
 export class PrepareReleaseCommand extends Command {
   static paths = [['prepare-release']];
 
-  readonly configFilepath = Option.String('--config', 'xtask.json');
   readonly stagedFilepath = Option.String('--staged', 'xtask/.gen/staged.json');
   readonly dryRun = Option.Boolean('--dry-run', false);
   readonly colorMode = ColorModeOption;
 
   async execute() {
     setColorMode(this.colorMode);
-    const config = await loadConfig(this.configFilepath);
     const staged = await loadStaged(this.stagedFilepath).catch(() => ({}) as Staged);
     const repo = await openRepository(ROOT_DIR);
     const head = repo.head().target();
     if (head == null) {
       throw new Error('cannot find git `HEAD` target');
     }
-    const packages = await Package.loadAll(config);
+    const packages = await Package.loadAll();
     for (const pkg of packages) {
       const tag = pkg.versionedGitTag.findTag(repo);
       const revwalk = repo.revwalk();

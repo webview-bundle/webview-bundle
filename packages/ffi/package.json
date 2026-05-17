@@ -1,0 +1,20 @@
+{
+  "name": "@wvb/ffi",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build-ffi": "yarn build-ffi-android && yarn build-ffi-apple",
+    "build-ffi-android": "node ./cli/main.ts build android --profile=release",
+    "build-ffi-apple": "node ./cli/main.ts build apple --profile=release",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@ltd/j-toml": "^1.38.0",
+    "clipanion": "4.0.0-rc.4",
+    "execa": "^9",
+    "typanion": "^3.14.0",
+    "typescript": "catalog:",
+    "zod": "^4.0.5"
+  }
+}

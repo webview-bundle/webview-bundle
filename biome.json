@@ -83,7 +83,7 @@
       }
     },
     {
-      "includes": ["xtask/**/*.ts"],
+      "includes": ["xtask/**/*.ts", "packages/ffi/cli/**/*.ts"],
       "linter": {
         "rules": {
           "correctness": {

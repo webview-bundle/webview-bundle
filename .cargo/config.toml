@@ -1,0 +1,6 @@
+[alias]
+uniffi-bindgen = "run --package wvb-ffi --"
+
+[target.aarch64-linux-android]
+# These rust flags improve the performance on Android on arm64
+rustflags = ["-C", "target-feature=+neon,+aes,+sha2,+sha3,+pmuv3"]

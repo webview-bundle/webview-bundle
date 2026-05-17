@@ -26,3 +26,5 @@ xtask.$schema.json
 **/package.tgz
 **/*.env
 .DS_Store*
+/Package.swift
+/.swiftpm

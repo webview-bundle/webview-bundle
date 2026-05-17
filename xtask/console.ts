@@ -23,7 +23,7 @@ export function autoColor(): void {
 }
 
 const COLOR_MODES = ['on', 'off', 'auto'] as const;
-type ColorMode = (typeof COLOR_MODES)[number];
+export type ColorMode = (typeof COLOR_MODES)[number];
 
 export const ColorModeOption = Option.String('--color', 'auto', {
   validator: isEnum(COLOR_MODES),

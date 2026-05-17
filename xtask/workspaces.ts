@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import glob from 'fast-glob';
 import micromatch from 'micromatch';
+import { glob } from 'tinyglobby';
 import type { PackageJson } from 'type-fest';
 import { runCommand } from './child_process.ts';
 import { colors } from './console.ts';

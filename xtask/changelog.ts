@@ -11,7 +11,7 @@ export class Changelog {
   private readonly lines: string[];
 
   static async load(filepath: string): Promise<Changelog> {
-    const absolutePath = path.join(ROOT_DIR, filepath);
+    const absolutePath = path.isAbsolute(filepath) ? filepath : path.join(ROOT_DIR, filepath);
     const content = await fs.readFile(absolutePath, 'utf8');
     return new Changelog(filepath, content);
   }

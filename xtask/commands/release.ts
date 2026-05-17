@@ -7,14 +7,14 @@ import { isCI } from 'ci-info';
 import { Command, Option } from 'clipanion';
 import { openRepository, type Repository } from 'es-git';
 import { differenceBy, isNotNil, omit } from 'es-toolkit';
+import mime from 'mime-types';
+import { glob } from 'tinyglobby';
 import { type Action, runActions } from '../action.ts';
 import { editCargoTomlVersion, formatCargoToml, parseCargoToml } from '../cargo-toml.ts';
 import { Changelog } from '../changelog.ts';
 import { Changes } from '../changes.ts';
-import { type Config, loadConfig } from '../config.ts';
 import { ColorModeOption, c, setColorMode } from '../console.ts';
-import { ROOT_DIR } from '../consts.ts';
-import { GIT_SIGNATURE } from '../git.ts';
+import { GIT_SIGNATURE, GITHUB_REPO, ROOT_DIR } from '../consts.ts';
 import { Package } from '../package.ts';
 import { loadStaged, removeStaged, type Staged, saveStaged } from '../staged.ts';
 import { parsePrerelease } from '../version.ts';
@@ -28,7 +28,6 @@ interface ReleaseTarget {
 export class Release extends Command {
   static paths = [['release']];
 
-  readonly configFilepath = Option.String('--config', 'xtask.json');
   readonly stagedFilepath = Option.String('--staged', 'xtask/.gen/staged.json');
   readonly dryRun = Option.Boolean('--dry-run', false);
   readonly githubToken = Option.String('--github-token', {
@@ -41,10 +40,9 @@ export class Release extends Command {
 
   async execute() {
     setColorMode(this.colorMode);
-    const config = await loadConfig(this.configFilepath);
     const staged = await loadStaged(this.stagedFilepath);
     const repo = await openRepository(ROOT_DIR);
-    let targets = await this.prepareTargets(repo, config, staged);
+    let targets = await this.prepareTargets(repo, staged);
     if (targets.length === 0) {
       return 0;
     }
@@ -54,7 +52,7 @@ export class Release extends Command {
 
     await this.writeReleaseTarget(targets);
     const rootCargoChanged = await this.writeRootCargoToml(targets);
-    const rootChangelogChanged = await this.writeRootChangelog(config, targets);
+    const rootChangelogChanged = await this.writeRootChangelog(targets);
 
     const publishedTargets = await this.publish(targets);
     const isAllPublished = publishedTargets.length === targets.length;
@@ -71,14 +69,13 @@ export class Release extends Command {
       this.gitEnsureMainBranch(repo);
       const commitId = this.gitCommitChanges(
         repo,
-        config,
         publishedTargets,
         rootCargoChanged,
         rootChangelogChanged
       );
       this.gitCreateTags(repo, commitId, publishedTargets);
       await this.gitPush(repo, publishedTargets);
-      await this.createGitHubReleases(config, publishedTargets);
+      await this.createGitHubReleases(publishedTargets);
     }
 
     if (!isAllPublished) {
@@ -91,9 +88,9 @@ export class Release extends Command {
     return isAllPublished ? 0 : 1;
   }
 
-  private async prepareTargets(repo: Repository, config: Config, staged: Staged) {
+  private async prepareTargets(repo: Repository, staged: Staged) {
     const targets: ReleaseTarget[] = [];
-    const packages = await Package.loadAll(config);
+    const packages = await Package.loadAll();
     for (const pkg of packages) {
       const prefix = `[${pkg.name}]`;
       const pkgStaged = staged[pkg.name];
@@ -191,11 +188,8 @@ export class Release extends Command {
     return true;
   }
 
-  private async writeRootChangelog(config: Config, targets: ReleaseTarget[]) {
-    if (config.rootChangelog == null) {
-      return false;
-    }
-    const changelog = await Changelog.load(config.rootChangelog);
+  private async writeRootChangelog(targets: ReleaseTarget[]) {
+    const changelog = await Changelog.load('CHANGELOG.md');
     for (const target of targets) {
       changelog.appendChanges(target.package, target.changes);
     }
@@ -212,7 +206,7 @@ export class Release extends Command {
             type: 'command',
             cmd: script.command,
             args: (script.args ?? []) as string[],
-            path: script.cwd ?? '',
+            path: script.cwd ?? target.package.path,
           })
         );
         const result = await runActions(actions, {
@@ -248,7 +242,6 @@ export class Release extends Command {
 
   private gitCommitChanges(
     repo: Repository,
-    config: Config,
     targets: ReleaseTarget[],
     rootCargoChanged: boolean,
     rootChangelogChanged: boolean
@@ -266,8 +259,8 @@ export class Release extends Command {
     if (rootCargoChanged) {
       pathspecs.push('Cargo.toml');
     }
-    if (rootChangelogChanged && config.rootChangelog != null) {
-      pathspecs.push(config.rootChangelog);
+    if (rootChangelogChanged) {
+      pathspecs.push('CHANGELOG.md');
     }
     const index = repo.index();
     index.addAll(pathspecs);
@@ -345,8 +338,7 @@ export class Release extends Command {
     logRefspecs();
   }
 
-  private async createGitHubReleases(config: Config, targets: ReleaseTarget[]) {
-    const { github } = config;
+  private async createGitHubReleases(targets: ReleaseTarget[]) {
     const GitHubClient = Octokit.plugin(retry);
     const client = new GitHubClient({
       auth: this.githubToken,
@@ -360,11 +352,14 @@ export class Release extends Command {
       };
       if (this.dryRun) {
         console.log(
-          `${c.info('[root]')} will create github release: ${github.repo.owner}/${github.repo.name}`
+          `${c.info('[root]')} will create github release: ${GITHUB_REPO.owner}/${GITHUB_REPO.name}`
         );
         const payloadStr = JSON.stringify(payload, null, 2);
         for (const line of payloadStr.split('\n')) {
           console.log(`  ${c.dim(line)}`);
+        }
+        for (const asset of target.package.assets) {
+          console.log(`  ${c.dim(`will upload asset: ${asset}`)}`);
         }
         continue;
       }
@@ -373,13 +368,42 @@ export class Release extends Command {
         return;
       }
       const release = await client.rest.repos.createRelease({
-        owner: github.repo.owner,
-        repo: github.repo.name,
+        owner: GITHUB_REPO.owner,
+        repo: GITHUB_REPO.name,
         ...payload,
       });
       console.log(`${c.success('[root]')} create github release: ${release.data.tag_name}`);
       console.log(`  ${c.dim(`id: ${release.data.id}`)}`);
       console.log(`  ${c.dim(`html_url: ${release.data.html_url}`)}`);
+
+      if (target.package.assets.length > 0) {
+        const assetFiles = await glob([...target.package.assets], {
+          cwd: target.package.absolutePath,
+          onlyFiles: true,
+        });
+        if (assetFiles.length === 0) {
+          continue;
+        }
+
+        for (const assetFile of assetFiles) {
+          const filePath = path.join(target.package.absolutePath, assetFile);
+          const fileName = path.basename(assetFile);
+          const data = await fs.readFile(filePath);
+
+          await client.rest.repos.uploadReleaseAsset({
+            owner: GITHUB_REPO.owner,
+            repo: GITHUB_REPO.name,
+            release_id: release.data.id,
+            name: fileName,
+            data: data as any,
+            headers: {
+              'content-type': mime.lookup(fileName) || 'application/octet-stream',
+              'content-length': String(data.byteLength),
+            },
+          });
+          console.log(`  ${c.dim(`asset: ${fileName}`)}`);
+        }
+      }
     }
   }
 
