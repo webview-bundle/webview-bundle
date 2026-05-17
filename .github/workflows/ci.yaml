@@ -229,10 +229,9 @@ jobs:
         uses: ./.github/actions/node-setup
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
-      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
       - run: yarn install --immutable
       - name: Run build
-        run: just build
+        run: yarn workspaces foreach -Apt --include='@wvb/*' run build
       - name: Run biome
         run: yarn biome check
       - name: Run typecheck
