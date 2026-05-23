@@ -8,8 +8,8 @@
     "build-ffi-android": "node ./cli/main.ts build android --profile=release",
     "build-ffi-apple": "node ./cli/main.ts build apple --profile=release",
     "test-ffi": "yarn test-ffi-android && yarn test-ffi-apple",
-    "test-ffi-android": "cd gen/android && ./gradlew :lib:test",
-    "test-ffi-apple": "cd gen/apple && swift test",
+    "test-ffi-android": "node ./cli/main.ts test android",
+    "test-ffi-apple": "node ./cli/main.ts test apple",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

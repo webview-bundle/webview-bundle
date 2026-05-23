@@ -2,6 +2,7 @@ use crate::bundle::Bundle;
 use std::sync::Arc;
 use wvb::remote;
 
+/// Summary of a bundle returned by the remote listing endpoint.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct ListRemoteBundleInfo {
   pub name: String,
@@ -17,6 +18,7 @@ impl From<remote::ListRemoteBundleInfo> for ListRemoteBundleInfo {
   }
 }
 
+/// Full metadata returned when fetching or downloading a specific bundle version.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct RemoteBundleInfo {
   pub name: String,
@@ -53,6 +55,11 @@ impl From<RemoteBundleInfo> for remote::RemoteBundleInfo {
   }
 }
 
+/// Result of a bundle download containing the parsed bundle, its raw bytes,
+/// and the server-provided metadata.
+///
+/// `data` holds the raw `.wvb` bytes as received from the server, which callers
+/// can persist to disk via [`BundleSource::write_remote_bundle`].
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct DownloadResult {
   pub info: RemoteBundleInfo,
@@ -60,6 +67,7 @@ pub struct DownloadResult {
   pub data: Vec<u8>,
 }
 
+/// HTTP client for a WebViewBundle remote server.
 #[derive(uniffi::Object)]
 pub struct Remote {
   pub(crate) inner: Arc<remote::Remote>,
@@ -67,6 +75,7 @@ pub struct Remote {
 
 #[uniffi::export]
 impl Remote {
+  /// Creates a client for the server at `endpoint` (e.g. `"https://bundles.example.com"`).
   #[uniffi::constructor]
   pub fn new(endpoint: String) -> Result<Arc<Remote>, crate::Error> {
     let inner = remote::Remote::builder().endpoint(endpoint).build()?;
@@ -92,6 +101,7 @@ impl Remote {
     Ok(bundles)
   }
 
+  /// Fetches metadata for the latest version of `bundle_name` without downloading the bundle.
   pub async fn get_info(
     &self,
     bundle_name: String,
@@ -115,7 +125,7 @@ impl Remote {
       bundle: Arc::new(Bundle {
         inner: Arc::new(inner),
       }),
-      data: data.into(),
+      data,
     })
   }
 
@@ -130,7 +140,7 @@ impl Remote {
       bundle: Arc::new(Bundle {
         inner: Arc::new(inner),
       }),
-      data: data.into(),
+      data,
     })
   }
 }

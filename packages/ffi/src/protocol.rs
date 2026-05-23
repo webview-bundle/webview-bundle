@@ -5,6 +5,12 @@ use std::sync::Arc;
 use wvb::protocol;
 use wvb::protocol::Protocol;
 
+/// Handles HTTP-like requests by serving bundle entries from a [`BundleSource`].
+///
+/// The host portion of the URI identifies the bundle by name
+/// (e.g. `https://app.wvb/index.html` → bundle `"app"`, path `"/index.html"`).
+/// Returns 200 with the entry body, 404 when the path is not found, or
+/// 200 with an empty body for HEAD requests.
 #[derive(uniffi::Object)]
 pub struct BundleUrlHandler {
   inner: Arc<protocol::BundleProtocol>,
@@ -29,11 +35,16 @@ impl BundleUrlHandler {
     headers: Option<HashMap<String, String>>,
   ) -> Result<HttpResponse, crate::Error> {
     let req = request(method, uri, headers)?;
-    let resp = self.inner.handle(req).await.map_err(wvb::Error::from)?;
+    let resp = self.inner.handle(req).await?;
     Ok(HttpResponse::from(resp))
   }
 }
 
+/// Proxies HTTP-like requests to a local HTTP server.
+///
+/// `hosts` maps virtual hostnames to local server base URLs
+/// (e.g. `{"myapp" => "http://localhost:8080"}`). Requests to an unknown
+/// host are returned as an error.
 #[derive(uniffi::Object)]
 pub struct LocalUrlHandler {
   inner: Arc<protocol::LocalProtocol>,
@@ -58,7 +69,7 @@ impl LocalUrlHandler {
     headers: Option<HashMap<String, String>>,
   ) -> Result<HttpResponse, crate::Error> {
     let req = request(method, uri, headers)?;
-    let resp = self.inner.handle(req).await.map_err(wvb::Error::from)?;
+    let resp = self.inner.handle(req).await?;
     Ok(HttpResponse::from(resp))
   }
 }

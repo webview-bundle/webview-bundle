@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wvb::source;
 
+/// Whether a bundle was loaded from the builtin (read-only, shipped with the app)
+/// or the remote (writable, downloaded at runtime) directory.
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum BundleSourceKind {
   Builtin,
@@ -18,6 +20,7 @@ impl From<source::BundleSourceKind> for BundleSourceKind {
   }
 }
 
+/// The currently active version of a bundle and where it was loaded from.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BundleSourceVersion {
   pub kind: BundleSourceKind,
@@ -33,6 +36,8 @@ impl From<source::BundleSourceVersion> for BundleSourceVersion {
   }
 }
 
+/// HTTP cache-control fields stored alongside each bundle entry in the manifest.
+/// Used to avoid re-downloading bundles that haven't changed.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BundleManifestMetadata {
   pub etag: Option<String>,
@@ -84,6 +89,11 @@ impl From<source::ListBundleItem> for ListBundleItem {
   }
 }
 
+/// Directory paths used by [`BundleSource`] to locate bundles on disk.
+///
+/// `builtin_dir` is read-only (e.g. the app bundle on iOS/Android).
+/// `remote_dir` must be writable so downloaded bundles can be persisted.
+/// Both manifest paths default to `<dir>/manifest.json` when `None`.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BundleSourceConfig {
   pub builtin_dir: String,
@@ -92,6 +102,10 @@ pub struct BundleSourceConfig {
   pub remote_manifest_filepath: Option<String>,
 }
 
+/// Unified access point for bundles from both the builtin and remote sources.
+///
+/// The remote source takes precedence over the builtin source when both contain
+/// a bundle with the same name.
 #[derive(uniffi::Object)]
 pub struct BundleSource {
   pub(crate) inner: Arc<source::BundleSource>,
@@ -151,6 +165,7 @@ impl BundleSource {
     Ok(path.to_string_lossy().to_string())
   }
 
+  /// Loads the full bundle (header + index + data) for `bundle_name`.
   pub async fn fetch(&self, bundle_name: String) -> Result<Arc<Bundle>, crate::Error> {
     let inner = self.inner.fetch(&bundle_name).await?;
     Ok(Arc::new(Bundle {
@@ -158,6 +173,9 @@ impl BundleSource {
     }))
   }
 
+  /// Loads only the header and index for `bundle_name`, skipping the data section.
+  /// The returned descriptor does not support [`BundleDescriptor::index`]; use
+  /// [`fetch`](BundleSource::fetch) when entry data is needed.
   pub async fn fetch_descriptor(
     &self,
     bundle_name: String,

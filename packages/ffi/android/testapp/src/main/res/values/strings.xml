@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WvbFfi TestApp</string>
+    <string name="run_tests">Run Tests</string>
+    <string name="press_run">Press \'Run Tests\' to start</string>
+</resources>

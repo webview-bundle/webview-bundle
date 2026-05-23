@@ -1,7 +1,1 @@
-/gen/android/jniLibs
-/gen/android/jniLibsForTests
-/gen/android/kotlin
-/gen/apple/lipo
-/gen/apple/swift
-/gen/apple/WebViewBundle.xcframework
-/gen/*.zip
+/.output

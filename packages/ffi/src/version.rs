@@ -1,3 +1,4 @@
+/// Bundle format version. Currently only `V1` is defined.
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum Version {
   V1,

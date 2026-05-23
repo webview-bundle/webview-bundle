@@ -5,6 +5,11 @@ use crate::source::BundleSource;
 use std::sync::Arc;
 use wvb::updater;
 
+/// Result of checking whether a bundle update is available.
+///
+/// `is_available` is `true` when `version` differs from `local_version`.
+/// The `etag`, `integrity`, `signature`, and `last_modified` fields can be
+/// passed to [`BundleSource::write_remote_bundle`] after downloading.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BundleUpdateInfo {
   pub name: String,
@@ -32,13 +37,18 @@ impl From<updater::BundleUpdateInfo> for BundleUpdateInfo {
   }
 }
 
+/// Optional configuration for the [`Updater`].
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct UpdaterOptions {
+  /// Release channel (e.g. `"stable"`, `"beta"`). Passed as a query parameter to the remote.
   pub channel: Option<String>,
   pub integrity_policy: Option<IntegrityPolicy>,
+  /// When set, the updater verifies the bundle signature before applying an update.
   pub signature_verifier: Option<SignatureVerifierOptions>,
 }
 
+/// Orchestrates the full update cycle: checks for a new version on the remote,
+/// downloads it, verifies integrity/signature, and writes it to the local source.
 #[derive(uniffi::Object)]
 pub struct Updater {
   inner: updater::Updater,
@@ -87,11 +97,15 @@ impl Updater {
     Ok(remotes)
   }
 
+  /// Checks whether a newer version of `bundle_name` is available on the remote.
+  /// Does not download the bundle.
   pub async fn get_update(&self, bundle_name: String) -> Result<BundleUpdateInfo, crate::Error> {
     let update = self.inner.get_update(&bundle_name).await?;
     Ok(BundleUpdateInfo::from(update))
   }
 
+  /// Downloads and persists an update for `bundle_name`.
+  /// Uses the latest remote version when `version` is `None`.
   pub async fn download_update(
     &self,
     bundle_name: String,

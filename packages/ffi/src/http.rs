@@ -4,6 +4,7 @@ use std::ops::Deref;
 use wvb::http;
 use wvb::http::HeaderMap;
 
+/// HTTP request method exposed to FFI consumers.
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum HttpMethod {
   Get,
@@ -33,6 +34,8 @@ impl From<HttpMethod> for http::Method {
   }
 }
 
+/// Newtype wrapper for converting between `HashMap<String, String>` and
+/// `http::HeaderMap`. Not exposed to FFI; used internally for conversions.
 pub struct HttpHeaders(pub HashMap<String, String>);
 
 impl Deref for HttpHeaders {
@@ -75,6 +78,7 @@ impl From<&HeaderMap> for HttpHeaders {
   }
 }
 
+/// HTTP response returned by protocol handlers.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct HttpResponse {
   pub status: u16,
@@ -95,6 +99,8 @@ impl From<http::Response<Cow<'static, [u8]>>> for HttpResponse {
   }
 }
 
+/// Builds an `http::Request` from FFI-friendly arguments.
+/// Used internally by protocol handler `handle` methods.
 pub(crate) fn request(
   method: HttpMethod,
   uri: String,

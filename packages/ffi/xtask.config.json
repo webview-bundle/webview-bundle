@@ -3,14 +3,14 @@
   "artifacts": [
     {
       "src": ".",
-      "patterns": [".gen/apple.zip"],
-      "dest": ".gen"
+      "patterns": [".output/apple.zip"],
+      "dest": ".output"
     },
     {
       "src": ".",
-      "patterns": [".gen/android.zip"],
-      "dest": ".gen"
+      "patterns": [".output/android.zip"],
+      "dest": ".output"
     }
   ],
-  "assets": [".gen/android.zip", ".gen/apple.zip"]
+  "assets": [".output/android.zip", ".output/apple.zip"]
 }

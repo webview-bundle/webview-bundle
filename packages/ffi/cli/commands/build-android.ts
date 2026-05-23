@@ -20,15 +20,14 @@ export class BuildAndroidCommand extends Command {
       .nonempty()
       .parse(this.targets ?? AndroidTargetSchema.options);
 
-    const genDir = path.join(PKG_DIR, 'gen', 'android');
+    const androidDir = path.join(PKG_DIR, 'android');
 
-    const jniDir = path.join(genDir, 'jniLibs');
-    const jniDirForTests = path.join(genDir, 'jniLibsForTests');
-    const kotlinDir = path.join(genDir, 'kotlin');
-    const zipPath = path.join(PKG_DIR, 'gen', 'android.zip');
+    const jniDir = path.join(androidDir, 'lib-android', 'src', 'main', 'jniLibs');
+    const jniDirForTests = path.join(androidDir, 'lib-jvm', 'jniLibsForTests');
+    const zipPath = path.join(PKG_DIR, '.output', 'android.zip');
 
     await Promise.all(
-      [jniDir, jniDirForTests, kotlinDir].map(dir => fs.rm(dir, { force: true, recursive: true }))
+      [jniDir, jniDirForTests].map(dir => fs.rm(dir, { force: true, recursive: true }))
     );
 
     let libPath: string;
@@ -37,9 +36,17 @@ export class BuildAndroidCommand extends Command {
       libPath = await this.build(target, this.profile, jniDir);
     }
 
-    await generateUniffiBindings('kotlin', libPath!, kotlinDir);
+    const kotlinDirs = [
+      path.join(androidDir, 'lib-android', 'src', 'main', 'kotlin'),
+      path.join(androidDir, 'lib-jvm', 'src', 'main', 'kotlin'),
+    ];
+    for (const kotlinDir of kotlinDirs) {
+      await fs.mkdir(kotlinDir, { recursive: true });
+      await generateUniffiBindings('kotlin', libPath!, kotlinDir);
+    }
+
     await this.moveTestJniLib(jniDirForTests);
-    await this.zip(genDir, zipPath);
+    await this.zip(androidDir, zipPath);
   }
 
   private async build(target: AndroidTarget, profile: Profile, jniDir: string) {
@@ -74,10 +81,14 @@ export class BuildAndroidCommand extends Command {
     await fs.copyFile(src, dest);
   }
 
-  private async zip(genDir: string, zipPath: string) {
+  private async zip(androidDir: string, zipPath: string) {
     await fs.rm(zipPath, { force: true });
     await fs.mkdir(path.dirname(zipPath), { recursive: true });
 
-    await zip(zipPath, genDir, ['jniLibs/**', 'kotlin/**']);
+    await zip(zipPath, androidDir, [
+      'lib-android/src/main/jniLibs/**',
+      'lib-android/src/main/kotlin/**/*',
+      'lib-jvm/src/main/kotlin/**/*',
+    ]);
   }
 }

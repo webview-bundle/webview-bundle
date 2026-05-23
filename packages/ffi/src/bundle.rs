@@ -10,6 +10,7 @@ use wvb::{
   BundleEntry, BundleReader, BundleWriter, HeaderWriterOptions, IndexWriterOptions, Reader, Writer,
 };
 
+/// Fixed-size bundle file header containing format metadata.
 #[derive(uniffi::Object)]
 pub struct Header {
   pub(crate) inner: wvb::Header,
@@ -17,19 +18,27 @@ pub struct Header {
 
 #[uniffi::export]
 impl Header {
+  /// Bundle format version encoded in the header.
   pub fn version(&self) -> Version {
     Version::from(self.inner.version())
   }
 
+  /// Byte offset at which the index section ends (and data section begins).
   pub fn index_end_offset(&self) -> u64 {
     self.inner.index_end_offset()
   }
 
+  /// Byte length of the serialized index section.
   pub fn index_size(&self) -> u32 {
     self.inner.index_size()
   }
 }
 
+/// Metadata for a single entry stored in the bundle index.
+///
+/// `offset` and `len` refer to the entry's position in the data section.
+/// `content_length` is the logical (uncompressed) size exposed to HTTP clients,
+/// which may differ from `len` if the data is stored compressed.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct IndexEntry {
   pub offset: u64,
@@ -53,6 +62,8 @@ impl From<&wvb::IndexEntry> for IndexEntry {
   }
 }
 
+/// View into the index section of a bundle. Backed by the parent [`Bundle`] via
+/// an `Arc` so that individual entries can be read without copying the whole bundle.
 #[derive(uniffi::Object)]
 pub struct Index {
   bundle: Arc<wvb::Bundle>,
@@ -60,6 +71,7 @@ pub struct Index {
 
 #[uniffi::export]
 impl Index {
+  /// Returns all index entries keyed by their path (e.g. `"/index.html"`).
   pub fn entries(&self) -> HashMap<String, IndexEntry> {
     self
       .bundle
@@ -85,11 +97,18 @@ impl Index {
   }
 }
 
+/// Internal storage for [`BundleDescriptor`].
+///
+/// `Owned` holds a standalone descriptor (returned by `fetch_descriptor`); it
+/// has no data section so `index()` is not supported on this variant.
+/// `Bundle` shares the full bundle via `Arc` so both descriptor and data can be
+/// accessed through the same object.
 pub(crate) enum BundleDescriptorInner {
   Owned(wvb::BundleDescriptor),
   Bundle(Arc<wvb::Bundle>),
 }
 
+/// Header + index metadata for a bundle, without necessarily loading the data section.
 #[derive(uniffi::Object)]
 pub struct BundleDescriptor {
   pub(crate) inner: BundleDescriptorInner,
@@ -106,20 +125,23 @@ impl BundleDescriptor {
 
 #[uniffi::export]
 impl BundleDescriptor {
+  /// Bundle file header.
   pub fn header(&self) -> Arc<Header> {
     Arc::new(Header {
-      inner: self.descriptor().header().clone(),
+      inner: *self.descriptor().header(),
     })
   }
 
+  /// Returns an [`Index`] view backed by the full bundle.
+  ///
+  /// # Panics
+  /// Panics when called on a descriptor obtained via `BundleSource::fetch_descriptor`,
+  /// because that variant holds only metadata and has no data section.
+  /// Use `BundleSource::fetch` instead when data access is required.
   pub fn index(&self) -> Arc<Index> {
     match &self.inner {
       BundleDescriptorInner::Bundle(b) => Arc::new(Index { bundle: b.clone() }),
       BundleDescriptorInner::Owned(_) => {
-        // For owned descriptors (from fetch_descriptor), build a stub bundle is not possible.
-        // Return an index that reads directly from the owned descriptor.
-        // We clone the entries into a temporary bundle-less index wrapper by creating
-        // a detached index.
         panic!(
           "BundleDescriptor from fetch_descriptor does not support index(). Use fetch() instead."
         );
@@ -150,6 +172,7 @@ impl BundleDescriptor {
   }
 }
 
+/// A fully loaded bundle, giving access to both descriptor metadata and raw entry data.
 #[derive(uniffi::Object, Debug)]
 pub struct Bundle {
   pub(crate) inner: Arc<wvb::Bundle>,
@@ -157,21 +180,26 @@ pub struct Bundle {
 
 #[uniffi::export]
 impl Bundle {
+  /// Header and index metadata for this bundle.
   pub fn descriptor(&self) -> Arc<BundleDescriptor> {
     Arc::new(BundleDescriptor {
       inner: BundleDescriptorInner::Bundle(self.inner.clone()),
     })
   }
 
+  /// Returns the raw bytes for the entry at `path`, or `None` if the path does not exist.
   pub fn get_data(&self, path: String) -> Result<Option<Vec<u8>>, crate::Error> {
     Ok(self.inner.get_data(&path)?.map(|x| x.to_vec()))
   }
 
+  /// Returns the CRC-32 checksum of the data at `path`, or `None` if the path does not exist.
   pub fn get_data_checksum(&self, path: String) -> Result<Option<u32>, crate::Error> {
     Ok(self.inner.get_data_checksum(&path)?)
   }
 }
 
+/// Deserializes a bundle from an in-memory byte slice.
+/// Prefer [`read_bundle`] for large files to avoid loading everything into memory.
 #[uniffi::export]
 pub fn read_bundle_from_bytes(data: Vec<u8>) -> Result<Arc<Bundle>, crate::Error> {
   let cursor = Cursor::new(data);
@@ -181,6 +209,7 @@ pub fn read_bundle_from_bytes(data: Vec<u8>) -> Result<Arc<Bundle>, crate::Error
   }))
 }
 
+/// Reads a bundle from a file path using async I/O.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn read_bundle(filepath: String) -> Result<Arc<Bundle>, crate::Error> {
   let mut file = tokio::fs::File::open(&filepath)
@@ -192,6 +221,7 @@ pub async fn read_bundle(filepath: String) -> Result<Arc<Bundle>, crate::Error> 
   }))
 }
 
+/// Writes a bundle to a file path using async I/O. Returns the number of bytes written.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn write_bundle(bundle: Arc<Bundle>, filepath: String) -> Result<u64, crate::Error> {
   let mut file = tokio::fs::File::create(&filepath)
@@ -203,6 +233,7 @@ pub async fn write_bundle(bundle: Arc<Bundle>, filepath: String) -> Result<u64, 
   Ok(size as u64)
 }
 
+/// Serializes a bundle into an in-memory byte vector.
 #[uniffi::export]
 pub fn write_bundle_to_bytes(bundle: Arc<Bundle>) -> Result<Vec<u8>, crate::Error> {
   let mut buf = vec![];
@@ -210,18 +241,23 @@ pub fn write_bundle_to_bytes(bundle: Arc<Bundle>) -> Result<Vec<u8>, crate::Erro
   Ok(buf)
 }
 
+/// Top-level options passed to [`BundleBuilder::build`].
+/// All fields are optional; omitting them applies the library defaults.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BuildOptions {
   pub header: Option<BuildHeaderOptions>,
   pub index: Option<BuildIndexOptions>,
+  /// Seed for the CRC-32 checksum written into each data entry.
   pub data_checksum_seed: Option<u32>,
 }
 
+/// Checksum options for the bundle header section.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BuildHeaderOptions {
   pub checksum_seed: Option<u32>,
 }
 
+/// Checksum options for the bundle index section.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BuildIndexOptions {
   pub checksum_seed: Option<u32>,
@@ -263,6 +299,10 @@ impl From<BuildOptions> for BundleBuilderOptions {
   }
 }
 
+/// Incrementally assembles a bundle from individual entries before finalizing it with [`build`](BundleBuilder::build).
+///
+/// `BundleBuilder` is internally guarded by a `Mutex` so it is safe to share across
+/// threads, though in practice it is typically used from a single thread.
 #[derive(uniffi::Object)]
 pub struct BundleBuilder {
   inner: Mutex<wvb::BundleBuilder>,
@@ -271,6 +311,7 @@ pub struct BundleBuilder {
 
 #[uniffi::export]
 impl BundleBuilder {
+  /// Creates a new builder. Defaults to [`Version::V1`] when `version` is `None`.
   #[uniffi::constructor]
   pub fn new(version: Option<Version>) -> Arc<BundleBuilder> {
     Arc::new(BundleBuilder {
@@ -294,6 +335,9 @@ impl BundleBuilder {
       .collect()
   }
 
+  /// Inserts an entry at `path`. Returns `true` if a previous entry was replaced.
+  ///
+  /// `content_type` is inferred from the data bytes and file extension when `None`.
   pub fn insert_entry(
     &self,
     path: String,
@@ -318,6 +362,7 @@ impl BundleBuilder {
     Ok(replaced)
   }
 
+  /// Removes the entry at `path`. Returns `true` if an entry existed.
   pub fn remove_entry(&self, path: String) -> bool {
     self.inner.lock().unwrap().remove_entry(&path).is_some()
   }
@@ -326,6 +371,8 @@ impl BundleBuilder {
     self.inner.lock().unwrap().contains_path(&path)
   }
 
+  /// Finalizes the builder and produces a [`Bundle`].
+  /// The builder remains usable after calling `build`.
   pub fn build(&self, options: Option<BuildOptions>) -> Result<Arc<Bundle>, crate::Error> {
     let mut inner = self.inner.lock().unwrap();
     if let Some(opts) = options {

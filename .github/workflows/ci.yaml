@@ -183,11 +183,11 @@ jobs:
       - name: Setup Node.js
         uses: ./.github/actions/node-setup
       - run: yarn install --immutable
-      - name: Use JDK 17
+      - name: Use JDK 21
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
           distribution: 'temurin' # See 'Supported distributions' for available options
-          java-version: '17'
+          java-version: '21'
       - name: Install android sdk
         uses: malinskiy/action-android/install-sdk@fa103ef30331e95f266418a6a97e98f61f626887 # release/0.1.7
       - name: Install android ndk
@@ -201,6 +201,8 @@ jobs:
           cargo install cargo-ndk
       - name: Build ffi android
         run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android --target x86_64-linux-android
+      - name: Test ffi android
+        run: yarn workspaces foreach -At --include='@wvb/*' run test-ffi-android
   ffi-test-apple:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: macos-latest
@@ -215,8 +217,14 @@ jobs:
       - name: Install Rust dependencies
         run: |
           rustup target add aarch64-apple-ios aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios x86_64-apple-darwin
-      - name: Build ffi android
+      - name: Install tuist
+        uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # 3.5.1
+        with:
+          install_args: "tuist"
+      - name: Build ffi apple
         run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-apple
+      - name: Test ffi apple
+        run: yarn workspaces foreach -At --include='@wvb/*' run test-ffi-apple
   typecheck-lint:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"

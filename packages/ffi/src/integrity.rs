@@ -1,5 +1,6 @@
 use wvb::integrity;
 
+/// Hash algorithm used to compute the [`Subresource Integrity`](https://developer.mozilla.org/en-US/docs/Web/Security/Subresource_Integrity) digest of a bundle.
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum IntegrityAlgorithm {
   Sha256,
@@ -27,6 +28,11 @@ impl From<integrity::IntegrityAlgorithm> for IntegrityAlgorithm {
   }
 }
 
+/// Controls how the updater handles a missing or mismatched integrity digest.
+///
+/// - `Strict`: reject bundles whose digest doesn't match.
+/// - `Optional`: verify when a digest is present, skip when absent.
+/// - `None`: skip integrity verification entirely.
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum IntegrityPolicy {
   Strict,

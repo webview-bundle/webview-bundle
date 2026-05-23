@@ -1,0 +1,15 @@
+# Ignore Gradle project-specific cache directory
+.gradle
+
+# Ignore Gradle build output directory
+build
+
+# Ignore Kotlin plugin data
+.kotlin
+
+local.properties
+
+/lib-android/src/main/kotlin/dev/wvb/*
+/lib-android/src/main/jniLibs
+/lib-jvm/src/main/kotlin/dev/wvb/*
+/lib-jvm/jniLibsForLocalTests
