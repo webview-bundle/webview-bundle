@@ -45,7 +45,7 @@ export class BuildAndroidCommand extends Command {
       await generateUniffiBindings('kotlin', libPath!, kotlinDir);
     }
 
-    await this.moveTestJniLib(jniDirForTests);
+    await this.moveTestJniLib(jniDirForTests, libPath!);
     await this.zip(androidDir, zipPath);
   }
 
@@ -72,9 +72,9 @@ export class BuildAndroidCommand extends Command {
     return libPath;
   }
 
-  private async moveTestJniLib(destDir: string) {
-    const fileName = `lib${LIB_NAME}.dylib`;
-    const src = path.join(ROOT_DIR, 'target', 'release', fileName);
+  private async moveTestJniLib(destDir: string, libPath: string) {
+    const src = process.platform === 'darwin' ? libPath.replace(/\.so$/, '.dylib') : libPath;
+    const fileName = path.basename(src);
     const dest = path.join(destDir, fileName);
 
     await fs.mkdir(destDir, { recursive: true });
