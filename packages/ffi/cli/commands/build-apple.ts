@@ -14,6 +14,7 @@ import {
   getApplePlatformFromTarget,
 } from '../target.ts';
 import { generateUniffiBindings } from '../uniffi.ts';
+import { zip } from '../zip.ts';
 
 export class BuildAppleCommand extends Command {
   static paths = [['build', 'apple']];
@@ -26,14 +27,18 @@ export class BuildAppleCommand extends Command {
       .nonempty()
       .parse(this.targets ?? AppleTargetSchema.options);
 
-    const genDir = path.join(PKG_DIR, '.gen', 'apple');
+    const appleDir = path.join(PKG_DIR, 'apple');
 
-    await fs.rm(genDir, { recursive: true, force: true });
-    await fs.mkdir(genDir, { recursive: true });
+    const headersDir = path.join(appleDir, 'headers');
+    const swiftDir = path.join(appleDir, 'src');
+    const tmpDir = path.join(appleDir, '.uniffi-tmp');
+    const zipPath = path.join(PKG_DIR, '.output', 'apple.zip');
 
-    const headersDir = path.join(genDir, 'headers');
-    const swiftDir = path.join(genDir, 'swift');
-    const zipPath = path.join(PKG_DIR, '.gen', 'apple.zip');
+    await Promise.all(
+      [headersDir, swiftDir, tmpDir, zipPath].map(dir =>
+        fs.rm(dir, { recursive: true, force: true })
+      )
+    );
 
     const buildOutputs = new Map<ApplePlatform, string[]>();
     for (const target of targets) {
@@ -50,7 +55,7 @@ export class BuildAppleCommand extends Command {
       if (platformLibPaths.length === 1) {
         libPaths.push(...platformLibPaths);
       } else {
-        const libPath = await this.lipo(platform, platformLibPaths, genDir);
+        const libPath = await this.lipo(platform, platformLibPaths, appleDir);
         libPaths.push(libPath);
       }
     }
@@ -60,32 +65,35 @@ export class BuildAppleCommand extends Command {
       console.log(`- ${path.relative(ROOT_DIR, libPath)}`);
     }
 
-    await generateUniffiBindings('swift', libPaths[0]!, genDir);
-    await this.moveFiles('*.h', genDir, headersDir);
-    await this.consolidateModulemapFiles(genDir, headersDir);
-    await this.moveFiles('*.swift', genDir, swiftDir);
+    await generateUniffiBindings('swift', libPaths[0]!, tmpDir);
+    await this.moveFiles('*.h', tmpDir, headersDir);
+    await this.consolidateModulemapFiles(tmpDir, headersDir);
+    await this.moveFiles(['*.swift', '!Package.swift'], tmpDir, swiftDir);
+    await fs.rm(tmpDir, { recursive: true, force: true });
 
-    const xcframeworkPath = path.join(genDir, `WebViewBundle.xcframework`);
+    const xcframeworkPath = path.join(appleDir, `WebViewBundleFFI.xcframework`);
     await this.createXCFramework(libPaths, headersDir, xcframeworkPath);
     console.log(`xcframework: ${path.relative(ROOT_DIR, xcframeworkPath)}`);
 
     await fs.rm(headersDir, { recursive: true });
-    await this.zip(genDir, zipPath);
+    await this.zip(appleDir, zipPath);
   }
 
   private async build(target: AppleTarget, profile: Profile) {
     const args = ['build', '-p', PKG_NAME, '--target', target, '--profile', profile];
     await runCommand('cargo', args, {
       cwd: ROOT_DIR,
-      prefix: `[${target}]`,
+      prefix: `[build:${target}]`,
     });
 
     const libPath = path.join(getProfileTargetDir(profile, target), `lib${LIB_NAME}.a`);
     return libPath;
   }
 
-  private async lipo(platform: ApplePlatform, libPaths: string[], genDir: string) {
-    const outputDir = path.join(genDir, 'lipo', platform);
+  private async lipo(platform: ApplePlatform, libPaths: string[], appleDir: string) {
+    const outputDir = path.join(appleDir, 'lipo', platform);
+
+    await fs.rm(outputDir, { recursive: true, force: true });
     await fs.mkdir(outputDir, { recursive: true });
 
     const output = path.join(outputDir, `lib${LIB_NAME}.a`);
@@ -173,18 +181,10 @@ export class BuildAppleCommand extends Command {
     });
   }
 
-  private async zip(genDir: string, zipPath: string) {
+  private async zip(appleDir: string, zipPath: string) {
     await fs.rm(zipPath, { force: true });
     await fs.mkdir(path.dirname(zipPath), { recursive: true });
 
-    const cwd = path.join(genDir, '..');
-
-    const zipFile = path.relative(cwd, zipPath);
-    const zipDir = path.relative(cwd, genDir);
-
-    await runCommand('zip', ['-r', zipFile, zipDir], {
-      cwd,
-      prefix: '[zip] ',
-    });
+    await zip(zipPath, appleDir, ['lipo/**/*', 'src/**/*', '*.xcframework/**/*']);
   }
 }

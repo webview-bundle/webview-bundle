@@ -1,0 +1,7 @@
+TestApp.xcodeproj/
+TestApp.xcworkspace/
+Derived/
+.tuist-bin/
+xcuserdata/
+*.xcuserstate
+.DS_Store

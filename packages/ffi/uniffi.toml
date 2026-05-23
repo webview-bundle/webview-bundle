@@ -4,4 +4,4 @@ package_name = "dev.wvb"
 
 [bindings.swift]
 ffi_module_name = "wvb_ffi"
-module_name     = "WebViewBundle"
+module_name     = "WebViewBundleLibrary"

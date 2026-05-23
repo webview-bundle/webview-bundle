@@ -7,6 +7,7 @@ import { getProfileTargetDir, type Profile, ProfileOption } from '../profile.ts'
 import { runCommand } from '../run.ts';
 import { type AndroidTarget, AndroidTargetOption, AndroidTargetSchema } from '../target.ts';
 import { generateUniffiBindings } from '../uniffi.ts';
+import { zip } from '../zip.ts';
 
 export class BuildAndroidCommand extends Command {
   static paths = [['build', 'android']];
@@ -19,26 +20,37 @@ export class BuildAndroidCommand extends Command {
       .nonempty()
       .parse(this.targets ?? AndroidTargetSchema.options);
 
-    const genDir = path.join(PKG_DIR, '.gen', 'android');
+    const androidDir = path.join(PKG_DIR, 'android');
 
-    await fs.rm(genDir, { recursive: true, force: true });
-    await fs.mkdir(genDir, { recursive: true });
+    const jniDir = path.join(androidDir, 'lib-android', 'src', 'main', 'jniLibs');
+    const jniDirForTests = path.join(androidDir, 'lib-jvm', 'jniLibsForTests');
+    const zipPath = path.join(PKG_DIR, '.output', 'android.zip');
 
-    const jniDir = path.join(genDir, 'jniLibs');
-    const kotlinDir = path.join(genDir, 'kotlin');
-    const zipPath = path.join(PKG_DIR, '.gen', 'android.zip');
+    await Promise.all(
+      [jniDir, jniDirForTests].map(dir => fs.rm(dir, { force: true, recursive: true }))
+    );
 
     let libPath: string;
 
     for (const target of targets) {
-      libPath = await this.build(target, this.profile, jniDir);
+      libPath = await this.buildJniLibs(target, this.profile, jniDir);
     }
 
-    await generateUniffiBindings('kotlin', libPath!, kotlinDir);
-    await this.zip(genDir, zipPath);
+    const kotlinDirs = [
+      path.join(androidDir, 'lib-android', 'src', 'main', 'kotlin'),
+      path.join(androidDir, 'lib-jvm', 'src', 'main', 'kotlin'),
+    ];
+    for (const kotlinDir of kotlinDirs) {
+      await fs.mkdir(kotlinDir, { recursive: true });
+      await generateUniffiBindings('kotlin', libPath!, kotlinDir);
+    }
+
+    await this.buildTestJniLib(this.profile);
+    await this.moveTestJniLib(this.profile, jniDirForTests);
+    await this.zip(androidDir, zipPath);
   }
 
-  private async build(target: AndroidTarget, profile: Profile, jniDir: string) {
+  private async buildJniLibs(target: AndroidTarget, profile: Profile, jniDir: string) {
     const args = [
       'ndk',
       '--target',
@@ -54,25 +66,41 @@ export class BuildAndroidCommand extends Command {
 
     await runCommand('cargo', args, {
       cwd: ROOT_DIR,
-      prefix: `[${target}]`,
+      prefix: `[buildJniLibs:${target}]`,
     });
 
     const libPath = path.join(getProfileTargetDir(profile, target), `lib${LIB_NAME}.so`);
     return libPath;
   }
 
-  private async zip(genDir: string, zipPath: string) {
+  private async buildTestJniLib(profile: Profile) {
+    const args = ['build', '--profile', profile, '--package', PKG_NAME];
+
+    await runCommand('cargo', args, {
+      cwd: ROOT_DIR,
+      prefix: `[buildTestJniLib] `,
+    });
+  }
+
+  private async moveTestJniLib(profile: Profile, destDir: string) {
+    const extension = process.platform === 'darwin' ? '.dylib' : '.so';
+    const fileName = `lib${LIB_NAME}${extension}`;
+
+    const libPath = path.join(getProfileTargetDir(profile), fileName);
+    const dest = path.join(destDir, fileName);
+
+    await fs.mkdir(destDir, { recursive: true });
+    await fs.copyFile(libPath, dest);
+  }
+
+  private async zip(androidDir: string, zipPath: string) {
     await fs.rm(zipPath, { force: true });
     await fs.mkdir(path.dirname(zipPath), { recursive: true });
 
-    const cwd = path.join(genDir, '..');
-
-    const zipFile = path.relative(cwd, zipPath);
-    const zipDir = path.relative(cwd, genDir);
-
-    await runCommand('zip', ['-r', zipFile, zipDir], {
-      cwd,
-      prefix: '[zip] ',
-    });
+    await zip(zipPath, androidDir, [
+      'lib-android/src/main/jniLibs/**',
+      'lib-android/src/main/kotlin/**/*',
+      'lib-jvm/src/main/kotlin/**/*',
+    ]);
   }
 }

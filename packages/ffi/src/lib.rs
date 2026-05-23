@@ -1,21 +1,24 @@
-mod a;
+//! FFI bindings for the WebViewBundle library, generated via [UniFFI](https://mozilla.github.io/uniffi-rs/).
+//!
+//! Each module exposes a thin wrapper over the corresponding `wvb` core type,
+//! translating between Rust-native types and the flattened record/enum/object
+//! types that UniFFI can project into Kotlin, Swift, and other target languages.
 
-pub use a::Header;
-use std::sync::Arc;
+pub mod bundle;
+pub mod error;
+pub mod http;
+pub mod integrity;
+pub mod mime;
+pub mod protocol;
+pub mod remote;
+pub mod signature;
+pub mod source;
+pub mod updater;
+pub mod version;
 
-#[derive(uniffi::Object)]
-pub struct BundleProtocol {}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl BundleProtocol {
-  #[uniffi::constructor]
-  pub fn new() -> Arc<Self> {
-    Arc::new(Self {})
-  }
-
-  pub async fn handle(&self) -> String {
-    "Hello World".to_string()
-  }
-}
+pub use error::Error;
+/// Convenience alias used throughout the FFI layer so every fallible function
+/// returns the same [`Error`] type without repeating it.
+pub type Result<T> = std::result::Result<T, Error>;
 
 uniffi::setup_scaffolding!();
