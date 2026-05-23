@@ -7,6 +7,7 @@ import { getProfileTargetDir, type Profile, ProfileOption } from '../profile.ts'
 import { runCommand } from '../run.ts';
 import { type AndroidTarget, AndroidTargetOption, AndroidTargetSchema } from '../target.ts';
 import { generateUniffiBindings } from '../uniffi.ts';
+import { zip } from '../zip.ts';
 
 export class BuildAndroidCommand extends Command {
   static paths = [['build', 'android']];
@@ -19,14 +20,16 @@ export class BuildAndroidCommand extends Command {
       .nonempty()
       .parse(this.targets ?? AndroidTargetSchema.options);
 
-    const genDir = path.join(PKG_DIR, '.gen', 'android');
-
-    await fs.rm(genDir, { recursive: true, force: true });
-    await fs.mkdir(genDir, { recursive: true });
+    const genDir = path.join(PKG_DIR, 'gen', 'android');
 
     const jniDir = path.join(genDir, 'jniLibs');
+    const jniDirForTests = path.join(genDir, 'jniLibsForTests');
     const kotlinDir = path.join(genDir, 'kotlin');
-    const zipPath = path.join(PKG_DIR, '.gen', 'android.zip');
+    const zipPath = path.join(PKG_DIR, 'gen', 'android.zip');
+
+    await Promise.all(
+      [jniDir, jniDirForTests, kotlinDir].map(dir => fs.rm(dir, { force: true, recursive: true }))
+    );
 
     let libPath: string;
 
@@ -35,6 +38,7 @@ export class BuildAndroidCommand extends Command {
     }
 
     await generateUniffiBindings('kotlin', libPath!, kotlinDir);
+    await this.moveTestJniLib(jniDirForTests);
     await this.zip(genDir, zipPath);
   }
 
@@ -61,18 +65,19 @@ export class BuildAndroidCommand extends Command {
     return libPath;
   }
 
+  private async moveTestJniLib(destDir: string) {
+    const fileName = `lib${LIB_NAME}.dylib`;
+    const src = path.join(ROOT_DIR, 'target', 'release', fileName);
+    const dest = path.join(destDir, fileName);
+
+    await fs.mkdir(destDir, { recursive: true });
+    await fs.copyFile(src, dest);
+  }
+
   private async zip(genDir: string, zipPath: string) {
     await fs.rm(zipPath, { force: true });
     await fs.mkdir(path.dirname(zipPath), { recursive: true });
 
-    const cwd = path.join(genDir, '..');
-
-    const zipFile = path.relative(cwd, zipPath);
-    const zipDir = path.relative(cwd, genDir);
-
-    await runCommand('zip', ['-r', zipFile, zipDir], {
-      cwd,
-      prefix: '[zip] ',
-    });
+    await zip(zipPath, genDir, ['jniLibs/**', 'kotlin/**']);
   }
 }

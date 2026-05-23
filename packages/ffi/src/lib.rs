@@ -1,21 +1,16 @@
-mod a;
+pub mod bundle;
+pub mod error;
+pub mod http;
+pub mod integrity;
+pub mod mime;
+pub mod protocol;
+pub mod remote;
+pub mod signature;
+pub mod source;
+pub mod updater;
+pub mod version;
 
-pub use a::Header;
-use std::sync::Arc;
-
-#[derive(uniffi::Object)]
-pub struct BundleProtocol {}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl BundleProtocol {
-  #[uniffi::constructor]
-  pub fn new() -> Arc<Self> {
-    Arc::new(Self {})
-  }
-
-  pub async fn handle(&self) -> String {
-    "Hello World".to_string()
-  }
-}
+pub use error::Error;
+pub type Result<T> = std::result::Result<T, Error>;
 
 uniffi::setup_scaffolding!();

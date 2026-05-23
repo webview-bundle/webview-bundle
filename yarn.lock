@@ -6155,6 +6155,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/yazl@npm:^3":
+  version: 3.3.1
+  resolution: "@types/yazl@npm:3.3.1"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10c0/bc72a56c88d99021ecb80ee9c0a2eb3dceb5bec522c20fd4e160d5c52dcc156c37b2e956a05d54e89e7ececba82aca07a361a9e8f66e5ebbbfcdcd8d2c0dfc0e
+  languageName: node
+  linkType: hard
+
 "@vercel/examples-ui@npm:1.0.5":
   version: 1.0.5
   resolution: "@vercel/examples-ui@npm:1.0.5"
@@ -6331,10 +6340,12 @@ __metadata:
   resolution: "@wvb/ffi@workspace:packages/ffi"
   dependencies:
     "@ltd/j-toml": "npm:^1.38.0"
+    "@types/yazl": "npm:^3"
     clipanion: "npm:4.0.0-rc.4"
     execa: "npm:^9"
     typanion: "npm:^3.14.0"
     typescript: "catalog:"
+    yazl: "npm:^3.3.1"
     zod: "npm:^4.0.5"
   languageName: unknown
   linkType: soft
@@ -6940,6 +6951,13 @@ __metadata:
   bin:
     browserslist: cli.js
   checksum: 10c0/545a5fa9d7234e3777a7177ec1e9134bb2ba60a69e6b95683f6982b1473aad347c77c1264ccf2ac5dea609a9731fbfbda6b85782bdca70f80f86e28a402504bd
+  languageName: node
+  linkType: hard
+
+"buffer-crc32@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "buffer-crc32@npm:1.0.0"
+  checksum: 10c0/8b86e161cee4bb48d5fa622cbae4c18f25e4857e5203b89e23de59e627ab26beb82d9d7999f2b8de02580165f61f83f997beaf02980cdf06affd175b651921ab
   languageName: node
   linkType: hard
 
@@ -12641,6 +12659,15 @@ __metadata:
     buffer-crc32: "npm:~0.2.3"
     fd-slicer: "npm:~1.1.0"
   checksum: 10c0/f265002af7541b9ec3589a27f5fb8f11cf348b53cc15e2751272e3c062cd73f3e715bc72d43257de71bbaecae446c3f1b14af7559e8ab0261625375541816422
+  languageName: node
+  linkType: hard
+
+"yazl@npm:^3.3.1":
+  version: 3.3.1
+  resolution: "yazl@npm:3.3.1"
+  dependencies:
+    buffer-crc32: "npm:^1.0.0"
+  checksum: 10c0/8290dffd8afc4ea32459c0ce5d7e22af250515aa0170f289cbc896530d3cd40c5be4788b5e3e7aa5cd21889778071f424e1824faadbd257dbd5ff80fb60d1fa6
   languageName: node
   linkType: hard
 

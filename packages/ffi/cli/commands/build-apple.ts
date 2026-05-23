@@ -14,6 +14,7 @@ import {
   getApplePlatformFromTarget,
 } from '../target.ts';
 import { generateUniffiBindings } from '../uniffi.ts';
+import { zip } from '../zip.ts';
 
 export class BuildAppleCommand extends Command {
   static paths = [['build', 'apple']];
@@ -26,14 +27,15 @@ export class BuildAppleCommand extends Command {
       .nonempty()
       .parse(this.targets ?? AppleTargetSchema.options);
 
-    const genDir = path.join(PKG_DIR, '.gen', 'apple');
-
-    await fs.rm(genDir, { recursive: true, force: true });
-    await fs.mkdir(genDir, { recursive: true });
+    const genDir = path.join(PKG_DIR, 'gen', 'apple');
 
     const headersDir = path.join(genDir, 'headers');
     const swiftDir = path.join(genDir, 'swift');
-    const zipPath = path.join(PKG_DIR, '.gen', 'apple.zip');
+    const zipPath = path.join(PKG_DIR, 'gen', 'apple.zip');
+
+    await Promise.all(
+      [headersDir, swiftDir, zipPath].map(dir => fs.rm(dir, { recursive: true, force: true }))
+    );
 
     const buildOutputs = new Map<ApplePlatform, string[]>();
     for (const target of targets) {
@@ -63,7 +65,7 @@ export class BuildAppleCommand extends Command {
     await generateUniffiBindings('swift', libPaths[0]!, genDir);
     await this.moveFiles('*.h', genDir, headersDir);
     await this.consolidateModulemapFiles(genDir, headersDir);
-    await this.moveFiles('*.swift', genDir, swiftDir);
+    await this.moveFiles(['*.swift', '!Package.swift'], genDir, swiftDir);
 
     const xcframeworkPath = path.join(genDir, `WebViewBundle.xcframework`);
     await this.createXCFramework(libPaths, headersDir, xcframeworkPath);
@@ -86,6 +88,8 @@ export class BuildAppleCommand extends Command {
 
   private async lipo(platform: ApplePlatform, libPaths: string[], genDir: string) {
     const outputDir = path.join(genDir, 'lipo', platform);
+
+    await fs.rm(outputDir, { recursive: true, force: true });
     await fs.mkdir(outputDir, { recursive: true });
 
     const output = path.join(outputDir, `lib${LIB_NAME}.a`);
@@ -177,14 +181,6 @@ export class BuildAppleCommand extends Command {
     await fs.rm(zipPath, { force: true });
     await fs.mkdir(path.dirname(zipPath), { recursive: true });
 
-    const cwd = path.join(genDir, '..');
-
-    const zipFile = path.relative(cwd, zipPath);
-    const zipDir = path.relative(cwd, genDir);
-
-    await runCommand('zip', ['-r', zipFile, zipDir], {
-      cwd,
-      prefix: '[zip] ',
-    });
+    await zip(zipPath, genDir, ['lipo/**', 'swift/**', 'WebViewBundle.xcframework/**']);
   }
 }

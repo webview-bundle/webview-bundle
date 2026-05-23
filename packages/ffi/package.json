@@ -7,14 +7,19 @@
     "build-ffi": "yarn build-ffi-android && yarn build-ffi-apple",
     "build-ffi-android": "node ./cli/main.ts build android --profile=release",
     "build-ffi-apple": "node ./cli/main.ts build apple --profile=release",
+    "test-ffi": "yarn test-ffi-android && yarn test-ffi-apple",
+    "test-ffi-android": "cd gen/android && ./gradlew :lib:test",
+    "test-ffi-apple": "cd gen/apple && swift test",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@ltd/j-toml": "^1.38.0",
+    "@types/yazl": "^3",
     "clipanion": "4.0.0-rc.4",
     "execa": "^9",
     "typanion": "^3.14.0",
     "typescript": "catalog:",
+    "yazl": "^3.3.1",
     "zod": "^4.0.5"
   }
 }
