@@ -33,7 +33,7 @@ export class BuildAndroidCommand extends Command {
     let libPath: string;
 
     for (const target of targets) {
-      libPath = await this.build(target, this.profile, jniDir);
+      libPath = await this.buildJniLibs(target, this.profile, jniDir);
     }
 
     const kotlinDirs = [
@@ -45,11 +45,12 @@ export class BuildAndroidCommand extends Command {
       await generateUniffiBindings('kotlin', libPath!, kotlinDir);
     }
 
-    await this.moveTestJniLib(jniDirForTests, libPath!);
+    await this.buildTestJniLib(this.profile);
+    await this.moveTestJniLib(this.profile, jniDirForTests);
     await this.zip(androidDir, zipPath);
   }
 
-  private async build(target: AndroidTarget, profile: Profile, jniDir: string) {
+  private async buildJniLibs(target: AndroidTarget, profile: Profile, jniDir: string) {
     const args = [
       'ndk',
       '--target',
@@ -65,20 +66,31 @@ export class BuildAndroidCommand extends Command {
 
     await runCommand('cargo', args, {
       cwd: ROOT_DIR,
-      prefix: `[${target}]`,
+      prefix: `[buildJniLibs:${target}]`,
     });
 
     const libPath = path.join(getProfileTargetDir(profile, target), `lib${LIB_NAME}.so`);
     return libPath;
   }
 
-  private async moveTestJniLib(destDir: string, libPath: string) {
-    const src = process.platform === 'darwin' ? libPath.replace(/\.so$/, '.dylib') : libPath;
-    const fileName = path.basename(src);
+  private async buildTestJniLib(profile: Profile) {
+    const args = ['build', '--profile', profile, '--package', PKG_NAME];
+
+    await runCommand('cargo', args, {
+      cwd: ROOT_DIR,
+      prefix: `[buildTestJniLib] `,
+    });
+  }
+
+  private async moveTestJniLib(profile: Profile, destDir: string) {
+    const extension = process.platform === 'darwin' ? '.dylib' : '.so';
+    const fileName = `lib${LIB_NAME}${extension}`;
+
+    const libPath = path.join(getProfileTargetDir(profile), fileName);
     const dest = path.join(destDir, fileName);
 
     await fs.mkdir(destDir, { recursive: true });
-    await fs.copyFile(src, dest);
+    await fs.copyFile(libPath, dest);
   }
 
   private async zip(androidDir: string, zipPath: string) {

@@ -19,6 +19,6 @@ java {
 
 tasks.named<Test>("test") {
     useJUnitPlatform()
-    val nativeLibDir = layout.projectDirectory.dir("jniLibsForLocalTests").asFile.canonicalPath
+    val nativeLibDir = layout.projectDirectory.dir("jniLibsForTests").asFile.canonicalPath
     systemProperty("jna.library.path", nativeLibDir)
 }

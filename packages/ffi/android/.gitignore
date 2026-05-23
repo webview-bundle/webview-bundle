@@ -12,4 +12,4 @@ local.properties
 /lib-android/src/main/kotlin/dev/wvb/*
 /lib-android/src/main/jniLibs
 /lib-jvm/src/main/kotlin/dev/wvb/*
-/lib-jvm/jniLibsForLocalTests
+/lib-jvm/jniLibsForTests/

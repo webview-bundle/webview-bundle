@@ -83,7 +83,7 @@ export class BuildAppleCommand extends Command {
     const args = ['build', '-p', PKG_NAME, '--target', target, '--profile', profile];
     await runCommand('cargo', args, {
       cwd: ROOT_DIR,
-      prefix: `[${target}]`,
+      prefix: `[build:${target}]`,
     });
 
     const libPath = path.join(getProfileTargetDir(profile, target), `lib${LIB_NAME}.a`);
