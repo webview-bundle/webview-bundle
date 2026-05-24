@@ -65,7 +65,7 @@ export class PrereleaseCommand extends Command {
     if (await this.alreadyReleased(tag)) {
       console.log(`${c.warn('[root]')} "${tag}" already exists. nothing to prerelease.`);
       await this.setOutput('prereleased', 'false');
-      return 0;
+      return 1;
     }
 
     // 1) Registry prereleases: bump + publish only packages that publish to a registry.
