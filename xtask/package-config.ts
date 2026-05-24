@@ -18,7 +18,6 @@ export type Script = z.infer<typeof ScriptSchema>;
 export const PackageConfigSchema = z.object({
   name: z.string().optional().describe('Package name'),
   changelog: z.string().optional().describe('Changelog file path [Default: CHANGELOG.md]'),
-  scopes: z.array(z.string()).optional().describe('Additional package scopes'),
   artifacts: z.array(ArtifactSchema).optional().describe('Package artifacts config'),
   beforePublishScripts: z
     .array(ScriptSchema)

@@ -11,10 +11,18 @@ import {
   parseCargoToml,
 } from './cargo-toml.ts';
 import { ROOT_DIR } from './consts.ts';
+import { never } from './utils.ts';
 import { type BumpRule, Version } from './version.ts';
 
 export const VersionedFileTypeSchema = z.enum(['package.json', 'Cargo.toml']);
 export type VersionedFileType = z.infer<typeof VersionedFileTypeSchema>;
+
+export interface VersionedFileRegistry {
+  name: string;
+  type: string;
+  version: string;
+  url: string;
+}
 
 export class VersionedFile {
   readonly type: VersionedFileType;
@@ -84,9 +92,43 @@ export class VersionedFile {
     return this.pkgManager.canPublish;
   }
 
+  /** Names of the dependencies declared in this manifest (used to build the dependency graph). */
+  get dependencyNames(): string[] {
+    return this.pkgManager.dependencyNames;
+  }
+
+  get registry(): VersionedFileRegistry {
+    const version = this.nextVersion.toString();
+
+    switch (this.type) {
+      case 'package.json':
+        return {
+          name: this.name,
+          type: 'npm',
+          version,
+          url: `https://www.npmjs.com/package/${this.name}/v/${version}`,
+        };
+      case 'Cargo.toml':
+        return {
+          name: this.name,
+          type: 'cargo',
+          version,
+          url: `https://crates.io/crates/${this.name}/${version}`,
+        };
+      default:
+        return never();
+    }
+  }
+
   bumpVersion(rule: BumpRule): void {
     this._nextVersion = this.pkgManager.version.clone();
     this._nextVersion.bump(rule);
+  }
+
+  /** Set the pending version to a prerelease of the current version (`x.y.z-<id>.<build>`). */
+  setPrerelease(id: string, build: string): void {
+    this._nextVersion = this.pkgManager.version.clone();
+    this._nextVersion.toPrerelease(id, build);
   }
 
   write(): Action[] {
@@ -96,11 +138,24 @@ export class VersionedFile {
     return this.pkgManager.write(this.nextVersion);
   }
 
-  publish(): Action[] {
+  publish(distTag?: string): Action[] {
     if (!this.hasChanged || !this.canPublish) {
       return [];
     }
-    return this.pkgManager.publish(this.nextVersion);
+    return this.pkgManager.publish(this.nextVersion, distTag);
+  }
+
+  /**
+   * Publish actions for the file's *current* version, regardless of `hasChanged`.
+   *
+   * Used by the tag-based `publish` command, where version files were already bumped by a
+   * merged Release PR (so there is no pending bump in this run).
+   */
+  publishCurrent(distTag?: string): Action[] {
+    if (!this.canPublish) {
+      return [];
+    }
+    return this.pkgManager.publish(this.version, distTag);
   }
 }
 
@@ -109,8 +164,9 @@ interface PackageManager {
   readonly path: string;
   readonly version: Version;
   readonly canPublish: boolean;
+  readonly dependencyNames: string[];
   write(nextVersion: Version): Action[];
-  publish(nextVersion: Version): Action[];
+  publish(version: Version, distTag?: string): Action[];
 }
 
 class PackageJson implements PackageManager {
@@ -147,6 +203,15 @@ class PackageJson implements PackageManager {
     return this.json.private !== true;
   }
 
+  get dependencyNames(): string[] {
+    return [
+      ...Object.keys(this.json.dependencies ?? {}),
+      ...Object.keys(this.json.devDependencies ?? {}),
+      ...Object.keys(this.json.peerDependencies ?? {}),
+      ...Object.keys(this.json.optionalDependencies ?? {}),
+    ];
+  }
+
   write(nextVersion: Version): Action[] {
     const json = { ...this.json };
     json.version = nextVersion.toString();
@@ -162,11 +227,15 @@ class PackageJson implements PackageManager {
     ];
   }
 
-  publish(nextVersion: Version): Action[] {
+  publish(version: Version, distTag?: string): Action[] {
     const args = ['npm', 'publish', '--access=public', '--provenance'];
-    const prerelease = nextVersion.prerelease;
+    const prerelease = version.prerelease;
     if (prerelease != null) {
+      // Prereleases publish under their channel id (e.g. `next`).
       args.push(`--tag=${prerelease.id}`);
+    } else if (distTag != null) {
+      // Maintenance lines publish under a line tag so `latest` never moves backward.
+      args.push(`--tag=${distTag}`);
     }
     return [
       {
@@ -211,6 +280,18 @@ class Cargo implements PackageManager {
 
   get canPublish(): boolean {
     return this.toml.package?.publish !== false;
+  }
+
+  get dependencyNames(): string[] {
+    const fromTable = (table?: Record<string, string | { package?: string }>): string[] =>
+      Object.entries(table ?? {}).map(([key, value]) =>
+        typeof value === 'object' && value.package != null ? value.package : key
+      );
+    return [
+      ...fromTable(this.toml.dependencies),
+      ...fromTable(this.toml['dev-dependencies']),
+      ...fromTable(this.toml['build-dependencies']),
+    ];
   }
 
   write(nextVersion: Version): Action[] {

@@ -7656,90 +7656,90 @@ __metadata:
   languageName: node
   linkType: hard
 
-"es-git-android-arm-eabi@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-android-arm-eabi@npm:0.3.0"
+"es-git-android-arm-eabi@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-android-arm-eabi@npm:0.7.0"
   conditions: os=android & cpu=arm
   languageName: node
   linkType: hard
 
-"es-git-android-arm64@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-android-arm64@npm:0.3.0"
+"es-git-android-arm64@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-android-arm64@npm:0.7.0"
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
 
-"es-git-darwin-arm64@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-darwin-arm64@npm:0.3.0"
+"es-git-darwin-arm64@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-darwin-arm64@npm:0.7.0"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
-"es-git-darwin-x64@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-darwin-x64@npm:0.3.0"
+"es-git-darwin-x64@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-darwin-x64@npm:0.7.0"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
-"es-git-linux-arm64-gnu@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-linux-arm64-gnu@npm:0.3.0"
+"es-git-linux-arm64-gnu@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-linux-arm64-gnu@npm:0.7.0"
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
 
-"es-git-linux-arm64-musl@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-linux-arm64-musl@npm:0.3.0"
+"es-git-linux-arm64-musl@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-linux-arm64-musl@npm:0.7.0"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
 
-"es-git-linux-x64-gnu@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-linux-x64-gnu@npm:0.3.0"
+"es-git-linux-x64-gnu@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-linux-x64-gnu@npm:0.7.0"
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
 
-"es-git-linux-x64-musl@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-linux-x64-musl@npm:0.3.0"
+"es-git-linux-x64-musl@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-linux-x64-musl@npm:0.7.0"
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
-"es-git-win32-arm64-msvc@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-win32-arm64-msvc@npm:0.3.0"
+"es-git-win32-arm64-msvc@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-win32-arm64-msvc@npm:0.7.0"
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
 
-"es-git-win32-x64-msvc@npm:0.3.0":
-  version: 0.3.0
-  resolution: "es-git-win32-x64-msvc@npm:0.3.0"
+"es-git-win32-x64-msvc@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git-win32-x64-msvc@npm:0.7.0"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
-"es-git@npm:^0.3.0":
-  version: 0.3.0
-  resolution: "es-git@npm:0.3.0"
+"es-git@npm:0.7.0":
+  version: 0.7.0
+  resolution: "es-git@npm:0.7.0"
   dependencies:
-    es-git-android-arm-eabi: "npm:0.3.0"
-    es-git-android-arm64: "npm:0.3.0"
-    es-git-darwin-arm64: "npm:0.3.0"
-    es-git-darwin-x64: "npm:0.3.0"
-    es-git-linux-arm64-gnu: "npm:0.3.0"
-    es-git-linux-arm64-musl: "npm:0.3.0"
-    es-git-linux-x64-gnu: "npm:0.3.0"
-    es-git-linux-x64-musl: "npm:0.3.0"
-    es-git-win32-arm64-msvc: "npm:0.3.0"
-    es-git-win32-x64-msvc: "npm:0.3.0"
+    es-git-android-arm-eabi: "npm:0.7.0"
+    es-git-android-arm64: "npm:0.7.0"
+    es-git-darwin-arm64: "npm:0.7.0"
+    es-git-darwin-x64: "npm:0.7.0"
+    es-git-linux-arm64-gnu: "npm:0.7.0"
+    es-git-linux-arm64-musl: "npm:0.7.0"
+    es-git-linux-x64-gnu: "npm:0.7.0"
+    es-git-linux-x64-musl: "npm:0.7.0"
+    es-git-win32-arm64-msvc: "npm:0.7.0"
+    es-git-win32-x64-msvc: "npm:0.7.0"
   dependenciesMeta:
     es-git-android-arm-eabi:
       optional: true
@@ -7761,7 +7761,7 @@ __metadata:
       optional: true
     es-git-win32-x64-msvc:
       optional: true
-  checksum: 10c0/b35f43633b48adf308aee7abe65fdb130a73d9de492c7d58a42ad87c26bc2df2b200243deeb507518fcd95c83810b26fd09a41500c86590571b97818a48b9e62
+  checksum: 10c0/ccc430494c4678abf20a0ea496be83e9c67ca21c8958baab0a26e7d356b0195a43baa46fd07aab09d105e8d61b027e5a470bd26a71c9e00d575dc4a438abb19e
   languageName: node
   linkType: hard
 
@@ -12560,7 +12560,7 @@ __metadata:
     ci-info: "npm:^4.2.0"
     clipanion: "npm:^4.0.0-rc.4"
     diff: "npm:^8.0.3"
-    es-git: "npm:^0.3.0"
+    es-git: "npm:0.7.0"
     es-toolkit: "npm:^1.37.1"
     execa: "npm:^9.6.1"
     kleur: "npm:^4.1.5"

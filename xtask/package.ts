@@ -50,6 +50,70 @@ export class Package {
     return packages;
   }
 
+  static buildGraph(packages: Package[]): PackageGraph {
+    const provideToPkg = new Map<string, Package>();
+    for (const pkg of packages) {
+      for (const name of pkg.versionFileNames) {
+        provideToPkg.set(name, pkg);
+      }
+    }
+    const dependencies = new Map<Package, Set<Package>>();
+    const dependents = new Map<Package, Set<Package>>();
+    for (const pkg of packages) {
+      dependencies.set(pkg, new Set());
+      dependents.set(pkg, new Set());
+    }
+    for (const pkg of packages) {
+      for (const depName of pkg.versionFileDependencyNames) {
+        const dep = provideToPkg.get(depName);
+        if (dep != null && dep !== pkg) {
+          dependencies.get(pkg)!.add(dep);
+          dependents.get(dep)!.add(pkg);
+        }
+      }
+    }
+    return {
+      packages,
+      dependenciesOf: pkg => [...(dependencies.get(pkg) ?? [])],
+      dependentsOf: pkg => [...(dependents.get(pkg) ?? [])],
+      transitiveDependents(seeds) {
+        const result = new Set<Package>();
+        const stack = [...seeds];
+        while (stack.length > 0) {
+          const current = stack.pop()!;
+          for (const dependent of dependents.get(current) ?? []) {
+            if (!result.has(dependent)) {
+              result.add(dependent);
+              stack.push(dependent);
+            }
+          }
+        }
+        return result;
+      },
+      topoSort(subset) {
+        const set = new Set(subset);
+        const visited = new Set<Package>();
+        const order: Package[] = [];
+        const visit = (pkg: Package): void => {
+          if (visited.has(pkg)) {
+            return;
+          }
+          visited.add(pkg);
+          for (const dep of dependencies.get(pkg) ?? []) {
+            if (set.has(dep)) {
+              visit(dep);
+            }
+          }
+          order.push(pkg);
+        };
+        for (const pkg of set) {
+          visit(pkg);
+        }
+        return order;
+      },
+    };
+  }
+
   constructor(
     name: string,
     path: string,
@@ -70,9 +134,19 @@ export class Package {
     return this.config.changelog ?? path.join(this.path, 'CHANGELOG.md');
   }
 
-  get scopes(): readonly string[] {
-    const scopes = this.config.scopes ?? [];
-    return uniq([...scopes, this.name, 'all']);
+  /** The package names this package provides across all its manifests (npm names and/or crate names). */
+  get versionFileNames(): string[] {
+    return uniq(this.versionedFiles.map(f => f.name));
+  }
+
+  /** The dependency names declared across all its manifests (used to build the dependency graph). */
+  get versionFileDependencyNames(): string[] {
+    return uniq(this.versionedFiles.flatMap(f => f.dependencyNames));
+  }
+
+  /** Whether any of this package's manifests can be published (e.g. not `private`/`publish = false`). */
+  get canPublish(): boolean {
+    return this.versionedFiles.some(f => f.canPublish);
   }
 
   get artifacts(): readonly Artifact[] {
@@ -114,11 +188,42 @@ export class Package {
     return this;
   }
 
+  /** Set every manifest's pending version to a prerelease of its current version. */
+  bumpPrerelease(id: string, build: string): this {
+    for (const versionedFile of this.versionedFiles) {
+      versionedFile.setPrerelease(id, build);
+    }
+    return this;
+  }
+
   write(): Action[] {
     return this.versionedFiles.flatMap(x => x.write());
   }
 
-  publish(): Action[] {
-    return this.versionedFiles.flatMap(x => x.publish());
+  publish(distTag?: string): Action[] {
+    return this.versionedFiles.flatMap(x => x.publish(distTag));
   }
+
+  /** Publish actions for the current (already-written) version. Used by tag-based publish. */
+  publishCurrent(distTag?: string): Action[] {
+    return this.versionedFiles.flatMap(x => x.publishCurrent(distTag));
+  }
+}
+
+/**
+ * The dependency graph over packages, derived from `package.json`/`Cargo.toml` dependency names
+ * (an edge `A -> B` means a manifest of `A` depends on a package name `B` provides). It replaces
+ * conventional-commit scopes for deciding propagation: when a package changes, every package that
+ * (transitively) depends on it must be released too so it picks up the new version.
+ */
+export interface PackageGraph {
+  readonly packages: readonly Package[];
+  /** Packages that `pkg` directly depends on. */
+  dependenciesOf(pkg: Package): Package[];
+  /** Packages that directly depend on `pkg`. */
+  dependentsOf(pkg: Package): Package[];
+  /** All packages that transitively depend on any of `seeds` (excluding the seeds themselves). */
+  transitiveDependents(seeds: Iterable<Package>): Set<Package>;
+  /** Order `subset` so that dependencies come before the packages that depend on them. */
+  topoSort(subset: Iterable<Package>): Package[];
 }

@@ -90,25 +90,3 @@ benchmark: build
 # Run xtask
 xtask *ARGS:
     node ./xtask/cli.ts {{ ARGS }}
-
-git_current_branch := shell('git rev-parse --abbrev-ref HEAD')
-
-# Prerelease
-prerelease:
-    #!/usr/bin/env bash
-    if [ "{{ git_current_branch}}" != "main" ]; then \
-      echo "prerelease script must be run in \"main\" branch"; \
-      exit 1; \
-    fi
-    git tag -a prerelease -m "prerelease" --force
-    git push origin prerelease --force
-
-# Release
-release:
-    #!/usr/bin/env bash
-    if [ "{{ git_current_branch}}" != "main" ]; then \
-      echo "release script must be run in \"main\" branch"; \
-      exit 1; \
-    fi
-    git tag -a release -m "release" --force
-    git push origin release --force

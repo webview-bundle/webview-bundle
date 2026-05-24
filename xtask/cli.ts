@@ -3,7 +3,8 @@ import { ArtifactsMergeCommand } from './commands/artifacts-merge.ts';
 import { ArtifactsSpreadCommand } from './commands/artifacts-spread.ts';
 import { AttwCommand } from './commands/attw.ts';
 import { PrepareReleaseCommand } from './commands/prepare-release.ts';
-import { Release } from './commands/release.ts';
+import { PrereleaseCommand } from './commands/prerelease.ts';
+import { ReleaseCommand } from './commands/release.ts';
 
 const [, , ...args] = process.argv;
 
@@ -13,8 +14,9 @@ const cli = new Cli({
   binaryVersion: '0.0.0',
 });
 
-cli.register(Release);
 cli.register(PrepareReleaseCommand);
+cli.register(ReleaseCommand);
+cli.register(PrereleaseCommand);
 cli.register(ArtifactsSpreadCommand);
 cli.register(ArtifactsMergeCommand);
 cli.register(AttwCommand);

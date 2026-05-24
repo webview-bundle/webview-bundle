@@ -22,16 +22,20 @@ function deepKeyToCamelCase(x: any): any {
 
 const taploConfig: any = deepKeyToCamelCase(TOML.parse(taploConfigRaw, { bigint: false }));
 
+type CargoDependency = string | { version?: string; package?: string };
+type CargoDependencies = Record<string, CargoDependency>;
+
 export interface CargoToml {
   package?: {
     name?: string;
     version?: string;
     publish?: boolean;
   };
-  dependencies?: Record<string, string | { version?: string }>;
-  'dev-dependencies'?: Record<string, string | { version?: string }>;
+  dependencies?: CargoDependencies;
+  'dev-dependencies'?: CargoDependencies;
+  'build-dependencies'?: CargoDependencies;
   workspace?: {
-    dependencies?: Record<string, string | { version?: string }>;
+    dependencies?: CargoDependencies;
   };
 }
 

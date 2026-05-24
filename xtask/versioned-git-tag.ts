@@ -36,4 +36,8 @@ export class VersionedGitTag {
     }
     return repo.findTag(tagOid);
   }
+
+  exists(repo: Repository): boolean {
+    return this.findTag(repo) != null;
+  }
 }

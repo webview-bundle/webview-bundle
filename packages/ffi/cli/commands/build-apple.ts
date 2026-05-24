@@ -32,12 +32,10 @@ export class BuildAppleCommand extends Command {
     const headersDir = path.join(appleDir, 'headers');
     const swiftDir = path.join(appleDir, 'src');
     const tmpDir = path.join(appleDir, '.uniffi-tmp');
-    const zipPath = path.join(PKG_DIR, '.output', 'apple.zip');
+    const outputDir = path.join(PKG_DIR, '.output');
 
     await Promise.all(
-      [headersDir, swiftDir, tmpDir, zipPath].map(dir =>
-        fs.rm(dir, { recursive: true, force: true })
-      )
+      [headersDir, swiftDir, tmpDir].map(dir => fs.rm(dir, { recursive: true, force: true }))
     );
 
     const buildOutputs = new Map<ApplePlatform, string[]>();
@@ -76,7 +74,7 @@ export class BuildAppleCommand extends Command {
     console.log(`xcframework: ${path.relative(ROOT_DIR, xcframeworkPath)}`);
 
     await fs.rm(headersDir, { recursive: true });
-    await this.zip(appleDir, zipPath);
+    await this.zip(appleDir, outputDir);
   }
 
   private async build(target: AppleTarget, profile: Profile) {
@@ -181,10 +179,15 @@ export class BuildAppleCommand extends Command {
     });
   }
 
-  private async zip(appleDir: string, zipPath: string) {
-    await fs.rm(zipPath, { force: true });
-    await fs.mkdir(path.dirname(zipPath), { recursive: true });
+  private async zip(appleDir: string, outputDir: string) {
+    await fs.mkdir(outputDir, { recursive: true });
 
-    await zip(zipPath, appleDir, ['lipo/**/*', 'src/**/*', '*.xcframework/**/*']);
+    const appleZip = path.join(outputDir, 'apple.zip');
+    await fs.rm(appleZip, { force: true });
+    await zip(appleZip, appleDir, ['lipo/**/*', 'src/**/*']);
+
+    const xcframeworkZip = path.join(outputDir, 'WebViewBundleFFI.xcframework.zip');
+    await fs.rm(xcframeworkZip, { force: true });
+    await zip(xcframeworkZip, appleDir, ['WebViewBundleFFI.xcframework/**/*']);
   }
 }
