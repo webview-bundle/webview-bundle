@@ -30,8 +30,11 @@ export class VersionedFile {
   private pkgManager: PackageManager;
 
   static async loadAll(dir: string): Promise<VersionedFile[]> {
+    // Glob patterns must use POSIX separators; `path.join` emits `\` on Windows, which globbers
+    // treat as an escape (matching nothing), so build the patterns with forward slashes.
+    const base = dir.replaceAll('\\', '/');
     const files = await glob(
-      VersionedFileTypeSchema.options.map(fileType => path.join(dir, '**', fileType)),
+      VersionedFileTypeSchema.options.map(fileType => path.posix.join(base, '**', fileType)),
       {
         cwd: ROOT_DIR,
         onlyFiles: true,

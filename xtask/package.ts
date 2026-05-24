@@ -35,7 +35,9 @@ export class Package {
     for (const configFile of configFiles) {
       const config = await loadPackageConfig(path.join(ROOT_DIR, configFile));
 
-      const pkgPath = path.relative(ROOT_DIR, path.dirname(configFile));
+      // Normalize to POSIX separators: `pkg.path` feeds glob patterns and git pathspecs, both of
+      // which require forward slashes (`path.relative` yields `\` on Windows).
+      const pkgPath = path.relative(ROOT_DIR, path.dirname(configFile)).replaceAll('\\', '/');
       const dirName = path.basename(path.dirname(configFile));
       const pkgName = config.name ?? dirName;
 
