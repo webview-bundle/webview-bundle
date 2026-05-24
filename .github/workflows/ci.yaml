@@ -222,7 +222,7 @@ jobs:
             x86_64-apple-ios \
             x86_64-apple-darwin
       - name: Install tuist
-        uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # 3.5.1
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
         with:
           install_args: "tuist"
       - name: Build ffi apple
@@ -257,6 +257,6 @@ jobs:
       - name: Setup Node.js
         uses: ./.github/actions/node-setup
       - run: yarn install --immutable
-      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
       - name: Run attw
         run: just xtask attw --include='packages/*' --exclude='**/npm/*'
