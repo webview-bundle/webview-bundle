@@ -3,19 +3,44 @@ on:
   push:
     branches:
       - "main"
-    tags:
-      - "prerelease"
-      - "release"
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "Prerelease channel id (e.g. \"next\")"
+        required: false
+        default: "next"
 permissions:
   attestations: write
   contents: write
   id-token: write
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.event_name }}-${{ github.ref_name }}
 env:
   LEFTHOOK: 0
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      release_commit: ${{ steps.detect.outputs.release_commit }}
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        with:
+          fetch-depth: '0'
+          fetch-tags: 'true'
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
+      - name: Detect release commit
+        id: detect
+        run: just xtask release --check
+
   build-napi:
+    name: build-napi (${{ matrix.settings.host }}, ${{ matrix.settings.target }})
+    needs: [detect]
+    # Build only when something will consume it: a release commit, or a manual prerelease.
+    if: github.event_name == 'workflow_dispatch' || needs.detect.outputs.release_commit == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -98,69 +123,96 @@ jobs:
           name: artifacts-${{ github.ref_name }}-${{ matrix.settings.host }}-${{ matrix.settings.target }}
           path: artifacts-merged
           if-no-files-found: error
-  dry-run:
+
+  build-ffi-android:
     runs-on: ubuntu-latest
-    if: github.ref_type == 'branch'
-    needs: build-napi
+    name: build-ffi-android
+    needs: [detect]
+    if: github.event_name == 'workflow_dispatch' || needs.detect.outputs.release_commit == 'true'
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
-        with:
-          fetch-depth: '0'
-      - name: Setup Node.js
-        uses: ./.github/actions/node-setup
-      - run: yarn install --immutable
-      - name: Download artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
-        with:
-          pattern: artifacts-${{ github.ref_name }}-*
-          merge-multiple: true
-          path: artifacts-merged
-      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
-      - name: Spread artifacts
-        run: just xtask artifacts spread
-      - name: Dry Run
-        run: just xtask release --dry-run
-  prerelease:
-    runs-on: ubuntu-latest
-    if: github.ref_type == 'tag' && github.ref_name == 'prerelease'
-    needs: build-napi
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
-        with:
-          fetch-depth: '0'
-      - name: Setup tauri for linux
-        uses: ./.github/actions/tauri-linux-setup
-      - name: Setup Node.js
-        uses: ./.github/actions/node-setup
-      - run: yarn install --immutable
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
-      - name: Download artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Use JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
-          pattern: artifacts-${{ github.ref_name }}-*
-          merge-multiple: true
-          path: artifacts-merged
+          distribution: 'temurin' # See 'Supported distributions' for available options
+          java-version: '21'
+      - name: Install android sdk
+        uses: malinskiy/action-android/install-sdk@fa103ef30331e95f266418a6a97e98f61f626887 # release/0.1.7
+      - name: Install android ndk
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
+        id: install-ndk
+        with:
+          ndk-version: r27
+      - name: Install Rust dependencies
+        run: |
+          rustup target add x86_64-linux-android \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            i686-linux-android
+          cargo install cargo-ndk
+      - name: Build ffi android
+        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android --target x86_64-linux-android
       - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
-      - name: Spread artifacts
-        run: just xtask artifacts spread
-      - name: Prerelease
-        run: just xtask release --prerelease=next.${{ github.run_number }} --github-token=${{ github.token }}
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Merge artifacts
+        run: just xtask artifacts merge
+      - name: Upload artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: artifacts-${{ github.ref_name }}-ffi-android
+          path: artifacts-merged
+          if-no-files-found: error
+
+  build-ffi-apple:
+    runs-on: macos-latest
+    needs: [detect]
+    if: github.event_name == 'workflow_dispatch' || needs.detect.outputs.release_commit == 'true'
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Setup Rust
+        uses: ./.github/actions/rust-setup
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Install Rust dependencies
+        run: |
+          rustup target add aarch64-apple-ios \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            x86_64-apple-ios \
+            x86_64-apple-darwin
+      - name: Install tuist
+        uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # 3.5.1
+        with:
+          install_args: "tuist"
+      - name: Build ffi apple
+        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-apple
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
+      - name: Merge artifacts
+        run: just xtask artifacts merge
+      - name: Upload artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: artifacts-${{ github.ref_name }}-ffi-apple
+          path: artifacts-merged
+          if-no-files-found: error
+
   release:
     runs-on: ubuntu-latest
-    if: github.ref_type == 'tag' && github.ref_name == 'release'
-    needs: build-napi
+    needs: [detect, build-napi, build-ffi-android, build-ffi-apple]
+    if: github.event_name == 'push' && needs.detect.outputs.release_commit == 'true'
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
         with:
           fetch-depth: '0'
-          ref: "main"
+          fetch-tags: 'true'
       - name: Setup tauri for linux
         uses: ./.github/actions/tauri-linux-setup
       - name: Setup Node.js
@@ -179,6 +231,38 @@ jobs:
         run: just xtask artifacts spread
       - name: Release
         run: just xtask release --github-token=${{ github.token }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  prerelease:
+    runs-on: ubuntu-latest
+    needs: [detect, build-napi, build-ffi-android, build-ffi-apple]
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        with:
+          fetch-depth: '0'
+          fetch-tags: 'true'
+      - name: Setup tauri for linux
+        uses: ./.github/actions/tauri-linux-setup
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Setup Rust
+        uses: ./.github/actions/rust-setup
+      - name: Download artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+        with:
+          pattern: artifacts-${{ github.ref_name }}-*
+          merge-multiple: true
+          path: artifacts-merged
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
+      - name: Spread artifacts
+        run: just xtask artifacts spread
+      - name: Prerelease
+        run: just xtask prerelease --id=${{ inputs.id }} --github-token=${{ github.token }}
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

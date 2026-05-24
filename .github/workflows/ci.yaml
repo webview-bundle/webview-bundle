@@ -216,7 +216,11 @@ jobs:
       - run: yarn install --immutable
       - name: Install Rust dependencies
         run: |
-          rustup target add aarch64-apple-ios aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios x86_64-apple-darwin
+          rustup target add aarch64-apple-ios \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            x86_64-apple-ios \
+            x86_64-apple-darwin
       - name: Install tuist
         uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # 3.5.1
         with:

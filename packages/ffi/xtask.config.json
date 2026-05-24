@@ -2,13 +2,8 @@
   "$schema": "../../xtask.$schema.json",
   "artifacts": [
     {
-      "src": ".",
-      "patterns": [".output/apple.zip"],
-      "dest": ".output"
-    },
-    {
-      "src": ".",
-      "patterns": [".output/android.zip"],
+      "src": ".output",
+      "patterns": ["apple.zip", "WebViewBundleFFI.xcframework.zip", "android.zip"],
       "dest": ".output"
     }
   ],

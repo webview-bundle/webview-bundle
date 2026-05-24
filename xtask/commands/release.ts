@@ -1,419 +1,260 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
-import { checkbox } from '@inquirer/prompts';
-import { retry } from '@octokit/plugin-retry';
-import { Octokit } from '@octokit/rest';
-import { isCI } from 'ci-info';
 import { Command, Option } from 'clipanion';
 import { openRepository, type Repository } from 'es-git';
-import { differenceBy, isNotNil, omit } from 'es-toolkit';
-import mime from 'mime-types';
-import { glob } from 'tinyglobby';
-import { type Action, runActions } from '../action.ts';
-import { editCargoTomlVersion, formatCargoToml, parseCargoToml } from '../cargo-toml.ts';
+import { runActions } from '../action.ts';
 import { Changelog } from '../changelog.ts';
-import { Changes } from '../changes.ts';
 import { ColorModeOption, c, setColorMode } from '../console.ts';
 import { GIT_SIGNATURE, GITHUB_REPO, ROOT_DIR } from '../consts.ts';
+import { createGitHubClient, resolveAssets, uploadReleaseAssets } from '../github.ts';
 import { Package } from '../package.ts';
-import { loadStaged, removeStaged, type Staged, saveStaged } from '../staged.ts';
-import { parsePrerelease } from '../version.ts';
+import {
+  describeReleasedPackage,
+  packagesBumpedInHead,
+  type ReleasedPackage,
+} from '../releasing.ts';
 
-interface ReleaseTarget {
-  package: Package;
-  changes: Changes;
-  changelog: Changelog | null;
+/** The GitHub release created for a package. */
+interface ReleaseInfo {
+  tag: string;
+  url: string;
+  assets: string[];
 }
 
-export class Release extends Command {
+/** A released package (shared shape) plus the release-only git tag and GitHub release. */
+interface PublishedPackage extends ReleasedPackage {
+  tag: string;
+  release: ReleaseInfo | null;
+}
+
+/**
+ * Stable publish, run on the base branch after a Release PR merges.
+ *
+ * The targets are the packages whose version was changed by the merge's `HEAD` commit (the
+ * `prepare-release` commit) — so an ordinary merge publishes nothing. Targets are published in
+ * dependency order; each one that succeeds is tagged on the merge commit and gets a GitHub release
+ * (with its configured assets). Tagging is what marks a package "released", so this is idempotent:
+ * if some packages fail, the job exits non-zero and re-running the same commit retries only the
+ * still-untagged ones.
+ */
+export class ReleaseCommand extends Command {
   static paths = [['release']];
 
-  readonly stagedFilepath = Option.String('--staged', 'xtask/.gen/staged.json');
-  readonly dryRun = Option.Boolean('--dry-run', false);
-  readonly githubToken = Option.String('--github-token', {
+  readonly distTag = Option.String('--dist-tag', { required: false });
+  readonly githubToken = Option.String('--github-token', { required: false, env: 'GITHUB_TOKEN' });
+  readonly githubOutput = Option.String('--github-output', {
     required: false,
-    env: 'GITHUB_TOKEN',
+    env: 'GITHUB_OUTPUT',
   });
-  readonly prerelease = Option.String('--prerelease');
-  readonly interactive = Option.Boolean('--interactive', !isCI);
+  readonly githubStepSummary = Option.String('--github-step-summary', {
+    required: false,
+    env: 'GITHUB_STEP_SUMMARY',
+  });
+  readonly check = Option.Boolean('--check', false);
+  readonly dryRun = Option.Boolean('--dry-run', false);
   readonly colorMode = ColorModeOption;
 
   async execute() {
     setColorMode(this.colorMode);
-    const staged = await loadStaged(this.stagedFilepath);
     const repo = await openRepository(ROOT_DIR);
-    let targets = await this.prepareTargets(repo, staged);
-    if (targets.length === 0) {
+
+    const targets = await this.findTargets(repo);
+    // Whether `HEAD` is a release commit (a `prepare-release` PR merge that bumped versions). The
+    // workflow uses this to choose `release` vs `prerelease`, independent of publish success.
+    const isReleaseCommit = targets.length > 0;
+    await this.setOutput('release_commit', isReleaseCommit ? 'true' : 'false');
+
+    if (this.check) {
+      console.log(`${c.info('[root]')} release commit: ${isReleaseCommit}`);
       return 0;
     }
-    if (this.interactive) {
-      targets = await this.selectTargets(targets);
+
+    if (targets.length === 0) {
+      console.log(`${c.warn('[root]')} nothing to publish (no package was bumped by this commit).`);
+      await this.setOutput('released', 'false');
+      return 0;
     }
 
-    await this.writeReleaseTarget(targets);
-    const rootCargoChanged = await this.writeRootCargoToml(targets);
-    const rootChangelogChanged = await this.writeRootChangelog(targets);
-
-    const publishedTargets = await this.publish(targets);
-    const isAllPublished = publishedTargets.length === targets.length;
-
-    // If-all failed, exit with code 1
-    if (publishedTargets.length === 0) {
-      return 1;
+    const published = await this.publishPackages(targets);
+    let releases: Map<string, ReleaseInfo> = new Map();
+    if (published.length > 0) {
+      this.createTags(repo, published);
+      await this.pushTags(repo, published);
+      releases = await this.createGitHubReleases(published);
     }
 
-    if (this.prerelease == null) {
-      if (!this.dryRun) {
-        await this.updateStaged(publishedTargets, staged);
-      }
-      this.gitEnsureMainBranch(repo);
-      const commitId = this.gitCommitChanges(
-        repo,
-        publishedTargets,
-        rootCargoChanged,
-        rootChangelogChanged
-      );
-      this.gitCreateTags(repo, commitId, publishedTargets);
-      await this.gitPush(repo, publishedTargets);
-      await this.createGitHubReleases(publishedTargets);
-    }
-
-    if (!isAllPublished) {
-      const failedTargets = differenceBy(targets, publishedTargets, x => x.package.name);
-      for (const failedTarget of failedTargets) {
-        console.error(`${c.error(`[${failedTarget.package.name}]`)} publish failed`);
-      }
-    }
-
-    return isAllPublished ? 0 : 1;
+    await this.report(published, targets, releases);
+    return published.length === targets.length ? 0 : 1;
   }
 
-  private async prepareTargets(repo: Repository, staged: Staged) {
-    const targets: ReleaseTarget[] = [];
+  /**
+   * The packages to release: those bumped by the `HEAD` (prepare-release) commit, minus any whose
+   * version is already tagged (so a re-run retries only what failed). Returned in dependency order
+   * so dependencies publish first. Packages that aren't published to a registry are included too —
+   * they are still tagged and GitHub-released (e.g. for their assets); only the per-manifest
+   * registry push is skipped during `publishCurrent`.
+   */
+  private async findTargets(repo: Repository): Promise<Package[]> {
     const packages = await Package.loadAll();
-    for (const pkg of packages) {
-      const prefix = `[${pkg.name}]`;
-      const pkgStaged = staged[pkg.name];
-      if (pkgStaged == null || pkgStaged.commits.length === 0) {
-        console.log(`${c.warn(prefix)} no staged changes found. skip release.`);
-        continue;
-      }
-      const changes = Changes.fromCommits(repo, pkgStaged.commits);
-      let bumpRule =
-        pkgStaged.bumpRule ?? Changes.fromCommits(repo, pkgStaged.commits).getBumpRule();
-      if (bumpRule == null) {
-        console.log(`${c.warn(prefix)} no changes found. skip release.`);
-        continue;
-      }
-      if (this.prerelease != null) {
-        const prerelease = parsePrerelease(this.prerelease);
-        bumpRule = { type: 'prerelease', data: prerelease };
-      }
-      pkg.bumpVersion(bumpRule);
-      console.log(
-        `${c.info(prefix)} ${pkg.version.toString()} -> ${c.success(pkg.nextVersion.toString())}`
-      );
-      for (let i = 0; i < changes.changes.length; i += 1) {
-        const change = changes.changes[i]!;
-        const line = i === changes.changes.length - 1 ? '└─' : '├─';
-        console.log(`   ${c.dim(`${line} ${change.toString()}`)}`);
-      }
-      const changelog = await Changelog.load(pkg.changelog);
-      targets.push({ package: pkg, changes, changelog });
-    }
-    return targets;
-  }
-
-  private async selectTargets(targets: ReleaseTarget[]) {
-    const selected = await checkbox({
-      message: 'Select release targets',
-      choices: targets.map(target => {
-        const prevVersion = target.package.version.toString();
-        const nextVersion = target.package.nextVersion.toString();
-        return {
-          name: `${target.package.name} ${prevVersion} -> ${c.success(nextVersion)}`,
-          value: target.package.name,
-          checked: true,
-        };
-      }),
-      loop: false,
-      required: true,
-    });
-    const selectedTargets = targets.filter(x => selected.includes(x.package.name));
-    return selectedTargets;
-  }
-
-  private async writeReleaseTarget(targets: ReleaseTarget[]) {
-    for (const target of targets) {
-      const actions = target.package.write();
-      await runActions(actions, { name: target.package.name, dryRun: this.dryRun });
-
-      if (target.changelog != null) {
-        target.changelog.appendChanges(target.package, target.changes);
-        const actions = target.changelog.write();
-        await runActions(actions, { name: target.package.name, dryRun: this.dryRun });
-      }
-    }
-  }
-
-  private async writeRootCargoToml(targets: ReleaseTarget[]) {
-    const hasCargoChanged = targets
-      .filter(x => x.package.hasChanged)
-      .flatMap(x => x.package.versionedFiles)
-      .some(x => x.type === 'Cargo.toml');
-    if (!hasCargoChanged) {
-      return false;
-    }
-    const raw = await fs.readFile(path.join(ROOT_DIR, 'Cargo.toml'), 'utf8');
-    const toml = parseCargoToml(raw);
-    for (const target of targets) {
-      for (const versionedFile of target.package.versionedFiles) {
-        if (versionedFile.type !== 'Cargo.toml') {
-          continue;
-        }
-        editCargoTomlVersion(toml, versionedFile.nextVersion, versionedFile.name);
-      }
-    }
-    await runActions(
-      [
-        {
-          type: 'write',
-          path: 'Cargo.toml',
-          content: formatCargoToml(toml),
-          prevContent: raw,
-        },
-      ],
-      { dryRun: this.dryRun }
+    const graph = Package.buildGraph(packages);
+    const targets = packagesBumpedInHead(repo, packages).filter(
+      pkg => !pkg.versionedGitTag.exists(repo)
     );
-    return true;
+    return graph.topoSort(targets);
   }
 
-  private async writeRootChangelog(targets: ReleaseTarget[]) {
-    const changelog = await Changelog.load('CHANGELOG.md');
-    for (const target of targets) {
-      changelog.appendChanges(target.package, target.changes);
-    }
-    await runActions(changelog.write(), { dryRun: this.dryRun });
-    return true;
-  }
-
-  private async publish(targets: ReleaseTarget[]): Promise<ReleaseTarget[]> {
-    const succeedTargets: ReleaseTarget[] = [];
-    for (const target of targets) {
-      if (target.package.beforePublishScripts.length > 0) {
-        const actions = target.package.beforePublishScripts.map(
-          (script): Action => ({
-            type: 'command',
-            cmd: script.command,
-            args: (script.args ?? []) as string[],
-            path: script.cwd ?? target.package.path,
-          })
-        );
-        const result = await runActions(actions, {
-          name: target.package.name,
-          dryRun: this.dryRun,
-          reject: false,
-        });
-        if (!result.allSucceed) {
-          continue;
-        }
+  /** Publish each target package (running its beforePublish scripts first); returns the succeeded. */
+  private async publishPackages(targets: Package[]): Promise<Package[]> {
+    const published: Package[] = [];
+    for (const pkg of targets) {
+      console.log(`${c.info(`[${pkg.name}]`)} publishing v${pkg.version.toString()}`);
+      if (!(await this.runBeforePublish(pkg))) {
+        continue;
       }
-      const actions = target.package.publish();
-      const result = await runActions(actions, {
-        name: target.package.name,
+      const result = await runActions(pkg.publishCurrent(this.distTag), {
+        name: pkg.name,
         dryRun: this.dryRun,
         failFast: false,
         reject: false,
       });
       if (result.allSucceed) {
-        succeedTargets.push(target);
+        published.push(pkg);
+      } else {
+        console.error(`${c.error(`[${pkg.name}]`)} publish failed`);
       }
     }
-    return succeedTargets;
+    return published;
   }
 
-  private gitEnsureMainBranch(repo: Repository) {
-    const head = repo.head();
-    const branch = head.symbolicTarget();
-    if (branch !== 'refs/heads/main') {
-      throw new Error('release script only run in "main" branch');
+  private async runBeforePublish(pkg: Package): Promise<boolean> {
+    if (pkg.beforePublishScripts.length === 0) {
+      return true;
     }
-  }
-
-  private gitCommitChanges(
-    repo: Repository,
-    targets: ReleaseTarget[],
-    rootCargoChanged: boolean,
-    rootChangelogChanged: boolean
-  ): string | undefined {
-    const message = 'release commit [skip actions]';
-    if (this.dryRun) {
-      console.log(`${c.info('[root]')} will commit changes: ${message}`);
-      return undefined;
-    }
-    const pathspecs = targets.flatMap(x =>
-      [...x.package.versionedFiles.map(x => x.path), x.changelog?.path, this.stagedFilepath].filter(
-        isNotNil
-      )
+    const result = await runActions(
+      pkg.beforePublishScripts.map(script => ({
+        type: 'command' as const,
+        cmd: script.command,
+        args: (script.args ?? []) as string[],
+        path: script.cwd ?? pkg.path,
+      })),
+      { name: pkg.name, dryRun: this.dryRun, reject: false }
     );
-    if (rootCargoChanged) {
-      pathspecs.push('Cargo.toml');
+    if (!result.allSucceed) {
+      console.error(`${c.error(`[${pkg.name}]`)} beforePublish scripts failed`);
+      return false;
     }
-    if (rootChangelogChanged) {
-      pathspecs.push('CHANGELOG.md');
-    }
-    const index = repo.index();
-    index.addAll(pathspecs);
-
-    const treeId = index.writeTree();
-    const tree = repo.getTree(treeId);
-    const parent = repo.head().target()!;
-    const commitId = repo.commit(tree, message, {
-      updateRef: 'refs/heads/main',
-      author: GIT_SIGNATURE,
-      committer: GIT_SIGNATURE,
-      parents: [parent],
-    });
-    const commit = repo.getCommit(commitId);
-    console.log(`${c.info('[root]')} commit: ${message}`);
-    console.log(c.dim(`  parent: ${parent}`));
-    console.log(c.dim(`  sha: ${commit.id()}`));
-    console.log(c.dim(`  author name: ${commit.author().name}`));
-    console.log(c.dim(`  author email: ${commit.author().email}`));
-    return commitId;
+    return true;
   }
 
-  private gitCreateTags(repo: Repository, commitId: string | undefined, targets: ReleaseTarget[]) {
-    const commit = commitId != null ? repo.getCommit(commitId) : null;
-    const targetId = commit?.id().slice(0, 7);
-    for (const target of targets) {
-      const prefix = `[${target.package.name}]`;
-      const tag = target.package.nextVersionedGitTag;
-      if (commit == null || this.dryRun) {
-        console.log(`${c.info(prefix)} will create tag (${targetId}): ${tag.tagName}`);
-        continue;
+  private createTags(repo: Repository, packages: Package[]) {
+    const head = repo.head().target();
+    if (head == null || this.dryRun) {
+      for (const pkg of packages) {
+        console.log(`${c.info(`[${pkg.name}]`)} will create tag: ${pkg.versionedGitTag.tagName}`);
       }
+      return;
+    }
+    const commit = repo.getCommit(head);
+    for (const pkg of packages) {
+      const tag = pkg.versionedGitTag;
       const tagId = repo.createTag(tag.tagName, commit.asObject(), tag.tagName, {
         tagger: GIT_SIGNATURE,
       });
-      const gitTag = repo.getTag(tagId);
-      console.log(`${c.info('[root]')} tag: ${gitTag.name()}`);
-      console.log(c.dim(`  sha: ${gitTag.id()}`));
-      console.log(c.dim(`  message: ${gitTag.message()}`));
-      console.log(c.dim(`  tagger name: ${gitTag.tagger()?.name}`));
-      console.log(c.dim(`  tagger email: ${gitTag.tagger()?.email}`));
+      console.log(`${c.success('[root]')} tag: ${repo.getTag(tagId).name()}`);
     }
   }
 
-  private async gitPush(repo: Repository, targets: ReleaseTarget[]) {
-    const remote = repo.getRemote('origin');
-    const refspecs = [
-      'refs/heads/main:refs/heads/main',
-      ...targets
-        .map(x => x.package.nextVersionedGitTag.tagRef)
-        .map(tagRef => `${tagRef}:${tagRef}`),
-    ];
-    const logRefspecs = () => {
-      for (const refspec of refspecs) {
-        const [src, dest] = refspec.split(':');
-        console.log(c.dim(`  - ${src} -> ${dest}`));
+  private async pushTags(repo: Repository, packages: Package[]) {
+    const refspecs = packages.map(pkg => {
+      const ref = pkg.versionedGitTag.tagRef;
+      return `${ref}:${ref}`;
+    });
+    if (this.dryRun || this.githubToken == null) {
+      console.log(`${c.info('[root]')} will push tags:`);
+      for (const ref of refspecs) {
+        console.log(c.dim(`  - ${ref}`));
       }
-    };
-    if (this.dryRun) {
-      console.log(`${c.info('[root]')} will push to: ${remote.url()}`);
-      logRefspecs();
       return;
     }
-    if (this.githubToken == null) {
-      console.log(`${c.warn('[root]')} no github token found. skip push.`);
-      return;
-    }
-    await remote.push(refspecs, {
-      credential: {
-        type: 'Plain',
-        password: this.githubToken,
-      },
-    });
-    console.log(`${c.success('[root]')} push changes to remote: ${remote.url()}`);
-    logRefspecs();
+    const remote = repo.getRemote('origin');
+    await remote.push(refspecs, { credential: { type: 'Plain', password: this.githubToken } });
+    console.log(`${c.success('[root]')} pushed ${refspecs.length} tag(s)`);
   }
 
-  private async createGitHubReleases(targets: ReleaseTarget[]) {
-    const GitHubClient = Octokit.plugin(retry);
-    const client = new GitHubClient({
-      auth: this.githubToken,
-      userAgent: 'webview-bundle',
-    });
-    for (const target of targets) {
+  /** Create a GitHub release per package; returns the release URL + uploaded assets, keyed by name. */
+  private async createGitHubReleases(packages: Package[]): Promise<Map<string, ReleaseInfo>> {
+    const releases = new Map<string, ReleaseInfo>();
+    const client = this.githubToken != null ? createGitHubClient(this.githubToken) : null;
+    for (const pkg of packages) {
+      const changelog = await Changelog.load(pkg.changelog).catch(() => null);
+      const tagName = pkg.versionedGitTag.tagName;
       const payload = {
-        tag_name: target.package.nextVersionedGitTag.tagName,
-        name: `${target.package.name} v${target.package.nextVersion.toString()}`,
-        body: target.changelog?.extractChanges(target.package) ?? undefined,
+        tag_name: tagName,
+        name: `${pkg.name} v${pkg.version.toString()}`,
+        body: changelog?.extractChanges(pkg) ?? undefined,
       };
-      if (this.dryRun) {
-        console.log(
-          `${c.info('[root]')} will create github release: ${GITHUB_REPO.owner}/${GITHUB_REPO.name}`
-        );
-        const payloadStr = JSON.stringify(payload, null, 2);
-        for (const line of payloadStr.split('\n')) {
-          console.log(`  ${c.dim(line)}`);
-        }
-        for (const asset of target.package.assets) {
-          console.log(`  ${c.dim(`will upload asset: ${asset}`)}`);
+      if (this.dryRun || client == null) {
+        console.log(`${c.info('[root]')} will create github release: ${tagName}`);
+        for (const asset of pkg.assets) {
+          console.log(c.dim(`  will upload asset: ${asset}`));
         }
         continue;
-      }
-      if (this.githubToken == null) {
-        console.log(`${c.warn('[root]')} no github token found. skip creating github release.`);
-        return;
       }
       const release = await client.rest.repos.createRelease({
         owner: GITHUB_REPO.owner,
         repo: GITHUB_REPO.name,
         ...payload,
       });
-      console.log(`${c.success('[root]')} create github release: ${release.data.tag_name}`);
-      console.log(`  ${c.dim(`id: ${release.data.id}`)}`);
-      console.log(`  ${c.dim(`html_url: ${release.data.html_url}`)}`);
-
-      if (target.package.assets.length > 0) {
-        const assetFiles = await glob([...target.package.assets], {
-          cwd: target.package.absolutePath,
-          onlyFiles: true,
-        });
-        if (assetFiles.length === 0) {
-          continue;
-        }
-
-        for (const assetFile of assetFiles) {
-          const filePath = path.join(target.package.absolutePath, assetFile);
-          const fileName = path.basename(assetFile);
-          const data = await fs.readFile(filePath);
-
-          await client.rest.repos.uploadReleaseAsset({
-            owner: GITHUB_REPO.owner,
-            repo: GITHUB_REPO.name,
-            release_id: release.data.id,
-            name: fileName,
-            data: data as any,
-            headers: {
-              'content-type': mime.lookup(fileName) || 'application/octet-stream',
-              'content-length': String(data.byteLength),
-            },
-          });
-          console.log(`  ${c.dim(`asset: ${fileName}`)}`);
-        }
-      }
+      console.log(`${c.success('[root]')} github release: ${release.data.tag_name}`);
+      const assets = await uploadReleaseAssets(client, release.data.id, await resolveAssets(pkg));
+      releases.set(pkg.name, { tag: tagName, url: release.data.html_url, assets });
     }
+    return releases;
   }
 
-  private async updateStaged(targets: ReleaseTarget[], staged: Staged) {
-    const releasedPackages = targets.map(x => x.package.name);
-    const updatedStaged = omit(staged, releasedPackages);
-    if (Object.keys(updatedStaged).length === 0) {
-      await removeStaged(this.stagedFilepath);
-    } else {
-      await saveStaged(this.stagedFilepath, updatedStaged);
+  /**
+   * Emit the `released` flag and a detailed `published` JSON array to the GitHub Actions output,
+   * plus the step summary. The JSON describes each published package: its version, git tag, the
+   * registries it was published to (npm/crates, with URLs), and its GitHub release + assets.
+   */
+  private async report(
+    published: Package[],
+    targets: Package[],
+    releases: Map<string, ReleaseInfo>
+  ): Promise<void> {
+    const details = published.map(pkg => this.describe(pkg, releases.get(pkg.name) ?? null));
+    await this.setOutput('released', published.length > 0 ? 'true' : 'false');
+    await this.setOutput('published', JSON.stringify(details));
+    await this.writeSummary(published, targets);
+  }
+
+  private describe(pkg: Package, release: ReleaseInfo | null): PublishedPackage {
+    return { ...describeReleasedPackage(pkg), tag: pkg.versionedGitTag.tagName, release };
+  }
+
+  private async setOutput(key: string, value: string) {
+    if (this.githubOutput == null) {
+      return;
     }
+    await fs.appendFile(this.githubOutput, `${key}=${value}\n`, 'utf8');
+  }
+
+  private async writeSummary(published: Package[], targets: Package[]) {
+    if (this.githubStepSummary == null || targets.length === 0) {
+      return;
+    }
+    const publishedNames = new Set(published.map(pkg => pkg.name));
+    const rows = targets.map(pkg => {
+      const status = publishedNames.has(pkg.name) ? '✅ published' : '❌ failed';
+      return `| \`${pkg.name}\` | ${pkg.version.toString()} | ${status} |`;
+    });
+    const summary = [
+      '## Release',
+      '',
+      '| package | version | status |',
+      '| --- | --- | --- |',
+      ...rows,
+      '',
+    ].join('\n');
+    await fs.appendFile(this.githubStepSummary, summary, 'utf8');
   }
 }

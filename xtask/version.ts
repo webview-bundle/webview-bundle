@@ -1,33 +1,18 @@
 import { parse, type SemVer } from 'semver';
-import { z } from 'zod';
 
-export const PrereleaseDataSchema = z.object({
-  id: z.string(),
-  num: z.number(),
-});
-export type PrereleaseData = z.infer<typeof PrereleaseDataSchema>;
+/**
+ * How a stable version is bumped. Derived from a human choice during `prepare-release`
+ * (conventional-commit/scope inference was dropped — contributors are not constrained), so
+ * there is no longer a `prerelease` bump rule; prereleases go through {@link Version.toPrerelease}.
+ */
+export type BumpRule = 'major' | 'minor' | 'patch';
 
-export function parsePrerelease(x: unknown): PrereleaseData {
-  if (typeof x !== 'string') {
-    throw new Error(`invalid prerelease: ${String(x)}`);
-  }
-  const [id, num] = x.split('.');
-  if (id == null || x.length === 0) {
-    throw new Error(`invalid prerelease: ${x}`);
-  }
-  if (num === '' || Number.isNaN(Number(num))) {
-    throw new Error(`invalid prerelease: ${x}`);
-  }
-  return { id, num: Number(num) };
+export interface Prerelease {
+  /** The channel identifier, used as the npm dist-tag (e.g. `next`). */
+  id: string;
+  /** The build identifier appended after the id (e.g. a short commit hash, or a run number). */
+  build: string;
 }
-
-export const BumpRuleSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('major') }),
-  z.object({ type: z.literal('minor') }),
-  z.object({ type: z.literal('patch') }),
-  z.object({ type: z.literal('prerelease'), data: PrereleaseDataSchema }),
-]);
-export type BumpRule = z.infer<typeof BumpRuleSchema>;
 
 export class Version {
   private ver: SemVer;
@@ -44,15 +29,11 @@ export class Version {
     this.ver = ver;
   }
 
-  get prerelease(): PrereleaseData | null {
+  get prerelease(): Prerelease | null {
     if (this.ver.prerelease.length < 2) {
       return null;
     }
-    try {
-      return parsePrerelease(`${this.ver.prerelease[0]}.${this.ver.prerelease[1]}`);
-    } catch {
-      return null;
-    }
+    return { id: String(this.ver.prerelease[0]), build: String(this.ver.prerelease[1]) };
   }
 
   equals(other: Version): boolean {
@@ -64,26 +45,18 @@ export class Version {
   }
 
   bump(rule: BumpRule): this {
-    switch (rule.type) {
-      case 'major':
-        this.ver = this.ver.inc('major');
-        break;
-      case 'minor':
-        this.ver = this.ver.inc('minor');
-        break;
-      case 'patch':
-        this.ver = this.ver.inc('patch');
-        break;
-      case 'prerelease': {
-        const ver = `${this.ver.major}.${this.ver.minor}.${this.ver.patch}-${rule.data.id}.${rule.data.num}`;
-        const parsed = parse(ver);
-        if (parsed == null) {
-          throw new Error(`invalid version: ${ver}`);
-        }
-        this.ver = parsed;
-        break;
-      }
+    this.ver = this.ver.inc(rule);
+    return this;
+  }
+
+  /** Turn this into a prerelease of the *current* `x.y.z` base, e.g. `x.y.z-next.<build>`. */
+  toPrerelease(id: string, build: string): this {
+    const raw = `${this.ver.major}.${this.ver.minor}.${this.ver.patch}-${id}.${build}`;
+    const parsed = parse(raw);
+    if (parsed == null) {
+      throw new Error(`invalid prerelease version: ${raw}`);
     }
+    this.ver = parsed;
     return this;
   }
 

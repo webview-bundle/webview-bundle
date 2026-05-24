@@ -20,8 +20,7 @@
       "!**/*.cjs",
       "!**/*.d.ts",
       "!**/*.d.cts",
-      "!packages/tauri/permissions/**/*",
-      "!xtask/.gen/staged.json"
+      "!packages/tauri/permissions/**/*"
     ]
   },
   "formatter": {
