@@ -60,6 +60,13 @@ export class PrereleaseCommand extends Command {
       throw new Error('cannot resolve git `HEAD`');
     }
     const sha = head.slice(0, 7);
+    const tag = `prerelease/${sha}`;
+
+    if (await this.alreadyReleased(tag)) {
+      console.log(`${c.warn('[root]')} "${tag}" already exists. nothing to prerelease.`);
+      await this.setOutput('prereleased', 'false');
+      return 1;
+    }
 
     // 1) Registry prereleases: bump + publish only packages that publish to a registry.
     const publishable = plan.candidates.filter(pkg => pkg.canPublish);
@@ -76,6 +83,7 @@ export class PrereleaseCommand extends Command {
       plan.candidates,
       head,
       sha,
+      tag,
       published
     );
 
@@ -177,10 +185,10 @@ export class PrereleaseCommand extends Command {
     candidates: Package[],
     commitish: string,
     sha: string,
+    tag: string,
     published: Package[]
   ): Promise<string | null> {
     const assets = (await Promise.all(candidates.map(pkg => resolveAssets(pkg)))).flat();
-    const tag = `prerelease/${sha}`;
     if (assets.length === 0) {
       console.log(`${c.warn('[root]')} no assets found. skip prerelease release.`);
       return null;
@@ -197,12 +205,6 @@ export class PrereleaseCommand extends Command {
 
     const client = createGitHubClient(this.githubToken);
     const repo = { owner: GITHUB_REPO.owner, repo: GITHUB_REPO.name };
-    // Latest run for a commit wins: drop a previous release + tag for this sha, then recreate.
-    const existing = await client.rest.repos.getReleaseByTag({ ...repo, tag }).catch(() => null);
-    if (existing != null) {
-      await client.rest.repos.deleteRelease({ ...repo, release_id: existing.data.id });
-      await client.rest.git.deleteRef({ ...repo, ref: `tags/${tag}` }).catch(() => {});
-    }
     const release = await client.rest.repos.createRelease({
       ...repo,
       tag_name: tag,
@@ -214,6 +216,17 @@ export class PrereleaseCommand extends Command {
     console.log(`${c.success('[root]')} prerelease release: ${release.data.tag_name}`);
     await uploadReleaseAssets(client, release.data.id, assets);
     return release.data.html_url;
+  }
+
+  private async alreadyReleased(tag: string): Promise<boolean> {
+    if (this.dryRun || this.githubToken == null) {
+      return false;
+    }
+    const client = createGitHubClient(this.githubToken);
+    const repo = { owner: GITHUB_REPO.owner, repo: GITHUB_REPO.name };
+    // getRef answers 404 when the ref does not exist.
+    const ref = await client.rest.git.getRef({ ...repo, ref: `tags/${tag}` }).catch(() => null);
+    return ref != null;
   }
 
   private prereleaseBody(sha: string, published: Package[]): string {
