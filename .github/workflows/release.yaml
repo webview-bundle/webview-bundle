@@ -157,7 +157,7 @@ jobs:
             i686-linux-android
           cargo install cargo-ndk
       - name: Build ffi android
-        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android --target x86_64-linux-android
+        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android
       - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # 3.0.0
       - name: Merge artifacts
         run: just xtask artifacts merge
