@@ -4,10 +4,12 @@ export interface RunCommandOptions {
   cwd?: string;
   env?: Record<string, string>;
   prefix?: string;
+  /** @default false */
+  reject?: boolean;
 }
 
 export async function runCommand(cmd: string, args: string[], options: RunCommandOptions = {}) {
-  const { cwd, env, prefix = '' } = options;
+  const { cwd, env, prefix = '', reject = false } = options;
   const stdout = function* (line: string) {
     yield `${prefix}${line}`;
   };
@@ -21,5 +23,8 @@ export async function runCommand(cmd: string, args: string[], options: RunComman
     reject: false,
     env,
   });
+  if (reject && exitCode !== 0) {
+    throw new Error(`Command failed with exit code ${exitCode}`);
+  }
   return { exitCode } as { exitCode: number | undefined };
 }

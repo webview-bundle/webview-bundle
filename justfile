@@ -65,7 +65,7 @@ typecheck:
     yarn workspaces foreach -Apt run typecheck
 
 # Build as release mode
-build: build-rs build-napi build-js
+build: build-rs build-napi build-js build-ffi
 
 # Build NAPI modules
 build-napi:
@@ -73,11 +73,15 @@ build-napi:
 
 # Build Rust workspaces
 build-rs:
-    cargo build --workspace
+    cargo build --workspace --exclude=wvb-ffi
 
 # Build JS packages
 build-js:
     yarn workspaces foreach -Apt --include='@wvb/*' run build
+
+# Build FFI packages
+build-ffi:
+    yarn workspaces foreach -Apt --include='@wvb/*' run build-ffi
 
 # Run benchmarks
 benchmark: build

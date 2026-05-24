@@ -1,0 +1,35 @@
+[package]
+authors      = { workspace = true }
+description  = "webview-bundle ffi"
+edition      = { workspace = true }
+license      = { workspace = true }
+name         = "wvb-ffi"
+publish      = false
+repository   = { workspace = true }
+rust-version = "1.85.0"
+version      = "0.0.0"
+
+[lib]
+bench   = false
+doctest = false
+
+# cdylib : Android(.so), iOS(.dylib)
+# staticlib: iOS(.a)
+crate-type = ["cdylib", "staticlib"]
+name       = "wvb_ffi"
+
+[[bin]]
+name = "wvb_ffi"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+async-trait = { workspace = true }
+http        = { workspace = true }
+infer       = { workspace = true }
+thiserror   = { workspace = true }
+tokio       = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "fs", "io-util"] }
+uniffi      = { workspace = true, features = ["cli", "tokio"] }
+wvb         = { workspace = true, features = ["full"] }
+
+[build-dependencies]
+uniffi = { workspace = true, default-features = false, features = ["build"] }

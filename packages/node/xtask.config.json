@@ -1,0 +1,17 @@
+{
+  "$schema": "../../xtask.$schema.json",
+  "beforePublishScripts": [
+    {
+      "command": "yarn",
+      "args": ["artifacts"]
+    }
+  ],
+  "artifacts": [
+    {
+      "src": ".",
+      "patterns": ["*.node"],
+      "dest": "artifacts"
+    }
+  ],
+  "assets": ["artifacts/*.node"]
+}

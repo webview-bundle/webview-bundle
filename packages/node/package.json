@@ -39,7 +39,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "artifacts": "just xtask napi artifacts packages/node",
+    "artifacts": "node .scripts/artifacts.ts",
     "build-napi": "yarn build-napi-esm && yarn build-napi-cjs",
     "build-napi-esm": "napi build --platform --release --js=index.js --dts=index.d.ts --esm --no-const-enum --no-dts-cache",
     "build-napi-cjs": "napi build --platform --release --js=index.cjs --dts=index.d.cts --no-const-enum --no-dts-cache",
@@ -51,6 +51,7 @@
     "@types/node": "catalog:",
     "get-port": "^7.1.0",
     "hono": "^4.11.10",
+    "tinyglobby": "^0.2.14",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

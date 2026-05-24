@@ -1,0 +1,16 @@
+{
+  "$schema": "../../xtask.$schema.json",
+  "artifacts": [
+    {
+      "src": ".",
+      "patterns": [".output/apple.zip"],
+      "dest": ".output"
+    },
+    {
+      "src": ".",
+      "patterns": [".output/android.zip"],
+      "dest": ".output"
+    }
+  ],
+  "assets": [".output/android.zip", ".output/apple.zip"]
+}
