@@ -184,7 +184,7 @@ export class BuildAppleCommand extends Command {
 
     const appleZip = path.join(outputDir, 'apple.zip');
     await fs.rm(appleZip, { force: true });
-    await zip(appleZip, appleDir, ['lipo/**/*', 'src/**/*']);
+    await zip(appleZip, appleDir, ['lipo/**/*', 'src/**/*', 'Sources/**/*']);
 
     const xcframeworkZip = path.join(outputDir, 'WebViewBundleFFI.xcframework.zip');
     await fs.rm(xcframeworkZip, { force: true });

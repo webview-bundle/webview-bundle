@@ -5,7 +5,8 @@ let package = Package(
   name: "WebViewBundleLocalTests",
   platforms: [.macOS(.v12), .iOS(.v14)],
   products: [
-    .library(name: "WebViewBundleLibrary", targets: ["WebViewBundleLibrary"])
+    .library(name: "WebViewBundleLibrary", targets: ["WebViewBundleLibrary"]),
+    .library(name: "WebViewBundleWebView", targets: ["WebViewBundleWebView"])
   ],
   targets: [
     .binaryTarget(
@@ -20,6 +21,15 @@ let package = Package(
         .linkedFramework("SystemConfiguration"),
         .linkedFramework("Security"),
         .linkedFramework("CoreFoundation")
+      ],
+    ),
+    .target(
+      name: "WebViewBundleWebView",
+      dependencies: ["WebViewBundleLibrary"],
+      path: "Sources/WebViewBundleWebView",
+      exclude: ["README.md"],
+      linkerSettings: [
+        .linkedFramework("WebKit")
       ],
     ),
     .testTarget(

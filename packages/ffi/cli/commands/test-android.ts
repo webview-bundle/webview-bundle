@@ -13,6 +13,10 @@ export class TestAndroidCommand extends Command {
       cwd: androidDir,
       prefix: '[:lib-jvm:test] ',
     });
+    await runCommand('./gradlew', [':lib-webview:assembleDebug'], {
+      cwd: androidDir,
+      prefix: '[:lib-webview:assembleDebug] ',
+    });
     await runCommand('./gradlew', [':testapp:assembleDebug'], {
       cwd: androidDir,
       prefix: '[:testapp:assembleDebug] ',
