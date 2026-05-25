@@ -48,14 +48,14 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "@tauri-apps/api": "^2"
+  },
   "devDependencies": {
     "@tauri-apps/api": "^2",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "peerDependencies": {
-    "@tauri-apps/api": "^2"
   }
 }

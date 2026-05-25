@@ -65,35 +65,22 @@ impl<R: Runtime> Source<R> {
 
   pub(crate) fn resolve_builtin_dir(&self, app: &AppHandle<R>) -> crate::Result<PathBuf> {
     let dir = match self.builtin_dir {
-      Some(ref builtin_dir) => {
-        let dir = builtin_dir
-          .resolve(app)
-          .map_err(|e| crate::Error::FailToResolveDirectory(e.to_string()))?;
-        dir
-      }
-      None => {
-        let dir = app.path().resolve("bundles", BaseDirectory::Resource)?;
-        dir
-      }
+      Some(ref builtin_dir) => builtin_dir
+        .resolve(app)
+        .map_err(|e| crate::Error::FailToResolveDirectory(e.to_string()))?,
+      None => app.path().resolve("bundles", BaseDirectory::Resource)?,
     };
     Ok(dir)
   }
 
   pub(crate) fn resolve_remote_dir(&self, app: &AppHandle<R>) -> crate::Result<PathBuf> {
     let dir = match self.remote_dir {
-      Some(ref remote_dir) => {
-        let dir = remote_dir
-          .resolve(app)
-          .map_err(|e| crate::Error::FailToResolveDirectory(e.to_string()))?;
-        dir
-      }
+      Some(ref remote_dir) => remote_dir
+        .resolve(app)
+        .map_err(|e| crate::Error::FailToResolveDirectory(e.to_string()))?,
       None => {
-        // Downloaded bundles must live in a writable, per-user location. The resource
-        // directory is read-only (and code-signed) in packaged apps, and is already used
-        // by `resolve_builtin_dir`; sharing it would make remote downloads either fail or
-        // clobber the builtin manifest.
-        let dir = app.path().resolve("bundles", BaseDirectory::AppLocalData)?;
-        dir
+        // Downloaded bundles must live in a writable, per-user location.
+        app.path().resolve("bundles", BaseDirectory::AppLocalData)?
       }
     };
     Ok(dir)
