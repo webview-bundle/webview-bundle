@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-updater-download-update"
+description = "Enables the updater_download_update command without any pre-configured scope."
+commands.allow = ["updater_download_update"]
+
+[[permission]]
+identifier = "deny-updater-download-update"
+description = "Denies the updater_download_update command without any pre-configured scope."
+commands.deny = ["updater_download_update"]

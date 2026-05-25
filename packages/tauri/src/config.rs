@@ -88,7 +88,11 @@ impl<R: Runtime> Source<R> {
         dir
       }
       None => {
-        let dir = app.path().resolve("bundles", BaseDirectory::Resource)?;
+        // Downloaded bundles must live in a writable, per-user location. The resource
+        // directory is read-only (and code-signed) in packaged apps, and is already used
+        // by `resolve_builtin_dir`; sharing it would make remote downloads either fail or
+        // clobber the builtin manifest.
+        let dir = app.path().resolve("bundles", BaseDirectory::AppLocalData)?;
         dir
       }
     };

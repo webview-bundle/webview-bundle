@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-source-filepath"
+description = "Enables the source_filepath command without any pre-configured scope."
+commands.allow = ["source_filepath"]
+
+[[permission]]
+identifier = "deny-source-filepath"
+description = "Denies the source_filepath command without any pre-configured scope."
+commands.deny = ["source_filepath"]

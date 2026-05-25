@@ -22,7 +22,7 @@ export interface ListBundleItem {
 }
 
 async function listBundles(): Promise<ListBundleItem[]> {
-  const bundles = await invoke<ListBundleItem[]>('plugin:wvb|source_list_bundles');
+  const bundles = await invoke<ListBundleItem[]>('plugin:wvb-tauri|source_list_bundles');
   return bundles;
 }
 
@@ -32,18 +32,18 @@ export interface BundleSourceVersion {
 }
 
 async function loadVersion(bundleName: string): Promise<BundleSourceVersion | null> {
-  const version = await invoke<BundleSourceVersion | null>('plugin:wvb|source_load_version', {
+  const version = await invoke<BundleSourceVersion | null>('plugin:wvb-tauri|source_load_version', {
     bundleName,
   });
   return version;
 }
 
 async function updateVersion(bundleName: string, version: string): Promise<void> {
-  await invoke<void>('plugin:wvb|source_update_version', { bundleName, version });
+  await invoke<void>('plugin:wvb-tauri|source_update_version', { bundleName, version });
 }
 
 async function filepath(bundleName: string): Promise<string> {
-  const path = await invoke<string>('plugin:wvb|source_filepath', { bundleName });
+  const path = await invoke<string>('plugin:wvb-tauri|source_filepath', { bundleName });
   return path;
 }
 

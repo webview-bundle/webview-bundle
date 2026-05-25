@@ -37,7 +37,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
   let config = Arc::new(config);
   let c = config.clone();
 
-  let mut builder = Builder::<R>::new("wvb").setup(move |app, _api| {
+  let mut builder = Builder::<R>::new("wvb-tauri").setup(move |app, _api| {
     #[cfg(desktop)]
     let webview_bundle = desktop::init(app, c)?;
     app.manage(webview_bundle);

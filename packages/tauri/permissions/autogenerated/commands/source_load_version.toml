@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-source-load-version"
+description = "Enables the source_load_version command without any pre-configured scope."
+commands.allow = ["source_load_version"]
+
+[[permission]]
+identifier = "deny-source-load-version"
+description = "Denies the source_load_version command without any pre-configured scope."
+commands.deny = ["source_load_version"]

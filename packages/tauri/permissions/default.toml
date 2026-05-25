@@ -1,3 +1,22 @@
+"$schema" = "schemas/schema.json"
+
 [default]
-description = "Default permissions for the plugin"
-permissions = []
+description = """
+Default permissions for the webview bundle plugin.
+Grants access to every source, remote and updater command so the `@wvb/tauri`
+JavaScript API works out of the box. Reference a narrower set of `allow-*`
+permissions instead if you want to restrict what the frontend can invoke.
+"""
+permissions = [
+  "allow-source-list-bundles",
+  "allow-source-load-version",
+  "allow-source-update-version",
+  "allow-source-filepath",
+  "allow-remote-list-bundles",
+  "allow-remote-get-info",
+  "allow-remote-download",
+  "allow-remote-download-version",
+  "allow-updater-list-remotes",
+  "allow-updater-get-update",
+  "allow-updater-download-update",
+]
