@@ -22,6 +22,6 @@
     "@vitejs/plugin-react": "^5.0.2",
     "@wvb/cli": "workspace:^",
     "typescript": "catalog:",
-    "vite": "^7.1.11"
+    "vite": "^7.3.2"
   }
 }
