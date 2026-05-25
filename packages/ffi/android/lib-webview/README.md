@@ -5,9 +5,18 @@ the UniFFI bindings in `:lib-android`.
 
 It is the Android counterpart of the [`@wvb/electron`](../../../electron) and
 [`wvb-tauri`](../../../tauri) packages: you register one or more protocols, each
-bound to a URL scheme, and requests to those schemes are served from a bundle
-source (or proxied to a local server) through
+bound to a virtual **host**, and requests to those hosts over `https` are served
+from a bundle source (or proxied to a local server) through
 `WebViewClient.shouldInterceptRequest`.
+
+> **Why `https`, not a custom scheme?** On Android, a custom scheme (`app://…`)
+> gives the page an opaque (`"null"`) origin, which breaks `localStorage`,
+> `fetch`, cookies, and Service Workers. Serving over a virtual `https` host —
+> the same approach as `WebViewAssetLoader` — keeps a real secure origin. The
+> bundle name is the first label of the host (`https://app.wvb/x` -> `app`), and
+> requests to unregistered hosts fall through to the network unchanged.
+> (iOS is the opposite: `WKWebView` reserves `https`/`http`, so it uses a custom
+> scheme — see [`WebViewBundleWebView`](../../apple/Sources/WebViewBundleWebView/README.md).)
 
 ## Install (Gradle)
 
@@ -51,11 +60,11 @@ val wvb = WebViewBundle(
             remoteManifestFilepath = null,
         )
     ),
-    protocols = listOf(Protocol.Bundle("app")),
+    protocols = listOf(Protocol.Bundle("app.wvb")),
 )
 
-wvb.install(webView)                       // sets webView.webViewClient
-webView.loadUrl("app://app.wvb/index.html") // host label "app" -> bundle "app"
+wvb.install(webView)                          // sets webView.webViewClient
+webView.loadUrl("https://app.wvb/index.html") // host label "app" -> bundle "app"
 ```
 
 ### Combining with your own `WebViewClient`
@@ -73,18 +82,21 @@ class MyClient(wvb: WebViewBundle) : WebViewBundleClient(wvb) {
 ### Local protocol
 
 ```kotlin
+// Useful for local development: serve https://app.wvb/* from a dev server.
 val wvb = WebViewBundle(
     source = source,
     protocols = listOf(
-        Protocol.Local("local", hosts = mapOf("myapp" to "http://localhost:8080")),
+        Protocol.Local(servers = mapOf("app.wvb" to "http://localhost:8080")),
     ),
 )
+webView.loadUrl("https://app.wvb/")
 ```
 
 ## Notes
 
-- Use a **custom scheme** (e.g. `app`, `wvb`) rather than `http`/`https` so the
-  WebView routes every request through `shouldInterceptRequest`.
-- The bundle name is the first label of the host: `app://app.wvb/x` -> `app`.
+- Serve over **`https` with a virtual host** (e.g. `app.wvb`); avoid custom
+  schemes, which get an opaque origin on Android (see above).
+- Register the full host (`app.wvb`); the bundle name is its first label
+  (`app`). Requests to unregistered hosts are not intercepted.
 - `shouldInterceptRequest` runs off the UI thread; the suspending FFI handler is
   driven with `runBlocking` there.

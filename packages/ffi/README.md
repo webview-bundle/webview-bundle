@@ -31,11 +31,18 @@ from a bundle source instead of the network.
 - iOS/macOS: see
   [`apple/Sources/WebViewBundleWebView/README.md`](apple/Sources/WebViewBundleWebView/README.md).
 
-Use a **custom** URL scheme (e.g. `app`, `wvb`) rather than `http`/`https`: on
-Android it guarantees every request flows through
-`WebViewClient.shouldInterceptRequest`, and on iOS `WKWebView` only allows
-`WKURLSchemeHandler` for non-reserved schemes. The bundle name is the first
-label of the host (`app://app.wvb/index.html` -> bundle `app`).
+The two platforms intercept differently, by necessity:
+
+- **Android** matches on **host over `https`** (e.g. `https://app.wvb/…`). A
+  custom scheme would give the page an opaque (`"null"`) origin that breaks
+  `localStorage`/`fetch`/cookies/Service Workers, so it serves over a virtual
+  `https` host like `WebViewAssetLoader` does.
+- **iOS/macOS** uses a **custom scheme** (e.g. `app://app.wvb/…`) registered with
+  a `WKURLSchemeHandler`, because `WKWebView` reserves `https`/`http`. Custom
+  schemes get a usable origin on iOS.
+
+In both cases the bundle name is the first label of the host
+(`app.wvb` -> bundle `app`).
 
 ## Building
 

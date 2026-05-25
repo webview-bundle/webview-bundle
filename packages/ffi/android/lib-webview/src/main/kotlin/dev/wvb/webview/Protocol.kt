@@ -1,37 +1,36 @@
 package dev.wvb.webview
 
 /**
- * A protocol binds a URL [scheme] handled inside a [android.webkit.WebView] to a
- * WebViewBundle request handler.
+ * A protocol binds one or more virtual **hosts** to a WebViewBundle request
+ * handler. Requests to those hosts over `https` (or `http`) are intercepted via
+ * [android.webkit.WebViewClient.shouldInterceptRequest] and served from the
+ * bundle source (or proxied to a local server).
  *
- * This mirrors the protocol model used by the `@wvb/electron` and `wvb-tauri`
- * packages: each protocol owns a scheme, and requests to that scheme are routed
- * to the matching handler which resolves them against the bundle source or a
- * local server.
+ * Unlike the desktop `@wvb/electron` / `wvb-tauri` packages, Android matches on
+ * **host over `https`**, not on a custom scheme: a custom scheme would give the
+ * page an opaque (`"null"`) origin, breaking `localStorage`, `fetch`, cookies
+ * and Service Workers. Serving over a virtual `https` host (the approach used by
+ * `WebViewAssetLoader`) keeps a real secure origin. Requests whose host is not
+ * registered fall through to the network unchanged.
  *
- * The bundle name is resolved from the first label of the request host, e.g.
- * `app://app.wvb/index.html` -> bundle `"app"`, path `"/index.html"`.
- *
- * Use a custom (non `http`/`https`) scheme so the WebView routes every request
- * through [android.webkit.WebViewClient.shouldInterceptRequest] instead of the
- * network stack.
+ * The bundle name is the first label of the host, e.g. `https://app.wvb/x`
+ * resolves to bundle `"app"`.
  */
 public sealed interface Protocol {
-    public val scheme: String
+    /** The request hosts this protocol intercepts (e.g. `"app.wvb"`). */
+    public val hosts: Set<String>
+
+    /** Serves bundle entries for the given virtual [hosts]. */
+    public data class Bundle(override val hosts: Set<String>) : Protocol {
+        public constructor(vararg hosts: String) : this(hosts.toSet())
+    }
 
     /**
-     * Serves entries from the WebViewBundle [dev.wvb.BundleSource], backed by a
-     * [dev.wvb.BundleUrlHandler].
+     * Proxies requests to local HTTP servers. Each key of [servers] is a virtual
+     * host to intercept; its value is the local base URL, e.g.
+     * `{"app.wvb" to "http://localhost:8080"}`.
      */
-    public data class Bundle(override val scheme: String) : Protocol
-
-    /**
-     * Proxies requests to local HTTP servers, backed by a
-     * [dev.wvb.LocalUrlHandler]. [hosts] maps a virtual host to a local base URL,
-     * e.g. `{"myapp" to "http://localhost:8080"}`.
-     */
-    public data class Local(
-        override val scheme: String,
-        val hosts: Map<String, String>,
-    ) : Protocol
+    public data class Local(val servers: Map<String, String>) : Protocol {
+        override val hosts: Set<String> get() = servers.keys
+    }
 }

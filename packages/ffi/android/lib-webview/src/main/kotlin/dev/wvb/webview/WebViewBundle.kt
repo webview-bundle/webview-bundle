@@ -20,9 +20,12 @@ private typealias RequestHandler = suspend (HttpMethod, String, Map<String, Stri
  *
  * `WebViewBundle` is the Android counterpart to the `@wvb/electron` and
  * `wvb-tauri` packages. It wires one or more [Protocol]s to the WebView's
- * resource loader: requests whose scheme matches a registered protocol are
+ * resource loader: requests to a registered host (over `https`/`http`) are
  * resolved from the bundle [source] (or proxied to a local server) instead of
- * hitting the network.
+ * hitting the network; everything else falls through unchanged.
+ *
+ * Android matches on **host over `https`** rather than a custom scheme so the
+ * served page keeps a real secure origin (see [Protocol]).
  *
  * ```kotlin
  * val wvb = WebViewBundle(
@@ -34,14 +37,14 @@ private typealias RequestHandler = suspend (HttpMethod, String, Map<String, Stri
  *             remoteManifestFilepath = null,
  *         )
  *     ),
- *     protocols = listOf(Protocol.Bundle("app")),
+ *     protocols = listOf(Protocol.Bundle("app.wvb")),
  * )
  * webView.webViewClient = wvb.createWebViewClient()
- * webView.loadUrl("app://app.wvb/index.html")
+ * webView.loadUrl("https://app.wvb/index.html") // host label "app" -> bundle "app"
  * ```
  *
  * @param source the bundle source requests are served from.
- * @param protocols the protocols to register; each must use a unique scheme.
+ * @param protocols the protocols to register; each host must be unique.
  * @param remote optional remote client, exposed for update flows.
  * @param updater optional updater, exposed for update flows.
  * @param onError invoked when a request handler throws; the request then yields
@@ -54,25 +57,29 @@ public class WebViewBundle(
     public val updater: Updater? = null,
     private val onError: ((Throwable) -> Unit)? = null,
 ) {
-    private val handlers: Map<String, RequestHandler> = buildHandlers(source, protocols)
+    private val handlersByHost: Map<String, RequestHandler> = buildHandlers(source, protocols)
 
-    /** The schemes this instance intercepts. */
-    public val schemes: Set<String> get() = handlers.keys
+    /** The hosts this instance intercepts. */
+    public val hosts: Set<String> get() = handlersByHost.keys
 
     /**
      * Resolves [request] against the registered protocols.
      *
-     * Returns a [WebResourceResponse] when the request scheme is handled, or
-     * `null` to let the WebView load the request normally. Call this from your
-     * own [android.webkit.WebViewClient.shouldInterceptRequest] override, or use
+     * Returns a [WebResourceResponse] when the request targets a registered host
+     * over `https`/`http`, or `null` to let the WebView load the request
+     * normally. Call this from your own
+     * [android.webkit.WebViewClient.shouldInterceptRequest] override, or use
      * [createWebViewClient] / [install].
      */
     public fun intercept(request: WebResourceRequest): WebResourceResponse? {
-        val scheme = request.url.scheme?.lowercase() ?: return null
-        val handler = handlers[scheme] ?: return null
+        val url = request.url
+        val scheme = url.scheme?.lowercase()
+        if (scheme != "https" && scheme != "http") return null
+        val host = url.host?.lowercase() ?: return null
+        val handler = handlersByHost[host] ?: return null
 
         val method = request.method.toHttpMethod()
-        val uri = request.url.toString()
+        val uri = url.toString()
         val headers = request.requestHeaders.takeIf { it.isNotEmpty() }
 
         return try {
@@ -85,7 +92,7 @@ public class WebViewBundle(
         }
     }
 
-    /** Creates a [WebViewClient] that intercepts the registered schemes. */
+    /** Creates a [WebViewClient] that intercepts the registered hosts. */
     public fun createWebViewClient(): WebViewBundleClient = WebViewBundleClient(this)
 
     /** Convenience for `webView.webViewClient = createWebViewClient()`. */
@@ -95,12 +102,9 @@ public class WebViewBundle(
 
     private companion object {
         fun buildHandlers(source: BundleSource, protocols: List<Protocol>): Map<String, RequestHandler> {
-            val handlers = LinkedHashMap<String, RequestHandler>(protocols.size)
+            val handlers = LinkedHashMap<String, RequestHandler>()
             for (protocol in protocols) {
-                val scheme = protocol.scheme.lowercase()
-                require(scheme.isNotEmpty()) { "protocol scheme must not be empty" }
-                require(scheme !in handlers) { "duplicate protocol scheme: $scheme" }
-                handlers[scheme] = when (protocol) {
+                val handlerFn: RequestHandler = when (protocol) {
                     is Protocol.Bundle -> {
                         val urlHandler = BundleUrlHandler(source)
                         val fn: RequestHandler =
@@ -109,11 +113,17 @@ public class WebViewBundle(
                     }
 
                     is Protocol.Local -> {
-                        val urlHandler = LocalUrlHandler(protocol.hosts)
+                        val urlHandler = LocalUrlHandler(protocol.servers)
                         val fn: RequestHandler =
                             { method, uri, headers -> urlHandler.handle(method, uri, headers) }
                         fn
                     }
+                }
+                for (host in protocol.hosts) {
+                    val key = host.lowercase()
+                    require(key.isNotEmpty()) { "protocol host must not be empty" }
+                    require(key !in handlers) { "duplicate protocol host: $key" }
+                    handlers[key] = handlerFn
                 }
             }
             return handlers
