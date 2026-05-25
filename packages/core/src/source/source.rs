@@ -141,7 +141,11 @@ pub struct BundleSource {
   builtin_manifest: BundleManifest<ReadOnly>,
   remote_dir: PathBuf,
   remote_manifest: BundleManifest<ReadWrite>,
-  descriptors: DashMap<String, Arc<OnceCell<Arc<BundleDescriptor>>>>,
+  // Each entry stores the filepath the descriptor was loaded from alongside the
+  // descriptor itself. The filepath is used to detect stale cache entries after a
+  // version swap, so the caller can pass the same resolved path to both the
+  // descriptor load and the file reader (see load_descriptor_at / reader_at).
+  descriptors: DashMap<String, (PathBuf, Arc<OnceCell<Arc<BundleDescriptor>>>)>,
 }
 
 impl BundleSource {
@@ -194,10 +198,17 @@ impl BundleSource {
   }
 
   pub async fn update_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
+    // Invalidate cache before updating the manifest's current_version.
+    // If unload happens after the in-memory version changes, a concurrent request
+    // could pick up a stale v1 descriptor but open the v2 file (because load_version
+    // already returns v2), producing a descriptor/file mismatch.
+    self.unload_descriptor(bundle_name);
     self
       .remote_manifest
       .update_current_version(bundle_name, version)
-      .await
+      .await?;
+    self.remote_manifest.save().await?;
+    Ok(())
   }
 
   pub async fn filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
@@ -236,19 +247,49 @@ impl BundleSource {
     Ok(manifest)
   }
 
-  pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<BundleDescriptor>> {
-    if let Some(entry) = self.descriptors.get(bundle_name) {
-      if let Some(m) = entry.get() {
-        return Ok(m.clone());
+  async fn fetch_descriptor_from_path(filepath: &Path) -> crate::Result<BundleDescriptor> {
+    let mut file = File::open(filepath).await.map_err(|e| {
+      if e.kind() == std::io::ErrorKind::NotFound {
+        return crate::Error::BundleNotFound;
       }
-    }
-    let descriptor_cell = {
-      let entry = self.descriptors.entry(bundle_name.to_string()).or_default();
-      entry.clone()
+      crate::Error::from(e)
+    })?;
+    let descriptor =
+      AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
+    Ok(descriptor)
+  }
+
+  /// Loads (and caches) the descriptor for the given bundle, using `filepath` as both the
+  /// cache key and the file to read from. All callers in the hot path must resolve the
+  /// filepath once with `filepath()` and pass the same value here **and** to `reader_at`,
+  /// so that the descriptor and the open file always correspond to the same bundle version.
+  pub(crate) async fn load_descriptor_at(
+    &self,
+    bundle_name: &str,
+    filepath: &Path,
+  ) -> crate::Result<Arc<BundleDescriptor>> {
+    let cell = match self.descriptors.entry(bundle_name.to_string()) {
+      dashmap::Entry::Occupied(mut occ) => {
+        let (cached_path, cell) = occ.get();
+        if cached_path == filepath {
+          cell.clone()
+        } else {
+          // Stale: the version changed since this entry was cached.
+          let new_cell = Arc::new(OnceCell::new());
+          occ.insert((filepath.to_path_buf(), new_cell.clone()));
+          new_cell
+        }
+      }
+      dashmap::Entry::Vacant(vac) => {
+        let new_cell = Arc::new(OnceCell::new());
+        vac.insert((filepath.to_path_buf(), new_cell.clone()));
+        new_cell
+      }
     };
-    let descriptor = descriptor_cell
+    let filepath_owned = filepath.to_path_buf();
+    let descriptor = cell
       .get_or_try_init(|| async {
-        let d = self.fetch_descriptor(bundle_name).await?;
+        let d = Self::fetch_descriptor_from_path(&filepath_owned).await?;
         Ok::<Arc<BundleDescriptor>, crate::Error>(Arc::new(d))
       })
       .await?
@@ -256,8 +297,26 @@ impl BundleSource {
     Ok(descriptor)
   }
 
+  /// Convenience wrapper: resolves the current filepath then calls `load_descriptor_at`.
+  pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<BundleDescriptor>> {
+    let filepath = self.filepath(bundle_name).await?;
+    self.load_descriptor_at(bundle_name, &filepath).await
+  }
+
   pub fn unload_descriptor(&self, bundle_name: &str) -> bool {
     self.descriptors.remove(bundle_name).is_some()
+  }
+
+  /// Opens a file at the given path with BundleNotFound error mapping.
+  /// Use this together with `load_descriptor_at` — both must receive the same
+  /// filepath snapshot to guarantee descriptor/file version consistency.
+  pub(crate) async fn reader_at(&self, filepath: &Path) -> crate::Result<File> {
+    File::open(filepath).await.map_err(|e| {
+      if e.kind() == std::io::ErrorKind::NotFound {
+        return crate::Error::BundleNotFound;
+      }
+      crate::Error::from(e)
+    })
   }
 
   pub async fn write_remote_bundle(
@@ -277,6 +336,13 @@ impl BundleSource {
       .remote_manifest
       .insert_entry(bundle_name, version, metadata)
       .await?;
+    // Invalidate cache before the in-memory current_version changes (see update_version).
+    self.unload_descriptor(bundle_name);
+    self
+      .remote_manifest
+      .update_current_version(bundle_name, version)
+      .await?;
+    self.remote_manifest.save().await?;
     Ok(())
   }
 

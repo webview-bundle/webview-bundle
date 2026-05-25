@@ -3,6 +3,7 @@ use std::sync::Arc;
 use wvb::BundleEntry;
 use wvb::protocol::{BundleProtocol, Protocol};
 use wvb::remote::ListRemoteBundleInfo;
+use wvb::source::BundleSource;
 use wvb::testing::*;
 use wvb::updater::Updater;
 
@@ -103,7 +104,6 @@ async fn protocol_handle_concurrent_requests() {
   let source = Arc::new(system.source().get_source());
   let protocol = Arc::new(BundleProtocol::new(source.clone()));
 
-  // Spawn 100 concurrent requests
   let mut handles = vec![];
   for i in 0..100 {
     let protocol = protocol.clone();
@@ -127,7 +127,6 @@ async fn protocol_handle_concurrent_requests() {
     handles.push(handle);
   }
 
-  // Verify all requests succeeded
   for handle in handles {
     let resp = handle.await.unwrap().unwrap();
     assert_eq!(resp.status(), 200);
@@ -158,7 +157,6 @@ async fn protocol_handle_during_bundle_update() {
   let protocol = Arc::new(BundleProtocol::new(source.clone()));
   let remote = Arc::new(system.remote().get_remote());
 
-  // Request before update
   let resp = protocol
     .handle(
       Request::builder()
@@ -174,10 +172,8 @@ async fn protocol_handle_during_bundle_update() {
     "<h1>Version 1.0.0</h1>"
   );
 
-  // Spawn multiple concurrent requests during update
   let mut handles = vec![];
 
-  // Run the update task asynchronously
   let updater = Updater::new(source.clone(), remote.clone(), None);
   let source_clone = source.clone();
   let update_handle = tokio::spawn(async move {
@@ -186,7 +182,6 @@ async fn protocol_handle_during_bundle_update() {
     source_clone.update_version("app", "2.0.0").await.unwrap();
   });
 
-  // Spawn concurrent requests during update
   for _ in 0..50 {
     let protocol = protocol.clone();
     let handle = tokio::spawn(async move {
@@ -206,7 +201,6 @@ async fn protocol_handle_during_bundle_update() {
 
   update_handle.await.unwrap();
 
-  // Verify all requests succeeded (either 1.0.0 or 2.0.0)
   for handle in handles {
     let resp = handle.await.unwrap().unwrap();
     assert_eq!(resp.status(), 200);
@@ -218,7 +212,6 @@ async fn protocol_handle_during_bundle_update() {
     );
   }
 
-  // Requests after update should return 2.0.0
   let resp = protocol
     .handle(
       Request::builder()
@@ -259,7 +252,6 @@ async fn protocol_handle_multiple_bundles_concurrent() {
   let source = Arc::new(system.source().get_source());
   let protocol = Arc::new(BundleProtocol::new(source.clone()));
 
-  // Concurrent requests across multiple bundles
   let mut handles = vec![];
   for i in 0..90 {
     let protocol = protocol.clone();
@@ -282,7 +274,6 @@ async fn protocol_handle_multiple_bundles_concurrent() {
     handles.push(handle);
   }
 
-  // Verify all requests
   for handle in handles {
     let resp = handle.await.unwrap().unwrap();
     assert_eq!(resp.status(), 200);
@@ -324,22 +315,18 @@ async fn updater_concurrent_updates() {
   let remote = Arc::new(system.remote().get_remote());
   let updater = Arc::new(Updater::new(source.clone(), remote.clone(), None));
 
-  // Update multiple bundles concurrently
   let updater1 = updater.clone();
   let handle1 = tokio::spawn(async move { updater1.download_update("app1", None).await });
 
   let updater2 = updater.clone();
   let handle2 = tokio::spawn(async move { updater2.download_update("app2", None).await });
 
-  // Verify all updates succeeded
   handle1.await.unwrap().unwrap();
   handle2.await.unwrap().unwrap();
 
-  // Apply version updates
   source.update_version("app1", "2.0.0").await.unwrap();
   source.update_version("app2", "2.0.0").await.unwrap();
 
-  // Verify via protocol
   let protocol = BundleProtocol::new(source.clone());
   let resp = protocol
     .handle(
@@ -388,10 +375,8 @@ async fn protocol_and_updater_stress_test() {
   let protocol = Arc::new(BundleProtocol::new(source.clone()));
   let remote = Arc::new(system.remote().get_remote());
 
-  // Continuously send protocol requests while performing concurrent updates
   let mut handles = vec![];
 
-  // 100 protocol requests
   for _ in 0..100 {
     let protocol = protocol.clone();
     let handle = tokio::spawn(async move {
@@ -409,7 +394,6 @@ async fn protocol_and_updater_stress_test() {
     handles.push(handle);
   }
 
-  // Perform update concurrently
   let updater = Updater::new(source.clone(), remote.clone(), None);
   let source_clone = source.clone();
   let update_handle = tokio::spawn(async move {
@@ -420,14 +404,11 @@ async fn protocol_and_updater_stress_test() {
 
   update_handle.await.unwrap();
 
-  // Verify all requests succeeded
   for handle in handles {
     let resp = handle.await.unwrap().unwrap();
     assert_eq!(resp.status(), 200);
   }
 }
-
-// === Error Handling and Safety Tests ===
 
 #[tokio::test]
 async fn error_handling_bundle_not_found() {
@@ -435,7 +416,6 @@ async fn error_handling_bundle_not_found() {
   let source = Arc::new(system.source().get_source());
   let protocol = BundleProtocol::new(source.clone());
 
-  // Request a non-existent bundle
   let result = protocol
     .handle(
       Request::builder()
@@ -464,7 +444,6 @@ async fn error_handling_file_not_found() {
   let source = Arc::new(system.source().get_source());
   let protocol = BundleProtocol::new(source.clone());
 
-  // Request a non-existent file
   let resp = protocol
     .handle(
       Request::builder()
@@ -493,7 +472,6 @@ async fn error_handling_invalid_method() {
   let source = Arc::new(system.source().get_source());
   let protocol = BundleProtocol::new(source.clone());
 
-  // POST method is not supported
   let resp = protocol
     .handle(
       Request::builder()
@@ -505,7 +483,7 @@ async fn error_handling_invalid_method() {
     .await
     .unwrap();
 
-  assert_eq!(resp.status(), 405); // Method Not Allowed
+  assert_eq!(resp.status(), 405);
 }
 
 #[tokio::test]
@@ -516,7 +494,6 @@ async fn error_handling_concurrent_errors() {
 
   let mut handles = vec![];
 
-  // Spawn 50 concurrent error requests
   for _ in 0..50 {
     let protocol = protocol.clone();
     let handle = tokio::spawn(async move {
@@ -533,7 +510,6 @@ async fn error_handling_concurrent_errors() {
     handles.push(handle);
   }
 
-  // Verify all requests return an error
   for handle in handles {
     let result = handle.await.unwrap();
     assert!(result.is_err());
@@ -548,12 +524,9 @@ async fn updater_error_handling_remote_not_found() {
   let remote = Arc::new(system.remote().get_remote());
   let updater = Updater::new(source.clone(), remote.clone(), None);
 
-  // Attempt to update a non-existent bundle
   let result = updater.get_update("nonexistent").await;
   assert!(result.is_err());
 }
-
-// === Data Integrity Tests ===
 
 #[tokio::test]
 async fn data_integrity_content_verification() {
@@ -570,7 +543,6 @@ async fn data_integrity_content_verification() {
   let source = Arc::new(system.source().get_source());
   let protocol = Arc::new(BundleProtocol::new(source.clone()));
 
-  // Verify content matches over 100 iterations
   for _ in 0..100 {
     let resp = protocol
       .handle(
@@ -605,7 +577,6 @@ async fn data_integrity_concurrent_reads() {
 
   let mut handles = vec![];
 
-  // 100 concurrent read requests
   for _ in 0..100 {
     let protocol = protocol.clone();
     let handle = tokio::spawn(async move {
@@ -622,7 +593,6 @@ async fn data_integrity_concurrent_reads() {
     handles.push(handle);
   }
 
-  // Verify all requests return identical content
   for handle in handles {
     let resp = handle.await.unwrap().unwrap();
     assert_eq!(resp.status(), 200);
@@ -652,7 +622,6 @@ async fn data_integrity_update_atomicity() {
   let protocol = Arc::new(BundleProtocol::new(source.clone()));
   let remote = Arc::new(system.remote().get_remote());
 
-  // Verify version before update
   let resp = protocol
     .handle(
       Request::builder()
@@ -665,12 +634,10 @@ async fn data_integrity_update_atomicity() {
     .unwrap();
   assert_eq!(str::from_utf8(resp.body()).unwrap(), "<h1>Version 1</h1>");
 
-  // Perform update
   let updater = Updater::new(source.clone(), remote.clone(), None);
   updater.download_update("app", None).await.unwrap();
   source.update_version("app", "2.0.0").await.unwrap();
 
-  // Verify all requests return the new version after update
   let mut handles = vec![];
   for _ in 0..50 {
     let protocol = protocol.clone();
@@ -694,8 +661,6 @@ async fn data_integrity_update_atomicity() {
   }
 }
 
-// === Resource Management Tests ===
-
 #[tokio::test]
 async fn resource_cleanup_multiple_updates() {
   let mut system = MockSystem::new();
@@ -712,11 +677,9 @@ async fn resource_cleanup_multiple_updates() {
   let protocol = BundleProtocol::new(source.clone());
   let updater = Updater::new(source.clone(), remote.clone(), None);
 
-  // Update sequentially
   for i in 1..=5 {
     let version = format!("1.{}.0", i);
 
-    // Add new version to remote and set as current on each iteration
     system
       .remote_mut()
       .add_bundle(MockBundle::new("app", &version).with_entry(
@@ -728,7 +691,6 @@ async fn resource_cleanup_multiple_updates() {
     updater.download_update("app", None).await.unwrap();
     source.update_version("app", &version).await.unwrap();
 
-    // Verify normal operation after each update
     let resp = protocol
       .handle(
         Request::builder()
@@ -744,8 +706,6 @@ async fn resource_cleanup_multiple_updates() {
     assert_eq!(content, format!("<h1>V{}</h1>", i));
   }
 }
-
-// === Boundary Condition Tests ===
 
 #[tokio::test]
 async fn boundary_empty_file() {
@@ -780,7 +740,6 @@ async fn boundary_empty_file() {
 async fn boundary_large_concurrent_load() {
   let mut system = MockSystem::new();
 
-  // Create 10 bundles
   for i in 1..=10 {
     let bundle_name = format!("app{}", i);
     system
@@ -797,7 +756,6 @@ async fn boundary_large_concurrent_load() {
 
   let mut handles = vec![];
 
-  // Distribute 200 requests across 10 bundles
   for i in 0..200 {
     let protocol = protocol.clone();
     let bundle_name = format!("app{}", (i % 10) + 1);
@@ -815,7 +773,6 @@ async fn boundary_large_concurrent_load() {
     handles.push(handle);
   }
 
-  // Verify all requests succeed
   for handle in handles {
     let resp = handle.await.unwrap().unwrap();
     assert_eq!(resp.status(), 200);
@@ -847,7 +804,6 @@ async fn boundary_special_characters_in_path() {
   let source = Arc::new(system.source().get_source());
   let protocol = BundleProtocol::new(source.clone());
 
-  // Test URL-encoded path
   let resp = protocol
     .handle(
       Request::builder()
@@ -860,7 +816,6 @@ async fn boundary_special_characters_in_path() {
     .unwrap();
   assert_eq!(resp.status(), 200);
 
-  // Path with dashes
   let resp = protocol
     .handle(
       Request::builder()
@@ -873,7 +828,6 @@ async fn boundary_special_characters_in_path() {
     .unwrap();
   assert_eq!(resp.status(), 200);
 
-  // Path with underscores
   let resp = protocol
     .handle(
       Request::builder()
@@ -885,4 +839,643 @@ async fn boundary_special_characters_in_path() {
     .await
     .unwrap();
   assert_eq!(resp.status(), 200);
+}
+
+// =============================================================================
+// Safety: Scenario 1 — Protocol serving while a version swap occurs
+// =============================================================================
+//
+// BundleProtocol::handle_inner resolves the bundle filepath once at the start of each
+// request and passes that same path to both load_descriptor_at and reader_at.
+// This ensures the descriptor and the open file always refer to the same bundle
+// version, even if a swap (write_remote_bundle / update_version) happens mid-request.
+
+#[tokio::test]
+async fn safety_response_bytes_always_valid_during_concurrent_swap() {
+  // V1 and V2 must have different byte lengths so that a descriptor/file mismatch
+  // produces a wrong read length -> LZ4 decompression error -> detectable failure.
+  const V1: &[u8] = b"<h1>v1</h1>";
+  const V2: &[u8] =
+    b"<h1>version 2 - significantly longer content to force different LZ4 size</h1>";
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(
+      MockBundle::new("app", "1.0.0")
+        .with_entry("/index.html", BundleEntry::new(V1, "text/html", None)),
+    )
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .remote_mut()
+    .add_bundle(
+      MockBundle::new("app", "2.0.0")
+        .with_entry("/index.html", BundleEntry::new(V2, "text/html", None)),
+    )
+    .set_bundle_current_version("app", "2.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let protocol = Arc::new(BundleProtocol::new(source.clone()));
+  let remote = Arc::new(system.remote().get_remote());
+
+  let mut read_handles = vec![];
+  for i in 0..200usize {
+    let p = protocol.clone();
+    let delay_ms = (i % 20) as u64;
+    read_handles.push(tokio::spawn(async move {
+      tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+      p.handle(
+        Request::builder()
+          .uri("https://app.wvb/index.html")
+          .method("GET")
+          .body(vec![])
+          .unwrap(),
+      )
+      .await
+    }));
+  }
+
+  let updater = Updater::new(source.clone(), remote.clone(), None);
+  tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+  updater.download_update("app", None).await.unwrap();
+
+  for handle in read_handles {
+    let resp = handle.await.unwrap().unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.body().as_ref();
+    assert!(
+      body == V1 || body == V2,
+      "response body is neither v1 nor v2 — likely a descriptor/file version mismatch:\n  got: {:?}",
+      std::str::from_utf8(body).unwrap_or("<binary>")
+    );
+  }
+}
+
+#[tokio::test]
+async fn safety_manifest_persists_across_source_reload() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>builtin</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .remote_mut()
+    .add_bundle(MockBundle::new("app", "2.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>remote</h1>", "text/html", None),
+    ))
+    .set_bundle_current_version("app", "2.0.0");
+
+  let (builtin_dir, remote_dir) = system.source().dirs();
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+
+  Updater::new(source.clone(), remote, None)
+    .download_update("app", None)
+    .await
+    .unwrap();
+
+  // Simulate app restart: build a fresh BundleSource from the same directories.
+  let reloaded = Arc::new(
+    BundleSource::builder()
+      .builtin_dir(builtin_dir)
+      .remote_dir(remote_dir)
+      .build(),
+  );
+  let version = reloaded.load_version("app").await.unwrap().unwrap();
+  assert_eq!(
+    version.version, "2.0.0",
+    "downloaded version must survive a source reload"
+  );
+
+  let protocol = BundleProtocol::new(reloaded);
+  let resp = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 200);
+  assert_eq!(resp.body().as_ref(), b"<h1>remote</h1>");
+}
+
+// The bug only manifests when updating an existing remote entry (not the first download):
+// insert_entry's or_insert_with sets current_version for new entries, but and_modify only
+// appends to versions for existing entries without updating current_version.
+// We download v1.1.0 first to seed the manifest entry, then v2.0.0 to hit and_modify.
+#[tokio::test]
+async fn safety_current_version_auto_updated_after_download() {
+  const V1_CONTENT: &[u8] = b"<h1>v1.1.0</h1>";
+  const V2_CONTENT: &[u8] = b"<h1>v2.0.0 - longer content to ensure different LZ4 size</h1>";
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>builtin</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .remote_mut()
+    .add_bundle(MockBundle::new("app", "1.1.0").with_entry(
+      "/index.html",
+      BundleEntry::new(V1_CONTENT, "text/html", None),
+    ))
+    .set_bundle_current_version("app", "1.1.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+
+  // First download: creates remote manifest entry (or_insert_with sets current=1.1.0).
+  Updater::new(source.clone(), remote.clone(), None)
+    .download_update("app", None)
+    .await
+    .unwrap();
+
+  system
+    .remote_mut()
+    .add_bundle(MockBundle::new("app", "2.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(V2_CONTENT, "text/html", None),
+    ))
+    .set_bundle_current_version("app", "2.0.0");
+
+  let protocol = BundleProtocol::new(source.clone());
+
+  // Second download hits the and_modify branch.
+  // Without fix: current_version stays "1.1.0" -> protocol serves v1.1.0 -> assertion fails.
+  Updater::new(source.clone(), remote, None)
+    .download_update("app", None)
+    .await
+    .unwrap();
+
+  let resp = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  assert_eq!(
+    resp.body().as_ref(),
+    V2_CONTENT,
+    "second download must become the active version without a separate update_version call"
+  );
+}
+
+// V1 and V2 must have different content lengths. If they were the same length, the LZ4
+// compressed sizes would be equal, the stale v1 descriptor would read the correct byte
+// count from the v2 file, and the bug would be invisible to this test.
+#[tokio::test]
+async fn safety_descriptor_cache_invalidated_after_download() {
+  const V1: &[u8] = b"<h1>v1</h1>";
+  const V2: &[u8] = b"<h1>version 2 - longer content ensures different LZ4 compressed size</h1>";
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(
+      MockBundle::new("app", "1.0.0")
+        .with_entry("/index.html", BundleEntry::new(V1, "text/html", None)),
+    )
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .remote_mut()
+    .add_bundle(
+      MockBundle::new("app", "2.0.0")
+        .with_entry("/index.html", BundleEntry::new(V2, "text/html", None)),
+    )
+    .set_bundle_current_version("app", "2.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let protocol = BundleProtocol::new(source.clone());
+
+  // Warm up the descriptor cache with v1.
+  let warm = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  assert_eq!(warm.body().as_ref(), V1);
+
+  // Without fix: stale v1 descriptor (entry.len()=L1) reads v2 file with wrong byte count
+  // (L1 != L2) -> LZ4 decompression fails -> .unwrap() below panics.
+  Updater::new(source.clone(), remote, None)
+    .download_update("app", None)
+    .await
+    .unwrap();
+
+  let resp = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  assert_eq!(
+    resp.body().as_ref(),
+    V2,
+    "descriptor cache was not invalidated after download"
+  );
+}
+
+// Proves that a descriptor/file version mismatch produces a hard error rather than
+// silently returning wrong bytes. This verifies that the concurrent swap test's
+// failure would be detectable (an error, not just wrong bytes).
+#[tokio::test]
+async fn safety_descriptor_file_mismatch_produces_hard_error() {
+  use tokio::fs::File;
+  use wvb::source::BundleSource;
+
+  const V1: &[u8] = b"<h1>v1</h1>";
+  const V2: &[u8] = b"<h1>version 2 - longer content to guarantee different LZ4 size</h1>";
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(
+      MockBundle::new("app", "1.0.0")
+        .with_entry("/index.html", BundleEntry::new(V1, "text/html", None)),
+    )
+    .set_builtin_current_version("app", "1.0.0");
+
+  let (builtin_dir, remote_dir) = system.source().dirs();
+
+  // Write v2 bundle file directly, bypassing write_remote_bundle so the manifest still
+  // points to v1 — simulates the v2 file being present but not yet active.
+  let v2_bundle = MockBundle::new("app", "2.0.0")
+    .with_entry("/index.html", BundleEntry::new(V2, "text/html", None));
+  let v2_dir = remote_dir.join("app");
+  std::fs::create_dir_all(&v2_dir).unwrap();
+  let v2_path = v2_dir.join("app_2.0.0.wvb");
+  std::fs::write(&v2_path, v2_bundle.bundle_data()).unwrap();
+
+  let source_v1 = BundleSource::builder()
+    .builtin_dir(&builtin_dir)
+    .remote_dir(&remote_dir)
+    .build();
+
+  // Load the v1 descriptor — what a task holds after a cache hit.
+  let v1_descriptor = source_v1.fetch_descriptor("app").await.unwrap();
+
+  // Open the v2 file — what source.reader() returns after version is bumped in-memory
+  // but before unload_descriptor clears the cache.
+  let v2_reader = File::open(&v2_path).await.unwrap();
+
+  // v1 entry.len() = compressed_size(V1) != compressed_size(V2)
+  // -> reads wrong number of bytes -> LZ4 decompression error
+  let result = v1_descriptor.async_get_data(v2_reader, "/index.html").await;
+  assert!(
+    result.is_err(),
+    "using a v1 descriptor to read a v2 file must produce an error, not silently return wrong data"
+  );
+}
+
+// =============================================================================
+// Safety: Scenario 2 — FS error fail-over
+// =============================================================================
+
+// When the .wvb file listed in the manifest has been deleted from disk,
+// the protocol must return BundleNotFound rather than panic or silent garbage.
+#[tokio::test]
+async fn safety_missing_wvb_file_returns_bundle_not_found() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(
+      MockBundle::new("app", "1.0.0")
+        .with_entry("/index.html", BundleEntry::new(b"hello", "text/html", None)),
+    )
+    .set_builtin_current_version("app", "1.0.0");
+
+  let (builtin_dir, remote_dir) = system.source().dirs();
+
+  // Delete the .wvb file but leave the manifest intact.
+  let wvb_path = builtin_dir.join("app").join("app_1.0.0.wvb");
+  std::fs::remove_file(&wvb_path).unwrap();
+
+  let source = Arc::new(
+    BundleSource::builder()
+      .builtin_dir(&builtin_dir)
+      .remote_dir(&remote_dir)
+      .build(),
+  );
+  let protocol = BundleProtocol::new(source.clone());
+
+  let err = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await
+    .unwrap_err();
+  assert!(
+    matches!(err, wvb::Error::BundleNotFound),
+    "expected BundleNotFound, got: {err}"
+  );
+}
+
+// When manifest.json contains invalid JSON (e.g. truncated on a crash),
+// the source must behave as if the directory is empty — no panic, no corrupt state.
+#[tokio::test]
+async fn safety_corrupted_manifest_treated_as_empty() {
+  let temp = TempDir::new();
+  let builtin_dir = temp.dir().join("builtin");
+  let remote_dir = temp.dir().join("remote");
+  std::fs::create_dir_all(&builtin_dir).unwrap();
+  std::fs::create_dir_all(&remote_dir).unwrap();
+
+  std::fs::write(
+    builtin_dir.join("manifest.json"),
+    b"{ this is not valid json ",
+  )
+  .unwrap();
+
+  let source = BundleSource::builder()
+    .builtin_dir(&builtin_dir)
+    .remote_dir(&remote_dir)
+    .build();
+
+  let result = source.load_version("app").await;
+  assert!(
+    result.is_err(),
+    "corrupted manifest must return an error, not silently produce None"
+  );
+}
+
+// When a .wvb file exists on disk but its bytes are random garbage (e.g. partial write
+// from a power loss), reads must fail with a parse error — not a panic or silent wrong data.
+#[tokio::test]
+async fn safety_corrupted_bundle_file_returns_error() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>hello</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+
+  let (builtin_dir, remote_dir) = system.source().dirs();
+
+  let wvb_path = builtin_dir.join("app").join("app_1.0.0.wvb");
+  std::fs::write(&wvb_path, b"this is not a valid wvb file at all !!!").unwrap();
+
+  let source = Arc::new(
+    BundleSource::builder()
+      .builtin_dir(&builtin_dir)
+      .remote_dir(&remote_dir)
+      .build(),
+  );
+  let protocol = BundleProtocol::new(source.clone());
+
+  let result = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await;
+  assert!(
+    result.is_err(),
+    "corrupted bundle file must return an error, not a 200 with garbage"
+  );
+}
+
+// A zero-byte file must also be rejected gracefully (no panic, no 200).
+#[tokio::test]
+async fn safety_empty_bundle_file_returns_error() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(
+      MockBundle::new("app", "1.0.0")
+        .with_entry("/index.html", BundleEntry::new(b"hello", "text/html", None)),
+    )
+    .set_builtin_current_version("app", "1.0.0");
+
+  let (builtin_dir, remote_dir) = system.source().dirs();
+  std::fs::write(builtin_dir.join("app").join("app_1.0.0.wvb"), b"").unwrap();
+
+  let source = Arc::new(
+    BundleSource::builder()
+      .builtin_dir(&builtin_dir)
+      .remote_dir(&remote_dir)
+      .build(),
+  );
+  let protocol = BundleProtocol::new(source.clone());
+
+  let result = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await;
+  assert!(result.is_err(), "empty .wvb file must return an error");
+}
+
+// A truncated file (simulates interrupted download / power loss mid-write)
+// must be rejected without panicking.
+#[tokio::test]
+async fn safety_truncated_bundle_file_returns_error() {
+  let mut system = MockSystem::new();
+  let bundle = MockBundle::new("app", "1.0.0").with_entry(
+    "/index.html",
+    BundleEntry::new(b"<h1>content</h1>", "text/html", None),
+  );
+  system
+    .source_mut()
+    .add_builtin_bundle(bundle.clone())
+    .set_builtin_current_version("app", "1.0.0");
+
+  let (builtin_dir, remote_dir) = system.source().dirs();
+
+  let valid_bytes = bundle.bundle_data();
+  let wvb_path = builtin_dir.join("app").join("app_1.0.0.wvb");
+  std::fs::write(&wvb_path, &valid_bytes[..10.min(valid_bytes.len())]).unwrap();
+
+  let source = Arc::new(
+    BundleSource::builder()
+      .builtin_dir(&builtin_dir)
+      .remote_dir(&remote_dir)
+      .build(),
+  );
+  let protocol = BundleProtocol::new(source.clone());
+
+  let result = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await;
+  assert!(result.is_err(), "truncated .wvb file must return an error");
+}
+
+// A .wvb file present on disk without a manifest entry must not be visible to load_version.
+// This matches the crash-before-save scenario: the file is written but the manifest was
+// never flushed, so on restart the remote dir looks empty.
+#[tokio::test]
+async fn safety_bundle_without_manifest_entry_is_not_visible() {
+  let temp = TempDir::new();
+  let builtin_dir = temp.dir().join("builtin");
+  let remote_dir = temp.dir().join("remote").join("app");
+  std::fs::create_dir_all(&builtin_dir).unwrap();
+  std::fs::create_dir_all(&remote_dir).unwrap();
+
+  // Drop a .wvb file directly (bypassing write_remote_bundle, so no manifest entry).
+  let bundle = MockBundle::new("app", "2.0.0").with_entry(
+    "/index.html",
+    BundleEntry::new(b"orphan", "text/html", None),
+  );
+  std::fs::write(remote_dir.join("app_2.0.0.wvb"), bundle.bundle_data()).unwrap();
+
+  let source = BundleSource::builder()
+    .builtin_dir(&builtin_dir)
+    .remote_dir(temp.dir().join("remote"))
+    .build();
+
+  let version = source.load_version("app").await.unwrap();
+  assert!(
+    version.is_none(),
+    "a .wvb file without a manifest entry must not be visible to load_version"
+  );
+}
+
+// =============================================================================
+// Safety: Scenario 3 — Downloaded bundle integrity fail-over
+// =============================================================================
+//
+// The `integrity` feature (SHA-3 hash check) is not enabled in the default tauri plugin
+// build. The tests below verify what the system guarantees WITHOUT that feature:
+// structural validity (magic bytes, checksum, framing) is always checked via the binary
+// format parser; semantic integrity (hash matches advertised value) is opt-in.
+
+// The binary format has a fixed magic number and internal checksums. A bundle whose bytes
+// have been modified after creation must fail during parse.
+#[tokio::test]
+async fn safety_bit_flipped_bundle_file_fails_parse() {
+  let mut system = MockSystem::new();
+  let bundle = MockBundle::new("app", "1.0.0").with_entry(
+    "/index.html",
+    BundleEntry::new(b"<h1>original</h1>", "text/html", None),
+  );
+  system
+    .source_mut()
+    .add_builtin_bundle(bundle.clone())
+    .set_builtin_current_version("app", "1.0.0");
+
+  let (builtin_dir, remote_dir) = system.source().dirs();
+
+  let wvb_path = builtin_dir.join("app").join("app_1.0.0.wvb");
+  let mut bytes = std::fs::read(&wvb_path).unwrap();
+  let mid = bytes.len() / 2;
+  bytes[mid] ^= 0xFF;
+  std::fs::write(&wvb_path, &bytes).unwrap();
+
+  let source = Arc::new(
+    BundleSource::builder()
+      .builtin_dir(&builtin_dir)
+      .remote_dir(&remote_dir)
+      .build(),
+  );
+  let protocol = BundleProtocol::new(source.clone());
+
+  let result = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await;
+  assert!(
+    result.is_err(),
+    "a bit-flipped bundle must be rejected, not silently served"
+  );
+}
+
+// Verifies that the download path does not silently swallow network errors:
+// if the server returns 404, download_update must propagate the error.
+#[tokio::test]
+async fn safety_remote_bundle_not_found_propagates_error() {
+  let system = MockSystem::new(); // remote is empty
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let updater = Updater::new(source, remote, None);
+
+  let err = updater
+    .download_update("nonexistent", None)
+    .await
+    .unwrap_err();
+  assert!(
+    matches!(err, wvb::Error::RemoteBundleNotFound),
+    "expected RemoteBundleNotFound, got: {err}"
+  );
+}
+
+// After a failed download, the source must remain in its previous state.
+#[tokio::test]
+async fn safety_failed_download_does_not_corrupt_existing_source() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>stable</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+  // remote has no "app" bundle -> download will fail with RemoteBundleNotFound
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let protocol = BundleProtocol::new(source.clone());
+
+  let _ = Updater::new(source.clone(), remote, None)
+    .download_update("app", None)
+    .await; // intentionally ignore error
+
+  let resp = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 200);
+  assert_eq!(resp.body().as_ref(), b"<h1>stable</h1>");
 }

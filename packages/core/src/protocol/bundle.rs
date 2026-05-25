@@ -167,7 +167,14 @@ impl BundleProtocol {
     }
 
     let mut resp = Response::builder();
-    let descriptor = self.source.load_descriptor(bundle_name).await?;
+    // Resolve the current filepath once. Both the descriptor and every reader
+    // in this function use this same path, so they always refer to the same
+    // bundle version even if a swap occurs mid-request.
+    let filepath = self.source.filepath(bundle_name).await?;
+    let descriptor = self
+      .source
+      .load_descriptor_at(bundle_name, &filepath)
+      .await?;
 
     if let Some(entry) = descriptor.index().get_entry(&path) {
       let resp_headers = resp.headers_mut().unwrap();
@@ -238,7 +245,7 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = self.source.reader(bundle_name).await?;
+            let reader = self.source.reader_at(&filepath).await?;
             let buf = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
               extract_buf(&data, start, end)
             } else {
@@ -276,7 +283,7 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = self.source.reader(bundle_name).await?;
+            let reader = self.source.reader_at(&filepath).await?;
             let buf = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
               let mut buf = Vec::new();
               for (start, end) in ranges {

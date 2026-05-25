@@ -254,6 +254,10 @@ impl MockSource {
       .build()
   }
 
+  pub fn dirs(&self) -> (std::path::PathBuf, std::path::PathBuf) {
+    (self.builtin_dir.clone(), self.remote_dir.clone())
+  }
+
   pub fn add_builtin_bundle(&mut self, bundle: MockBundle) -> &mut Self {
     let filepath = self.builtin_dir.join(bundle.name()).join(format!(
       "{}_{}.wvb",
