@@ -3,13 +3,13 @@ use crate::source::{
 };
 use crate::{
   AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, Bundle, BundleDescriptor,
-  EXTENSION, MANIFEST_FILENAME,
+  BundleReader, EXTENSION, MANIFEST_FILENAME, Reader,
 };
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, OnceCell, OwnedMutexGuard};
 
 /// The type of bundle source: builtin or remote.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +121,7 @@ impl BundleSourceBuilder {
       remote_dir,
       remote_manifest: BundleManifest::new(&remote_manifest_filepath, ReadWrite),
       descriptors: DashMap::default(),
+      locks: DashMap::default(),
     }
   }
 }
@@ -135,17 +136,64 @@ pub struct ListBundleItem {
   pub item: ListBundleManifestItem,
 }
 
+/// A lazily-initialized descriptor cell, shared so concurrent loads single-flight.
+type DescriptorCell = Arc<OnceCell<Arc<BundleDescriptor>>>;
+
 #[derive(Debug)]
 pub struct BundleSource {
   builtin_dir: PathBuf,
   builtin_manifest: BundleManifest<ReadOnly>,
   remote_dir: PathBuf,
   remote_manifest: BundleManifest<ReadWrite>,
-  // Each entry stores the filepath the descriptor was loaded from alongside the
-  // descriptor itself. The filepath is used to detect stale cache entries after a
-  // version swap, so the caller can pass the same resolved path to both the
-  // descriptor load and the file reader (see load_descriptor_at / reader_at).
-  descriptors: DashMap<String, (PathBuf, Arc<OnceCell<Arc<BundleDescriptor>>>)>,
+  // Each entry pairs the descriptor cell with the filepath it was loaded from.
+  // The filepath acts as a version fingerprint: when the active version swaps,
+  // `filepath()` resolves to a different path, so `load_descriptor` notices the
+  // stale entry and rebuilds. The returned `LoadedDescriptor` carries this same
+  // filepath, so its `reader()` always opens the file matching the descriptor.
+  descriptors: DashMap<String, (PathBuf, DescriptorCell)>,
+  // Per-bundle transaction lock. Multi-step mutations of one bundle (download +
+  // stage, validate + activate + prune) acquire this so they run serially even
+  // across separate `Updater` instances sharing this source. Living here — on the
+  // shared source — is what makes the serialization hold; a lock on `Updater`
+  // would not, since callers routinely create a fresh `Updater` per operation.
+  locks: DashMap<String, Arc<Mutex<()>>>,
+}
+
+/// A descriptor together with the filepath it was loaded from.
+///
+/// Holding the source filepath alongside the parsed descriptor guarantees that the
+/// reader opened via [`LoadedDescriptor::reader`] always corresponds to the same
+/// bundle version as the descriptor — even if the active version is swapped
+/// concurrently mid-request. Dereferences to [`BundleDescriptor`].
+#[derive(Debug)]
+pub struct LoadedDescriptor {
+  descriptor: Arc<BundleDescriptor>,
+  filepath: PathBuf,
+}
+
+impl LoadedDescriptor {
+  /// Opens a reader for the exact file this descriptor was parsed from.
+  pub async fn reader(&self) -> crate::Result<File> {
+    File::open(&self.filepath).await.map_err(|e| {
+      if e.kind() == std::io::ErrorKind::NotFound {
+        return crate::Error::BundleNotFound;
+      }
+      crate::Error::from(e)
+    })
+  }
+
+  /// Returns the shared descriptor handle (mainly for identity comparisons).
+  pub fn descriptor(&self) -> &Arc<BundleDescriptor> {
+    &self.descriptor
+  }
+}
+
+impl std::ops::Deref for LoadedDescriptor {
+  type Target = BundleDescriptor;
+
+  fn deref(&self) -> &Self::Target {
+    self.descriptor.as_ref()
+  }
 }
 
 impl BundleSource {
@@ -198,15 +246,13 @@ impl BundleSource {
   }
 
   pub async fn update_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
-    // Invalidate cache before updating the manifest's current_version.
-    // If unload happens after the in-memory version changes, a concurrent request
-    // could pick up a stale v1 descriptor but open the v2 file (because load_version
-    // already returns v2), producing a descriptor/file mismatch.
-    self.unload_descriptor(bundle_name);
     self
       .remote_manifest
       .update_current_version(bundle_name, version)
       .await?;
+    // Persist so the change survives a source reload (a fresh BundleSource reads the
+    // manifest from disk). The descriptor cache invalidates itself on the next
+    // `load_descriptor` because the resolved filepath now differs.
     self.remote_manifest.save().await?;
     Ok(())
   }
@@ -247,6 +293,39 @@ impl BundleSource {
     Ok(manifest)
   }
 
+  /// Reads a specific *remote* version's bundle from disk, returning the parsed
+  /// [`Bundle`] alongside the raw file bytes. Parsing fails (structural validation) if
+  /// the file is missing, truncated, or corrupt. The raw bytes are returned so callers
+  /// can run an integrity hash check without re-reading the file.
+  pub async fn read_remote_version(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<(Bundle, Vec<u8>)> {
+    let filepath = self.get_remote_filepath(bundle_name, version);
+    let data = tokio::fs::read(&filepath).await.map_err(|e| {
+      if e.kind() == std::io::ErrorKind::NotFound {
+        return crate::Error::BundleNotFound;
+      }
+      crate::Error::from(e)
+    })?;
+    let bundle = BundleReader::new(std::io::Cursor::new(&data)).read()?;
+    Ok((bundle, data))
+  }
+
+  /// Loads the manifest metadata (etag/integrity/signature/...) recorded for a remote
+  /// version at download time. `None` if the version is not staged in the remote manifest.
+  pub async fn load_remote_metadata(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<Option<BundleManifestMetadata>> {
+    self
+      .remote_manifest
+      .load_metadata(bundle_name, version)
+      .await
+  }
+
   async fn fetch_descriptor_from_path(filepath: &Path) -> crate::Result<BundleDescriptor> {
     let mut file = File::open(filepath).await.map_err(|e| {
       if e.kind() == std::io::ErrorKind::NotFound {
@@ -259,64 +338,47 @@ impl BundleSource {
     Ok(descriptor)
   }
 
-  /// Loads (and caches) the descriptor for the given bundle, using `filepath` as both the
-  /// cache key and the file to read from. All callers in the hot path must resolve the
-  /// filepath once with `filepath()` and pass the same value here **and** to `reader_at`,
-  /// so that the descriptor and the open file always correspond to the same bundle version.
-  pub(crate) async fn load_descriptor_at(
-    &self,
-    bundle_name: &str,
-    filepath: &Path,
-  ) -> crate::Result<Arc<BundleDescriptor>> {
+  pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
+    // Resolve the active filepath once; it doubles as the cache fingerprint. A
+    // version swap changes this path, which forces the rebuild branch below.
+    let filepath = self.filepath(bundle_name).await?;
     let cell = match self.descriptors.entry(bundle_name.to_string()) {
-      dashmap::Entry::Occupied(mut occ) => {
-        let (cached_path, cell) = occ.get();
-        if cached_path == filepath {
+      dashmap::Entry::Occupied(mut occupied) => {
+        let (cached_path, cell) = occupied.get();
+        if cached_path == &filepath {
           cell.clone()
         } else {
-          // Stale: the version changed since this entry was cached.
-          let new_cell = Arc::new(OnceCell::new());
-          occ.insert((filepath.to_path_buf(), new_cell.clone()));
-          new_cell
+          // The active version changed since this entry was cached: drop the
+          // stale cell so the descriptor is reloaded from the new filepath.
+          let cell = Arc::new(OnceCell::new());
+          occupied.insert((filepath.clone(), cell.clone()));
+          cell
         }
       }
-      dashmap::Entry::Vacant(vac) => {
-        let new_cell = Arc::new(OnceCell::new());
-        vac.insert((filepath.to_path_buf(), new_cell.clone()));
-        new_cell
+      dashmap::Entry::Vacant(vacant) => {
+        let cell = Arc::new(OnceCell::new());
+        vacant.insert((filepath.clone(), cell.clone()));
+        cell
       }
     };
-    let filepath_owned = filepath.to_path_buf();
     let descriptor = cell
-      .get_or_try_init(|| async {
-        let d = Self::fetch_descriptor_from_path(&filepath_owned).await?;
-        Ok::<Arc<BundleDescriptor>, crate::Error>(Arc::new(d))
+      .get_or_try_init(|| {
+        let filepath = filepath.clone();
+        async move {
+          let d = Self::fetch_descriptor_from_path(&filepath).await?;
+          Ok::<Arc<BundleDescriptor>, crate::Error>(Arc::new(d))
+        }
       })
       .await?
       .clone();
-    Ok(descriptor)
-  }
-
-  /// Convenience wrapper: resolves the current filepath then calls `load_descriptor_at`.
-  pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<BundleDescriptor>> {
-    let filepath = self.filepath(bundle_name).await?;
-    self.load_descriptor_at(bundle_name, &filepath).await
+    Ok(Arc::new(LoadedDescriptor {
+      descriptor,
+      filepath,
+    }))
   }
 
   pub fn unload_descriptor(&self, bundle_name: &str) -> bool {
     self.descriptors.remove(bundle_name).is_some()
-  }
-
-  /// Opens a file at the given path with BundleNotFound error mapping.
-  /// Use this together with `load_descriptor_at` — both must receive the same
-  /// filepath snapshot to guarantee descriptor/file version consistency.
-  pub(crate) async fn reader_at(&self, filepath: &Path) -> crate::Result<File> {
-    File::open(filepath).await.map_err(|e| {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        return crate::Error::BundleNotFound;
-      }
-      crate::Error::from(e)
-    })
   }
 
   pub async fn write_remote_bundle(
@@ -332,18 +394,88 @@ impl BundleSource {
     }
     let mut file = File::create(&filepath).await?;
     AsyncBundleWriter::new(&mut file).write(bundle).await?;
+    // Stage the bundle: record it in the manifest and persist to disk, but leave the
+    // active version untouched (`insert_entry` never sets current_version). The
+    // downloaded bundle starts being served only once the caller explicitly activates
+    // it via `update_version`; until then the source resolves to its previous/builtin
+    // version.
     self
       .remote_manifest
       .insert_entry(bundle_name, version, metadata)
       .await?;
-    // Invalidate cache before the in-memory current_version changes (see update_version).
-    self.unload_descriptor(bundle_name);
-    self
-      .remote_manifest
-      .update_current_version(bundle_name, version)
-      .await?;
     self.remote_manifest.save().await?;
     Ok(())
+  }
+
+  /// Removes a single staged remote bundle: drops its manifest entry and deletes its
+  /// file from disk. Returns whether the entry existed.
+  ///
+  /// The active version can never be removed (returns an error). Callers must keep the
+  /// *previous* version too if in-flight protocol requests might still reference it —
+  /// see [`BundleSource::retained_versions`]. File deletion is best-effort: a leftover
+  /// `.wvb` without a manifest entry is an inert orphan (invisible to `load_version`)
+  /// and can be reclaimed later, so a failed unlink does not fail the call.
+  pub async fn remove_remote_bundle(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<bool> {
+    let removed = self
+      .remote_manifest
+      .remove_entry(bundle_name, version)
+      .await?;
+    if removed {
+      let filepath = self.get_remote_filepath(bundle_name, version);
+      let _ = tokio::fs::remove_file(&filepath).await;
+      self.remote_manifest.save().await?;
+    }
+    Ok(removed)
+  }
+
+  /// The remote versions that must be kept on disk: the active version and the one
+  /// immediately before it. Any other downloaded version is safe to prune.
+  pub async fn retained_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
+    self.remote_manifest.retained_versions(bundle_name).await
+  }
+
+  /// Removes every staged remote version except the retained set ({current, previous}).
+  /// Best-effort: a failure on one version is skipped so the rest still get reclaimed.
+  /// Returns the versions that were removed.
+  pub async fn prune_remote_bundles(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
+    let retained = self.remote_manifest.retained_versions(bundle_name).await?;
+    let all = self.remote_manifest.list_versions(bundle_name).await?;
+    let mut removed = vec![];
+    for version in all {
+      if retained.contains(&version) {
+        continue;
+      }
+      if self
+        .remove_remote_bundle(bundle_name, &version)
+        .await
+        .unwrap_or(false)
+      {
+        removed.push(version);
+      }
+    }
+    Ok(removed)
+  }
+
+  /// Acquires the per-bundle transaction lock. Hold the returned guard for the duration
+  /// of a multi-step mutation (download+stage, validate+activate+prune) so concurrent
+  /// transactions on the same bundle run serially.
+  ///
+  /// The low-level mutators (`update_version`, `write_remote_bundle`,
+  /// `remove_remote_bundle`, `prune_remote_bundles`) do **not** take this lock
+  /// themselves — they are meant to be called inside an already-locked transaction, so
+  /// self-locking would deadlock. Standalone/manual use of those primitives that must
+  /// not race an install should be wrapped with this guard by the caller.
+  pub(crate) async fn lock_bundle(&self, bundle_name: &str) -> OwnedMutexGuard<()> {
+    let mutex = self
+      .locks
+      .entry(bundle_name.to_string())
+      .or_default()
+      .clone();
+    mutex.lock_owned().await
   }
 
   fn get_builtin_filepath(&self, bundle_name: &str, version: &str) -> PathBuf {
@@ -466,17 +598,17 @@ mod tests {
     );
     let m2 = source.load_descriptor("app").await.unwrap();
     assert!(
-      !Arc::ptr_eq(&m1, &m2),
-      "after unload, reloading should produce a new Arc"
+      !Arc::ptr_eq(m1.descriptor(), m2.descriptor()),
+      "after unload, reloading should produce a new descriptor"
     );
 
     assert!(source.unload_descriptor("app"));
     let m3 = source.load_descriptor("app").await.unwrap();
-    assert!(!Arc::ptr_eq(&m2, &m3));
+    assert!(!Arc::ptr_eq(m2.descriptor(), m3.descriptor()));
 
     assert!(source.unload_descriptor("app"));
     let m4 = source.load_descriptor("app").await.unwrap();
-    assert!(!Arc::ptr_eq(&m3, &m4));
+    assert!(!Arc::ptr_eq(m3.descriptor(), m4.descriptor()));
   }
 
   #[tokio::test]
@@ -506,7 +638,7 @@ mod tests {
       initials.push(v);
     }
     for m in &initials[1..] {
-      assert!(Arc::ptr_eq(&initials[0], m));
+      assert!(Arc::ptr_eq(initials[0].descriptor(), m.descriptor()));
     }
 
     // 2) before/after barriers
@@ -548,17 +680,17 @@ mod tests {
     }
     // before jobs should be same with initial loads
     for m in &before_jobs {
-      assert!(Arc::ptr_eq(&initials[0], m));
+      assert!(Arc::ptr_eq(initials[0].descriptor(), m.descriptor()));
     }
     // after jobs should be not same with initial loads
     for m in &after_jobs {
-      assert!(!Arc::ptr_eq(&initials[0], m));
+      assert!(!Arc::ptr_eq(initials[0].descriptor(), m.descriptor()));
     }
     for m in &before_jobs[1..] {
-      assert!(Arc::ptr_eq(&before_jobs[0], m));
+      assert!(Arc::ptr_eq(before_jobs[0].descriptor(), m.descriptor()));
     }
     for m in &after_jobs[1..] {
-      assert!(Arc::ptr_eq(&after_jobs[0], m));
+      assert!(Arc::ptr_eq(after_jobs[0].descriptor(), m.descriptor()));
     }
   }
 }

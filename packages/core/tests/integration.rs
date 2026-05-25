@@ -898,6 +898,9 @@ async fn safety_response_bytes_always_valid_during_concurrent_swap() {
   let updater = Updater::new(source.clone(), remote.clone(), None);
   tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
   updater.download_update("app", None).await.unwrap();
+  // Activation is the actual version swap the concurrent readers race against;
+  // a download alone only stages v2 on disk without changing the active version.
+  source.update_version("app", "2.0.0").await.unwrap();
 
   for handle in read_handles {
     let resp = handle.await.unwrap().unwrap();
@@ -937,6 +940,9 @@ async fn safety_manifest_persists_across_source_reload() {
     .download_update("app", None)
     .await
     .unwrap();
+  // Activate the downloaded version; this persists current_version to the manifest
+  // on disk so a fresh source can resolve it after restart.
+  source.update_version("app", "2.0.0").await.unwrap();
 
   // Simulate app restart: build a fresh BundleSource from the same directories.
   let reloaded = Arc::new(
@@ -966,12 +972,13 @@ async fn safety_manifest_persists_across_source_reload() {
   assert_eq!(resp.body().as_ref(), b"<h1>remote</h1>");
 }
 
-// The bug only manifests when updating an existing remote entry (not the first download):
-// insert_entry's or_insert_with sets current_version for new entries, but and_modify only
-// appends to versions for existing entries without updating current_version.
-// We download v1.1.0 first to seed the manifest entry, then v2.0.0 to hit and_modify.
+// A download only stages a version on disk; it never changes which version the protocol
+// serves. `insert_entry` leaves current_version untouched (None for a brand-new entry),
+// so the source keeps resolving to its previous/builtin version until the caller invokes
+// `update_version`. This holds for both the first download (or_insert_with) and later
+// downloads of an already-present bundle (and_modify).
 #[tokio::test]
-async fn safety_current_version_auto_updated_after_download() {
+async fn safety_download_stages_without_activating_until_update_version() {
   const V1_CONTENT: &[u8] = b"<h1>v1.1.0</h1>";
   const V2_CONTENT: &[u8] = b"<h1>v2.0.0 - longer content to ensure different LZ4 size</h1>";
 
@@ -994,11 +1001,13 @@ async fn safety_current_version_auto_updated_after_download() {
   let source = Arc::new(system.source().get_source());
   let remote = Arc::new(system.remote().get_remote());
 
-  // First download: creates remote manifest entry (or_insert_with sets current=1.1.0).
+  // First download stages 1.1.0 (current_version stays None); activate it explicitly
+  // to establish the baseline the protocol serves.
   Updater::new(source.clone(), remote.clone(), None)
     .download_update("app", None)
     .await
     .unwrap();
+  source.update_version("app", "1.1.0").await.unwrap();
 
   system
     .remote_mut()
@@ -1010,8 +1019,8 @@ async fn safety_current_version_auto_updated_after_download() {
 
   let protocol = BundleProtocol::new(source.clone());
 
-  // Second download hits the and_modify branch.
-  // Without fix: current_version stays "1.1.0" -> protocol serves v1.1.0 -> assertion fails.
+  // Second download stages 2.0.0 on disk (and_modify branch) but must not switch the
+  // active version: the protocol must keep serving the still-active 1.1.0.
   Updater::new(source.clone(), remote, None)
     .download_update("app", None)
     .await
@@ -1029,8 +1038,27 @@ async fn safety_current_version_auto_updated_after_download() {
     .unwrap();
   assert_eq!(
     resp.body().as_ref(),
+    V1_CONTENT,
+    "a download alone must not change the active version"
+  );
+
+  // Explicit activation switches the protocol to the staged bundle.
+  source.update_version("app", "2.0.0").await.unwrap();
+
+  let resp = protocol
+    .handle(
+      Request::builder()
+        .uri("https://app.wvb/index.html")
+        .method("GET")
+        .body(vec![])
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  assert_eq!(
+    resp.body().as_ref(),
     V2_CONTENT,
-    "second download must become the active version without a separate update_version call"
+    "update_version activates the staged bundle"
   );
 }
 
@@ -1038,7 +1066,7 @@ async fn safety_current_version_auto_updated_after_download() {
 // compressed sizes would be equal, the stale v1 descriptor would read the correct byte
 // count from the v2 file, and the bug would be invisible to this test.
 #[tokio::test]
-async fn safety_descriptor_cache_invalidated_after_download() {
+async fn safety_descriptor_cache_invalidated_after_activation() {
   const V1: &[u8] = b"<h1>v1</h1>";
   const V2: &[u8] = b"<h1>version 2 - longer content ensures different LZ4 compressed size</h1>";
 
@@ -1075,12 +1103,15 @@ async fn safety_descriptor_cache_invalidated_after_download() {
     .unwrap();
   assert_eq!(warm.body().as_ref(), V1);
 
-  // Without fix: stale v1 descriptor (entry.len()=L1) reads v2 file with wrong byte count
-  // (L1 != L2) -> LZ4 decompression fails -> .unwrap() below panics.
+  // Download stages v2; activation makes it the served version.
   Updater::new(source.clone(), remote, None)
     .download_update("app", None)
     .await
     .unwrap();
+  // The active version (and thus the resolved filepath) changes here. Without cache
+  // invalidation the stale v1 descriptor (entry.len()=L1) would read the v2 file with
+  // the wrong byte count (L1 != L2) -> LZ4 decompression fails -> .unwrap() panics.
+  source.update_version("app", "2.0.0").await.unwrap();
 
   let resp = protocol
     .handle(
@@ -1095,7 +1126,7 @@ async fn safety_descriptor_cache_invalidated_after_download() {
   assert_eq!(
     resp.body().as_ref(),
     V2,
-    "descriptor cache was not invalidated after download"
+    "descriptor cache was not invalidated after activation"
   );
 }
 
@@ -1478,4 +1509,299 @@ async fn safety_failed_download_does_not_corrupt_existing_source() {
     .unwrap();
   assert_eq!(resp.status(), 200);
   assert_eq!(resp.body().as_ref(), b"<h1>stable</h1>");
+}
+
+// =============================================================================
+// Update flow: download (stage) + install (activate + prune)
+// =============================================================================
+
+fn get(uri: &str) -> Request<Vec<u8>> {
+  Request::builder()
+    .uri(uri)
+    .method("GET")
+    .body(vec![])
+    .unwrap()
+}
+
+// download stages on disk without serving it; install activates it.
+#[tokio::test]
+async fn install_activates_staged_version() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>builtin</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .remote_mut()
+    .add_bundle(MockBundle::new("app", "2.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>v2</h1>", "text/html", None),
+    ))
+    .set_bundle_current_version("app", "2.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let protocol = BundleProtocol::new(source.clone());
+  let updater = Updater::new(source.clone(), remote, None);
+
+  // Download stages 2.0.0 but the protocol keeps serving the builtin.
+  updater.download_update("app", None).await.unwrap();
+  let resp = protocol
+    .handle(get("https://app.wvb/index.html"))
+    .await
+    .unwrap();
+  assert_eq!(resp.body().as_ref(), b"<h1>builtin</h1>");
+
+  // Install activates it.
+  updater.install("app", "2.0.0").await.unwrap();
+  let resp = protocol
+    .handle(get("https://app.wvb/index.html"))
+    .await
+    .unwrap();
+  assert_eq!(resp.body().as_ref(), b"<h1>v2</h1>");
+}
+
+// Installing a version that was never downloaded (no manifest entry) must error.
+#[tokio::test]
+async fn install_unknown_version_errors() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>builtin</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let updater = Updater::new(source.clone(), remote, None);
+
+  let err = updater.install("app", "9.9.9").await.unwrap_err();
+  assert!(
+    matches!(err, wvb::Error::BundleEntryNotExists { .. }),
+    "expected BundleEntryNotExists, got: {err}"
+  );
+}
+
+// Each install keeps {current, previous} and prunes older staged versions; a previous
+// version stays on disk so a one-step rollback can re-activate it.
+#[tokio::test]
+async fn install_prunes_old_and_supports_rollback() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>builtin</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let protocol = BundleProtocol::new(source.clone());
+  let updater = Updater::new(source.clone(), remote, None);
+
+  // Standard flow: download then install, one version at a time.
+  for v in ["1.1.0", "1.2.0", "1.3.0"] {
+    system
+      .remote_mut()
+      .add_bundle(MockBundle::new("app", v).with_entry(
+        "/index.html",
+        BundleEntry::new(format!("<h1>{v}</h1>").as_bytes(), "text/html", None),
+      ))
+      .set_bundle_current_version("app", v);
+    updater.download_update("app", None).await.unwrap();
+    updater.install("app", v).await.unwrap();
+    let resp = protocol
+      .handle(get("https://app.wvb/index.html"))
+      .await
+      .unwrap();
+    assert_eq!(resp.body().as_ref(), format!("<h1>{v}</h1>").as_bytes());
+  }
+
+  // After installing 1.3.0: keep {1.3.0 (current), 1.2.0 (previous)}, prune 1.1.0.
+  let mut retained = source.retained_versions("app").await.unwrap();
+  retained.sort();
+  assert_eq!(retained, vec!["1.2.0".to_string(), "1.3.0".to_string()]);
+  assert!(
+    source
+      .load_remote_metadata("app", "1.1.0")
+      .await
+      .unwrap()
+      .is_none()
+  );
+
+  let (_, remote_dir) = system.source().dirs();
+  assert!(!remote_dir.join("app").join("app_1.1.0.wvb").exists());
+  assert!(remote_dir.join("app").join("app_1.2.0.wvb").exists());
+  assert!(remote_dir.join("app").join("app_1.3.0.wvb").exists());
+
+  // Roll back to the retained previous version: file is still present, so it succeeds.
+  updater.install("app", "1.2.0").await.unwrap();
+  let resp = protocol
+    .handle(get("https://app.wvb/index.html"))
+    .await
+    .unwrap();
+  assert_eq!(resp.body().as_ref(), b"<h1>1.2.0</h1>");
+}
+
+// A staged bundle whose file is corrupt on disk must fail install (structural parse),
+// leaving the previously active version untouched.
+#[tokio::test]
+async fn install_rejects_corrupt_on_disk_bundle() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>builtin</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .remote_mut()
+    .add_bundle(MockBundle::new("app", "2.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>v2</h1>", "text/html", None),
+    ))
+    .set_bundle_current_version("app", "2.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let protocol = BundleProtocol::new(source.clone());
+  let updater = Updater::new(source.clone(), remote, None);
+
+  updater.download_update("app", None).await.unwrap();
+
+  // Corrupt the staged file on disk.
+  let (_, remote_dir) = system.source().dirs();
+  std::fs::write(
+    remote_dir.join("app").join("app_2.0.0.wvb"),
+    b"not a valid wvb file",
+  )
+  .unwrap();
+
+  let err = updater.install("app", "2.0.0").await.unwrap_err();
+  assert!(!matches!(err, wvb::Error::BundleEntryNotExists { .. }));
+
+  // Activation never happened: the builtin is still served.
+  let resp = protocol
+    .handle(get("https://app.wvb/index.html"))
+    .await
+    .unwrap();
+  assert_eq!(resp.body().as_ref(), b"<h1>builtin</h1>");
+}
+
+// While install activates a new version, concurrent protocol requests must always get a
+// present, valid bundle — never a BundleNotFound. The just-replaced version is retained
+// and the descriptor pins its own filepath, so in-flight reads keep resolving.
+#[tokio::test]
+async fn install_during_concurrent_reads_never_serves_missing() {
+  const V0: &[u8] = b"<h1>builtin</h1>";
+  const V2: &[u8] = b"<h1>v2 - longer body to force a different compressed size</h1>";
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(
+      MockBundle::new("app", "1.0.0")
+        .with_entry("/index.html", BundleEntry::new(V0, "text/html", None)),
+    )
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .remote_mut()
+    .add_bundle(
+      MockBundle::new("app", "2.0.0")
+        .with_entry("/index.html", BundleEntry::new(V2, "text/html", None)),
+    )
+    .set_bundle_current_version("app", "2.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let protocol = Arc::new(BundleProtocol::new(source.clone()));
+  let updater = Updater::new(source.clone(), remote, None);
+
+  // Stage v2 on disk (not yet active).
+  updater.download_update("app", None).await.unwrap();
+
+  let mut reads = vec![];
+  for i in 0..200usize {
+    let p = protocol.clone();
+    let delay = (i % 20) as u64;
+    reads.push(tokio::spawn(async move {
+      tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+      p.handle(get("https://app.wvb/index.html")).await
+    }));
+  }
+
+  tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+  updater.install("app", "2.0.0").await.unwrap();
+
+  for r in reads {
+    // .unwrap().unwrap(): the request must neither panic nor return an error.
+    let resp = r.await.unwrap().unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.body().as_ref();
+    assert!(
+      body == V0 || body == V2,
+      "served neither the old nor the new bundle: {:?}",
+      std::str::from_utf8(body).unwrap_or("<binary>")
+    );
+  }
+}
+
+// Two installs racing on the same bundle must serialize (per-bundle lock) and leave a
+// consistent state: the protocol serves a present, valid version (no torn current
+// pointing at a pruned file). The loser may fail because the winner pruned its target.
+#[tokio::test]
+async fn concurrent_installs_serialize_to_consistent_state() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(MockBundle::new("app", "1.0.0").with_entry(
+      "/index.html",
+      BundleEntry::new(b"<h1>builtin</h1>", "text/html", None),
+    ))
+    .set_builtin_current_version("app", "1.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let protocol = BundleProtocol::new(source.clone());
+  let updater = Arc::new(Updater::new(source.clone(), remote, None));
+
+  for v in ["1.1.0", "1.2.0"] {
+    system
+      .remote_mut()
+      .add_bundle(MockBundle::new("app", v).with_entry(
+        "/index.html",
+        BundleEntry::new(format!("<h1>{v}</h1>").as_bytes(), "text/html", None),
+      ))
+      .set_bundle_current_version("app", v);
+    updater.download_update("app", None).await.unwrap();
+  }
+
+  let u1 = updater.clone();
+  let h1 = tokio::spawn(async move { u1.install("app", "1.1.0").await });
+  let u2 = updater.clone();
+  let h2 = tokio::spawn(async move { u2.install("app", "1.2.0").await });
+  let r1 = h1.await.unwrap();
+  let r2 = h2.await.unwrap();
+
+  // At least one install wins; the loser may error (its target was pruned by the winner).
+  assert!(r1.is_ok() || r2.is_ok(), "both installs failed");
+
+  // Whatever the interleaving, the active version resolves to a present, valid bundle.
+  let resp = protocol
+    .handle(get("https://app.wvb/index.html"))
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), 200);
+  let body = resp.body().as_ref();
+  assert!(
+    body == b"<h1>1.1.0</h1>" || body == b"<h1>1.2.0</h1>",
+    "served neither installed version"
+  );
 }

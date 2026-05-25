@@ -125,59 +125,30 @@ impl Updater {
     bundle_name: impl Into<String>,
     version: Option<String>,
   ) -> crate::Result<RemoteBundleInfo> {
+    let bundle_name = bundle_name.into();
+    // Serialize against concurrent installs/downloads of this same bundle.
+    let _guard = self.source.lock_bundle(&bundle_name).await;
     let (info, bundle, data) = match version {
-      Some(ver) => {
-        self
-          .remote
-          .download_version(&bundle_name.into(), &ver)
-          .await
-      }
+      Some(ver) => self.remote.download_version(&bundle_name, &ver).await,
       None => {
         self
           .remote
-          .download(&bundle_name.into(), self.config.channel.as_ref())
+          .download(&bundle_name, self.config.channel.as_ref())
           .await
       }
     }?;
     #[cfg(feature = "integrity")]
-    {
-      match self.config.integrity_policy {
-        IntegrityPolicy::Strict | IntegrityPolicy::Optional => {
-          if let Some(integrity) = &info.integrity {
-            self
-              .config
-              .integrity_checker
-              .check(integrity, &data)
-              .await?;
-            Ok(())
-          } else if self.config.integrity_policy == IntegrityPolicy::Strict {
-            Err(crate::Error::IntegrityVerifyFailed)
-          } else {
-            Ok(())
-          }
-        }
-        _ => Ok(()),
-      }?;
-      #[cfg(feature = "signature")]
-      {
-        if let Some(ref verifier) = self.config.signature_verifier {
-          let message = info
-            .integrity
-            .clone()
-            .ok_or(crate::Error::IntegrityRequired)?;
-          let signature = info
-            .signature
-            .clone()
-            .ok_or(crate::Error::SignatureNotExists)?;
-          let verified = verifier
-            .verify(&bundle, message.as_bytes(), &signature)
-            .await?;
-          if !verified {
-            return Err(crate::Error::SignatureVerifyFailed);
-          }
-        }
-      }
-    }
+    self
+      .verify_bundle(
+        info.integrity.as_deref(),
+        info.signature.as_deref(),
+        &bundle,
+        &data,
+      )
+      .await?;
+    // `data` (raw bytes) is only consumed by the integrity check.
+    #[cfg(not(feature = "integrity"))]
+    let _ = &data;
     self
       .source
       .write_remote_bundle(
@@ -188,6 +159,101 @@ impl Updater {
       )
       .await?;
     Ok(info)
+  }
+
+  /// Activates a previously-downloaded version so the protocol begins serving it.
+  ///
+  /// The version must already be staged in the remote manifest (downloaded). Steps:
+  /// 1. confirm the version is staged (else error);
+  /// 2. validate the on-disk bundle — structural parse always, plus integrity/signature
+  ///    against the metadata captured at download time (when those features are enabled);
+  /// 3. record it as current (demoting the old current to previous) and persist;
+  /// 4. drop the cached descriptor so the next request observes the new version;
+  /// 5. prune older staged versions, keeping {current, previous} (best-effort).
+  ///
+  /// On any failure before step 3 the active version is left unchanged and the
+  /// downloaded files are kept, so a retry (or rollback to a still-present version)
+  /// remains possible.
+  pub async fn install(
+    &self,
+    bundle_name: impl Into<String>,
+    version: impl Into<String>,
+  ) -> crate::Result<()> {
+    let bundle_name = bundle_name.into();
+    let version = version.into();
+
+    // Serialize the whole transaction against other installs/downloads of this bundle.
+    let _guard = self.source.lock_bundle(&bundle_name).await;
+
+    // 1. The version must be staged in the remote manifest.
+    let metadata = self
+      .source
+      .load_remote_metadata(&bundle_name, &version)
+      .await?
+      .ok_or_else(|| crate::Error::bundle_entry_not_exists(&bundle_name, &version))?;
+
+    // 2. Validate the on-disk bundle. Parsing alone enforces structural validity
+    //    (magic/checksum/truncation); integrity & signature add semantic verification.
+    let (_bundle, _data) = self
+      .source
+      .read_remote_version(&bundle_name, &version)
+      .await?;
+    #[cfg(feature = "integrity")]
+    self
+      .verify_bundle(
+        metadata.integrity.as_deref(),
+        metadata.signature.as_deref(),
+        &_bundle,
+        &_data,
+      )
+      .await?;
+    #[cfg(not(feature = "integrity"))]
+    let _ = &metadata;
+
+    // 3. Activate (records current/previous, persists atomically).
+    self.source.update_version(&bundle_name, &version).await?;
+
+    // 4. Next protocol request rebuilds the descriptor from the new version.
+    self.source.unload_descriptor(&bundle_name);
+
+    // 5. Reclaim disk, keeping the active and immediately-previous versions.
+    let _ = self.source.prune_remote_bundles(&bundle_name).await;
+
+    Ok(())
+  }
+
+  /// Verifies a bundle against its advertised integrity/signature, per the configured
+  /// policy. Shared by the download (fresh bytes) and install (on-disk bytes) paths.
+  #[cfg(feature = "integrity")]
+  async fn verify_bundle(
+    &self,
+    integrity: Option<&str>,
+    signature: Option<&str>,
+    bundle: &crate::Bundle,
+    data: &[u8],
+  ) -> crate::Result<()> {
+    match self.config.integrity_policy {
+      IntegrityPolicy::Strict | IntegrityPolicy::Optional => {
+        if let Some(integrity) = integrity {
+          self.config.integrity_checker.check(integrity, data).await?;
+        } else if self.config.integrity_policy == IntegrityPolicy::Strict {
+          return Err(crate::Error::IntegrityVerifyFailed);
+        }
+      }
+      _ => {}
+    }
+    #[cfg(feature = "signature")]
+    if let Some(ref verifier) = self.config.signature_verifier {
+      let message = integrity.ok_or(crate::Error::IntegrityRequired)?;
+      let signature = signature.ok_or(crate::Error::SignatureNotExists)?;
+      if !verifier
+        .verify(bundle, message.as_bytes(), signature)
+        .await?
+      {
+        return Err(crate::Error::SignatureVerifyFailed);
+      }
+    }
+    Ok(())
   }
 
   async fn to_update_info(&self, info: RemoteBundleInfo) -> crate::Result<BundleUpdateInfo> {
