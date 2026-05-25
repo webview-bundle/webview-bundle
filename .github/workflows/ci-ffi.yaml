@@ -1,0 +1,88 @@
+name: ci-ffi
+on:
+  pull_request:
+concurrency:
+  group: ci-ffi-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+env:
+  LEFTHOOK: 0
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    outputs:
+      ffi: ${{ steps.filter.outputs.ffi }}
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        with:
+          filters: |
+            ffi:
+              - 'packages/ffi/**'
+              - 'packages/core/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci-ffi.yaml'
+              - '.github/actions/**'
+  ffi-test-android:
+    needs: [detect-changes]
+    if: needs.changes.outputs.ffi == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Setup Rust
+        uses: ./.github/actions/rust-setup
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Use JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: 'temurin' # See 'Supported distributions' for available options
+          java-version: '21'
+      - name: Install android sdk
+        uses: malinskiy/action-android/install-sdk@fa103ef30331e95f266418a6a97e98f61f626887 # release/0.1.7
+      - name: Install android ndk
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
+        id: install-ndk
+        with:
+          ndk-version: r27
+      - name: Install Rust dependencies
+        run: |
+          rustup target add x86_64-linux-android
+          cargo install cargo-ndk
+      - name: Build ffi android
+        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android --target x86_64-linux-android
+      - name: Test ffi android
+        run: yarn workspaces foreach -At --include='@wvb/*' run test-ffi-android
+  ffi-test-apple:
+    needs: [detect-changes]
+    if: needs.changes.outputs.ffi == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Setup Rust
+        uses: ./.github/actions/rust-setup
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Install Rust dependencies
+        run: |
+          rustup target add aarch64-apple-ios \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            x86_64-apple-ios \
+            x86_64-apple-darwin
+      - name: Install tuist
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        with:
+          install_args: "tuist"
+      - name: Build ffi apple
+        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-apple
+      - name: Test ffi apple
+        run: yarn workspaces foreach -At --include='@wvb/*' run test-ffi-apple
