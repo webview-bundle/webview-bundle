@@ -7,5 +7,5 @@
       "dest": ".output"
     }
   ],
-  "assets": [".output/android.zip", ".output/apple.zip"]
+  "assets": [".output/android.zip", ".output/apple.zip", ".output/WebViewBundleFFI.xcframework.zip"]
 }
