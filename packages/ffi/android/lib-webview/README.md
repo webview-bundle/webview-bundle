@@ -92,6 +92,12 @@ val wvb = WebViewBundle(
 webView.loadUrl("https://app.wvb/")
 ```
 
+## Demo
+
+The test app has a working screen: open it, tap **Open WebView Demo**
+(`testapp/.../WebViewActivity.kt`). A green heading + JS-rendered origin line
+confirms HTML/CSS/JS are served from the bundle.
+
 ## Notes
 
 - Serve over **`https` with a virtual host** (e.g. `app.wvb`); avoid custom

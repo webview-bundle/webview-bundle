@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var runner = TestRunner()
+    @State private var showWebView = false
 
     var body: some View {
         NavigationView {
@@ -13,6 +14,9 @@ struct ContentView: View {
             .navigationTitle("WVB FFI Tests")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("WebView") { showWebView = true }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Run") {
                         Task { await runner.run() }
@@ -22,6 +26,19 @@ struct ContentView: View {
             }
         }
         .navigationViewStyle(.stack)
+        .sheet(isPresented: $showWebView) {
+            NavigationView {
+                WebViewDemoView()
+                    .navigationTitle("WebView Demo")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Done") { showWebView = false }
+                        }
+                    }
+            }
+            .navigationViewStyle(.stack)
+        }
     }
 
     @ViewBuilder

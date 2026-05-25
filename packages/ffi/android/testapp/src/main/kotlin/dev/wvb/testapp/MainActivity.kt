@@ -1,5 +1,6 @@
 package dev.wvb.testapp
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.text.SpannableStringBuilder
@@ -20,6 +21,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.btnRun.setOnClickListener { runTests() }
+        binding.btnWebview.setOnClickListener {
+            startActivity(Intent(this, WebViewActivity::class.java))
+        }
     }
 
     private fun runTests() {

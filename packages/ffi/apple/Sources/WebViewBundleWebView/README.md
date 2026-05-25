@@ -57,6 +57,12 @@ let wvb = WebViewBundle(
 )
 ```
 
+## Demo
+
+The test app has a working screen: open it, tap **WebView** in the toolbar
+(`ios/TestApp/WebViewDemo.swift`). A green heading + JS-rendered origin line
+confirms HTML/CSS/JS are served from the bundle.
+
 ## Notes
 
 - `WKWebView` only allows scheme handlers for **non-reserved** schemes, so use a

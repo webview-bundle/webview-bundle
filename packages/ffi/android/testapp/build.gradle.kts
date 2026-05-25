@@ -40,6 +40,7 @@ android {
 
 dependencies {
     implementation(project(":lib-android"))
+    implementation(project(":lib-webview"))
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.runtime.ktx)

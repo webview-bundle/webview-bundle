@@ -22,6 +22,7 @@ let project = Project(
             ],
             dependencies: [
                 .package(product: "WebViewBundleLibrary"),
+                .package(product: "WebViewBundleWebView"),
             ],
             settings: .settings(base: [
                 "SWIFT_VERSION": "5.0",
