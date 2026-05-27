@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::{OnceCell, RwLock};
+use tokio::sync::{Mutex, OnceCell, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(
@@ -84,6 +84,13 @@ pub struct BundleManifest<Mode: BundleManifestMode> {
   _mode: std::marker::PhantomData<Mode>,
   filepath: PathBuf,
   data: OnceCell<RwLock<BundleManifestData>>,
+  // Serializes `save()` end-to-end (snapshot + write + rename). The RwLock keeps the
+  // in-memory data consistent, but without this two concurrent saves (e.g. installs of
+  // different bundles, which take different per-bundle locks yet share this one manifest
+  // file) could have their renames reorder, persisting an older snapshot last and losing
+  // a just-activated version on disk. Holding this across snapshot+rename forces the
+  // latest snapshot to land last.
+  save_lock: Mutex<()>,
 }
 
 impl<Mode> BundleManifest<Mode>
@@ -95,6 +102,7 @@ where
       _mode: std::marker::PhantomData,
       filepath: filepath.to_path_buf(),
       data: Default::default(),
+      save_lock: Mutex::new(()),
     }
   }
 
@@ -192,23 +200,25 @@ impl BundleManifest<ReadWrite> {
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<()> {
-    if !self.contains_entry(bundle_name, version).await? {
+    // Check existence and mutate under a single write lock. Splitting the existence
+    // check (a separate read lock) from the mutation would let a concurrent removal
+    // slip in between, leaving current_version pointing at a version no longer staged.
+    let mut data = self.load().await?.write().await;
+    let entry = data
+      .entries
+      .get_mut(bundle_name)
+      .ok_or_else(|| crate::Error::bundle_entry_not_exists(bundle_name, version))?;
+    if !entry.versions.contains_key(version) {
       return Err(crate::Error::bundle_entry_not_exists(bundle_name, version));
     }
-    let mut data = self.load().await?.write().await;
-    data
-      .entries
-      .entry(bundle_name.to_string())
-      .and_modify(|entry| {
-        // Activating a different version demotes the old current to previous, so the
-        // old bundle is retained (in-flight requests / one-step rollback) while older
-        // versions become eligible for cleanup. Re-activating the same version is a
-        // no-op and leaves `previous_version` intact.
-        if entry.current_version.as_deref() != Some(version) {
-          entry.previous_version = entry.current_version.take();
-          entry.current_version = Some(version.to_string());
-        }
-      });
+    // Activating a different version demotes the old current to previous, so the old
+    // bundle is retained (in-flight requests / one-step rollback) while older versions
+    // become eligible for cleanup. Re-activating the same version is a no-op and leaves
+    // `previous_version` intact.
+    if entry.current_version.as_deref() != Some(version) {
+      entry.previous_version = entry.current_version.take();
+      entry.current_version = Some(version.to_string());
+    }
     Ok(())
   }
 
@@ -279,6 +289,10 @@ impl BundleManifest<ReadWrite> {
   }
 
   pub async fn save(&self) -> crate::Result<()> {
+    // Serialize the whole save. The snapshot must be taken *under* this lock and held
+    // through the rename; otherwise a save that snapshotted an older state could rename
+    // after a newer one, persisting stale data (see `save_lock`).
+    let _save = self.save_lock.lock().await;
     let raw = {
       let data = self.load().await?.read().await;
       serde_json::to_vec(&*data)
@@ -288,8 +302,9 @@ impl BundleManifest<ReadWrite> {
     }
     // Write to a unique temp file in the same directory, then atomically rename over the
     // target. A crash mid-write leaves the previous (complete) manifest intact rather than
-    // a truncated/corrupt file. Concurrent saves use distinct temp names; each rename is
-    // atomic, so a reader never observes a partial manifest and the last writer wins.
+    // a truncated/corrupt file. Distinct temp names keep separate source instances that
+    // point at the same file from clobbering each other's temp; each rename is atomic, so
+    // a reader never observes a partial manifest.
     static SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = SAVE_SEQ.fetch_add(1, Ordering::Relaxed);
     let mut tmp = self.filepath.clone().into_os_string();

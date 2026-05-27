@@ -30,7 +30,10 @@ pub(crate) async fn source_update_version<R: Runtime>(
   version: String,
 ) -> crate::Result<()> {
   let wvb = app.wvb();
-  wvb.source().update_version(&bundle_name, &version).await?;
+  wvb
+    .source()
+    .update_remote_version(&bundle_name, &version)
+    .await?;
   Ok(())
 }
 
@@ -140,7 +143,7 @@ pub(crate) async fn updater_download_update<R: Runtime>(
   let info = wvb
     .updater()
     .ok_or(crate::Error::UpdaterIsNotInitialized)?
-    .download_update(bundle_name, version)
+    .download(bundle_name, version)
     .await?;
   Ok(info)
 }

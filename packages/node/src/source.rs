@@ -293,7 +293,10 @@ impl BundleSource {
   /// ```
   #[napi]
   pub async fn update_version(&self, bundle_name: String, version: String) -> crate::Result<()> {
-    self.inner.update_version(&bundle_name, &version).await?;
+    self
+      .inner
+      .update_remote_version(&bundle_name, &version)
+      .await?;
     Ok(())
   }
 

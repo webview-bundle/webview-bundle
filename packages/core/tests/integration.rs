@@ -58,8 +58,8 @@ async fn protocol_simple() {
   assert_eq!(update_info.local_version.unwrap(), "1.0.0");
   assert!(update_info.is_available);
 
-  updater.download_update("app", None).await.unwrap();
-  source.update_version("app", "1.1.0").await.unwrap();
+  updater.download("app", None).await.unwrap();
+  source.update_remote_version("app", "1.1.0").await.unwrap();
 
   let resp = protocol
     .handle(
@@ -178,8 +178,11 @@ async fn protocol_handle_during_bundle_update() {
   let source_clone = source.clone();
   let update_handle = tokio::spawn(async move {
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-    updater.download_update("app", None).await.unwrap();
-    source_clone.update_version("app", "2.0.0").await.unwrap();
+    updater.download("app", None).await.unwrap();
+    source_clone
+      .update_remote_version("app", "2.0.0")
+      .await
+      .unwrap();
   });
 
   for _ in 0..50 {
@@ -316,16 +319,16 @@ async fn updater_concurrent_updates() {
   let updater = Arc::new(Updater::new(source.clone(), remote.clone(), None));
 
   let updater1 = updater.clone();
-  let handle1 = tokio::spawn(async move { updater1.download_update("app1", None).await });
+  let handle1 = tokio::spawn(async move { updater1.download("app1", None).await });
 
   let updater2 = updater.clone();
-  let handle2 = tokio::spawn(async move { updater2.download_update("app2", None).await });
+  let handle2 = tokio::spawn(async move { updater2.download("app2", None).await });
 
   handle1.await.unwrap().unwrap();
   handle2.await.unwrap().unwrap();
 
-  source.update_version("app1", "2.0.0").await.unwrap();
-  source.update_version("app2", "2.0.0").await.unwrap();
+  source.update_remote_version("app1", "2.0.0").await.unwrap();
+  source.update_remote_version("app2", "2.0.0").await.unwrap();
 
   let protocol = BundleProtocol::new(source.clone());
   let resp = protocol
@@ -398,8 +401,11 @@ async fn protocol_and_updater_stress_test() {
   let source_clone = source.clone();
   let update_handle = tokio::spawn(async move {
     tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-    updater.download_update("app", None).await.unwrap();
-    source_clone.update_version("app", "2.0.0").await.unwrap();
+    updater.download("app", None).await.unwrap();
+    source_clone
+      .update_remote_version("app", "2.0.0")
+      .await
+      .unwrap();
   });
 
   update_handle.await.unwrap();
@@ -635,8 +641,8 @@ async fn data_integrity_update_atomicity() {
   assert_eq!(str::from_utf8(resp.body()).unwrap(), "<h1>Version 1</h1>");
 
   let updater = Updater::new(source.clone(), remote.clone(), None);
-  updater.download_update("app", None).await.unwrap();
-  source.update_version("app", "2.0.0").await.unwrap();
+  updater.download("app", None).await.unwrap();
+  source.update_remote_version("app", "2.0.0").await.unwrap();
 
   let mut handles = vec![];
   for _ in 0..50 {
@@ -688,8 +694,8 @@ async fn resource_cleanup_multiple_updates() {
       ))
       .set_bundle_current_version("app", &version);
 
-    updater.download_update("app", None).await.unwrap();
-    source.update_version("app", &version).await.unwrap();
+    updater.download("app", None).await.unwrap();
+    source.update_remote_version("app", &version).await.unwrap();
 
     let resp = protocol
       .handle(
@@ -897,10 +903,10 @@ async fn safety_response_bytes_always_valid_during_concurrent_swap() {
 
   let updater = Updater::new(source.clone(), remote.clone(), None);
   tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-  updater.download_update("app", None).await.unwrap();
+  updater.download("app", None).await.unwrap();
   // Activation is the actual version swap the concurrent readers race against;
   // a download alone only stages v2 on disk without changing the active version.
-  source.update_version("app", "2.0.0").await.unwrap();
+  source.update_remote_version("app", "2.0.0").await.unwrap();
 
   for handle in read_handles {
     let resp = handle.await.unwrap().unwrap();
@@ -937,12 +943,12 @@ async fn safety_manifest_persists_across_source_reload() {
   let remote = Arc::new(system.remote().get_remote());
 
   Updater::new(source.clone(), remote, None)
-    .download_update("app", None)
+    .download("app", None)
     .await
     .unwrap();
   // Activate the downloaded version; this persists current_version to the manifest
   // on disk so a fresh source can resolve it after restart.
-  source.update_version("app", "2.0.0").await.unwrap();
+  source.update_remote_version("app", "2.0.0").await.unwrap();
 
   // Simulate app restart: build a fresh BundleSource from the same directories.
   let reloaded = Arc::new(
@@ -1004,10 +1010,10 @@ async fn safety_download_stages_without_activating_until_update_version() {
   // First download stages 1.1.0 (current_version stays None); activate it explicitly
   // to establish the baseline the protocol serves.
   Updater::new(source.clone(), remote.clone(), None)
-    .download_update("app", None)
+    .download("app", None)
     .await
     .unwrap();
-  source.update_version("app", "1.1.0").await.unwrap();
+  source.update_remote_version("app", "1.1.0").await.unwrap();
 
   system
     .remote_mut()
@@ -1022,7 +1028,7 @@ async fn safety_download_stages_without_activating_until_update_version() {
   // Second download stages 2.0.0 on disk (and_modify branch) but must not switch the
   // active version: the protocol must keep serving the still-active 1.1.0.
   Updater::new(source.clone(), remote, None)
-    .download_update("app", None)
+    .download("app", None)
     .await
     .unwrap();
 
@@ -1043,7 +1049,7 @@ async fn safety_download_stages_without_activating_until_update_version() {
   );
 
   // Explicit activation switches the protocol to the staged bundle.
-  source.update_version("app", "2.0.0").await.unwrap();
+  source.update_remote_version("app", "2.0.0").await.unwrap();
 
   let resp = protocol
     .handle(
@@ -1105,13 +1111,13 @@ async fn safety_descriptor_cache_invalidated_after_activation() {
 
   // Download stages v2; activation makes it the served version.
   Updater::new(source.clone(), remote, None)
-    .download_update("app", None)
+    .download("app", None)
     .await
     .unwrap();
   // The active version (and thus the resolved filepath) changes here. Without cache
   // invalidation the stale v1 descriptor (entry.len()=L1) would read the v2 file with
   // the wrong byte count (L1 != L2) -> LZ4 decompression fails -> .unwrap() panics.
-  source.update_version("app", "2.0.0").await.unwrap();
+  source.update_remote_version("app", "2.0.0").await.unwrap();
 
   let resp = protocol
     .handle(
@@ -1466,10 +1472,7 @@ async fn safety_remote_bundle_not_found_propagates_error() {
   let remote = Arc::new(system.remote().get_remote());
   let updater = Updater::new(source, remote, None);
 
-  let err = updater
-    .download_update("nonexistent", None)
-    .await
-    .unwrap_err();
+  let err = updater.download("nonexistent", None).await.unwrap_err();
   assert!(
     matches!(err, wvb::Error::RemoteBundleNotFound),
     "expected RemoteBundleNotFound, got: {err}"
@@ -1494,7 +1497,7 @@ async fn safety_failed_download_does_not_corrupt_existing_source() {
   let protocol = BundleProtocol::new(source.clone());
 
   let _ = Updater::new(source.clone(), remote, None)
-    .download_update("app", None)
+    .download("app", None)
     .await; // intentionally ignore error
 
   let resp = protocol
@@ -1548,7 +1551,7 @@ async fn install_activates_staged_version() {
   let updater = Updater::new(source.clone(), remote, None);
 
   // Download stages 2.0.0 but the protocol keeps serving the builtin.
-  updater.download_update("app", None).await.unwrap();
+  updater.download("app", None).await.unwrap();
   let resp = protocol
     .handle(get("https://app.wvb/index.html"))
     .await
@@ -1614,7 +1617,7 @@ async fn install_prunes_old_and_supports_rollback() {
         BundleEntry::new(format!("<h1>{v}</h1>").as_bytes(), "text/html", None),
       ))
       .set_bundle_current_version("app", v);
-    updater.download_update("app", None).await.unwrap();
+    updater.download("app", None).await.unwrap();
     updater.install("app", v).await.unwrap();
     let resp = protocol
       .handle(get("https://app.wvb/index.html"))
@@ -1624,7 +1627,7 @@ async fn install_prunes_old_and_supports_rollback() {
   }
 
   // After installing 1.3.0: keep {1.3.0 (current), 1.2.0 (previous)}, prune 1.1.0.
-  let mut retained = source.retained_versions("app").await.unwrap();
+  let mut retained = source.remote_retained_versions("app").await.unwrap();
   retained.sort();
   assert_eq!(retained, vec!["1.2.0".to_string(), "1.3.0".to_string()]);
   assert!(
@@ -1674,7 +1677,7 @@ async fn install_rejects_corrupt_on_disk_bundle() {
   let protocol = BundleProtocol::new(source.clone());
   let updater = Updater::new(source.clone(), remote, None);
 
-  updater.download_update("app", None).await.unwrap();
+  updater.download("app", None).await.unwrap();
 
   // Corrupt the staged file on disk.
   let (_, remote_dir) = system.source().dirs();
@@ -1725,7 +1728,7 @@ async fn install_during_concurrent_reads_never_serves_missing() {
   let updater = Updater::new(source.clone(), remote, None);
 
   // Stage v2 on disk (not yet active).
-  updater.download_update("app", None).await.unwrap();
+  updater.download("app", None).await.unwrap();
 
   let mut reads = vec![];
   for i in 0..200usize {
@@ -1780,7 +1783,7 @@ async fn concurrent_installs_serialize_to_consistent_state() {
         BundleEntry::new(format!("<h1>{v}</h1>").as_bytes(), "text/html", None),
       ))
       .set_bundle_current_version("app", v);
-    updater.download_update("app", None).await.unwrap();
+    updater.download("app", None).await.unwrap();
   }
 
   let u1 = updater.clone();

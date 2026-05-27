@@ -156,7 +156,10 @@ impl BundleSource {
     bundle_name: String,
     version: String,
   ) -> Result<(), crate::Error> {
-    self.inner.update_version(&bundle_name, &version).await?;
+    self
+      .inner
+      .update_remote_version(&bundle_name, &version)
+      .await?;
     Ok(())
   }
 

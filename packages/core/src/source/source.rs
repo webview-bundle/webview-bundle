@@ -3,13 +3,14 @@ use crate::source::{
 };
 use crate::{
   AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, Bundle, BundleDescriptor,
-  BundleReader, EXTENSION, MANIFEST_FILENAME, Reader,
+  EXTENSION, MANIFEST_FILENAME,
 };
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs::File;
-use tokio::sync::{Mutex, OnceCell, OwnedMutexGuard};
+use tokio::sync::OnceCell;
 
 /// The type of bundle source: builtin or remote.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +122,6 @@ impl BundleSourceBuilder {
       remote_dir,
       remote_manifest: BundleManifest::new(&remote_manifest_filepath, ReadWrite),
       descriptors: DashMap::default(),
-      locks: DashMap::default(),
     }
   }
 }
@@ -151,12 +151,6 @@ pub struct BundleSource {
   // stale entry and rebuilds. The returned `LoadedDescriptor` carries this same
   // filepath, so its `reader()` always opens the file matching the descriptor.
   descriptors: DashMap<String, (PathBuf, DescriptorCell)>,
-  // Per-bundle transaction lock. Multi-step mutations of one bundle (download +
-  // stage, validate + activate + prune) acquire this so they run serially even
-  // across separate `Updater` instances sharing this source. Living here — on the
-  // shared source — is what makes the serialization hold; a lock on `Updater`
-  // would not, since callers routinely create a fresh `Updater` per operation.
-  locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
 /// A descriptor together with the filepath it was loaded from.
@@ -245,14 +239,11 @@ impl BundleSource {
     }
   }
 
-  pub async fn update_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
+  pub async fn update_remote_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
     self
       .remote_manifest
       .update_current_version(bundle_name, version)
       .await?;
-    // Persist so the change survives a source reload (a fresh BundleSource reads the
-    // manifest from disk). The descriptor cache invalidates itself on the next
-    // `load_descriptor` because the resolved filepath now differs.
     self.remote_manifest.save().await?;
     Ok(())
   }
@@ -269,48 +260,41 @@ impl BundleSource {
     Ok(filepath)
   }
 
-  pub async fn reader(&self, bundle_name: &str) -> crate::Result<File> {
+  pub async fn fetch(&self, bundle_name: &str) -> crate::Result<Bundle> {
     let filepath = self.filepath(bundle_name).await?;
-    let file = File::open(filepath).await.map_err(|e| {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        return crate::Error::BundleNotFound;
-      }
-      crate::Error::from(e)
-    })?;
-    Ok(file)
+    let mut file = Self::get_file(&filepath).await?;
+    let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
+    Ok(bundle)
   }
 
-  pub async fn fetch(&self, bundle_name: &str) -> crate::Result<Bundle> {
-    let mut file = self.reader(bundle_name).await?;
+  pub async fn fetch_builtin_bundle(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<Bundle> {
+    let filepath = self.get_builtin_filepath(bundle_name, version);
+    let mut file = Self::get_file(&filepath).await?;
+    let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
+    Ok(bundle)
+  }
+
+  pub async fn fetch_remote_bundle(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<Bundle> {
+    let filepath = self.get_remote_filepath(bundle_name, version);
+    let mut file = Self::get_file(&filepath).await?;
     let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(bundle)
   }
 
   pub async fn fetch_descriptor(&self, bundle_name: &str) -> crate::Result<BundleDescriptor> {
-    let mut file = self.reader(bundle_name).await?;
+    let filepath = self.filepath(bundle_name).await?;
+    let mut file = Self::get_file(&filepath).await?;
     let manifest =
       AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(manifest)
-  }
-
-  /// Reads a specific *remote* version's bundle from disk, returning the parsed
-  /// [`Bundle`] alongside the raw file bytes. Parsing fails (structural validation) if
-  /// the file is missing, truncated, or corrupt. The raw bytes are returned so callers
-  /// can run an integrity hash check without re-reading the file.
-  pub async fn read_remote_version(
-    &self,
-    bundle_name: &str,
-    version: &str,
-  ) -> crate::Result<(Bundle, Vec<u8>)> {
-    let filepath = self.get_remote_filepath(bundle_name, version);
-    let data = tokio::fs::read(&filepath).await.map_err(|e| {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        return crate::Error::BundleNotFound;
-      }
-      crate::Error::from(e)
-    })?;
-    let bundle = BundleReader::new(std::io::Cursor::new(&data)).read()?;
-    Ok((bundle, data))
   }
 
   /// Loads the manifest metadata (etag/integrity/signature/...) recorded for a remote
@@ -324,18 +308,6 @@ impl BundleSource {
       .remote_manifest
       .load_metadata(bundle_name, version)
       .await
-  }
-
-  async fn fetch_descriptor_from_path(filepath: &Path) -> crate::Result<BundleDescriptor> {
-    let mut file = File::open(filepath).await.map_err(|e| {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        return crate::Error::BundleNotFound;
-      }
-      crate::Error::from(e)
-    })?;
-    let descriptor =
-      AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
-    Ok(descriptor)
   }
 
   pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
@@ -365,7 +337,9 @@ impl BundleSource {
       .get_or_try_init(|| {
         let filepath = filepath.clone();
         async move {
-          let d = Self::fetch_descriptor_from_path(&filepath).await?;
+          let mut file = Self::get_file(&filepath).await?;
+          let d =
+            AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
           Ok::<Arc<BundleDescriptor>, crate::Error>(Arc::new(d))
         }
       })
@@ -392,8 +366,22 @@ impl BundleSource {
     if let Some(parent) = filepath.parent() {
       let _ = tokio::fs::create_dir_all(parent).await;
     }
-    let mut file = File::create(&filepath).await?;
+    // Write to a temp file then atomically rename into place. `File::create` would
+    // truncate the target in place, which corrupts an in-flight protocol read if this
+    // same version is currently being served (e.g. a re-download of the active version).
+    // A rename swaps the inode atomically; readers holding the old file keep reading it.
+    static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let mut tmp = filepath.clone().into_os_string();
+    tmp.push(format!(".{}.{seq}.tmp", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    let mut file = File::create(&tmp).await?;
     AsyncBundleWriter::new(&mut file).write(bundle).await?;
+    drop(file); // close the temp handle before rename (required on Windows)
+    if let Err(e) = tokio::fs::rename(&tmp, &filepath).await {
+      let _ = tokio::fs::remove_file(&tmp).await;
+      return Err(e.into());
+    }
     // Stage the bundle: record it in the manifest and persist to disk, but leave the
     // active version untouched (`insert_entry` never sets current_version). The
     // downloaded bundle starts being served only once the caller explicitly activates
@@ -412,7 +400,7 @@ impl BundleSource {
   ///
   /// The active version can never be removed (returns an error). Callers must keep the
   /// *previous* version too if in-flight protocol requests might still reference it —
-  /// see [`BundleSource::retained_versions`]. File deletion is best-effort: a leftover
+  /// see [`BundleSource::remote_retained_versions`]. File deletion is best-effort: a leftover
   /// `.wvb` without a manifest entry is an inert orphan (invisible to `load_version`)
   /// and can be reclaimed later, so a failed unlink does not fail the call.
   pub async fn remove_remote_bundle(
@@ -434,7 +422,7 @@ impl BundleSource {
 
   /// The remote versions that must be kept on disk: the active version and the one
   /// immediately before it. Any other downloaded version is safe to prune.
-  pub async fn retained_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
+  pub async fn remote_retained_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
     self.remote_manifest.retained_versions(bundle_name).await
   }
 
@@ -442,7 +430,7 @@ impl BundleSource {
   /// Best-effort: a failure on one version is skipped so the rest still get reclaimed.
   /// Returns the versions that were removed.
   pub async fn prune_remote_bundles(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
-    let retained = self.remote_manifest.retained_versions(bundle_name).await?;
+    let retained = self.remote_retained_versions(bundle_name).await?;
     let all = self.remote_manifest.list_versions(bundle_name).await?;
     let mut removed = vec![];
     for version in all {
@@ -460,24 +448,6 @@ impl BundleSource {
     Ok(removed)
   }
 
-  /// Acquires the per-bundle transaction lock. Hold the returned guard for the duration
-  /// of a multi-step mutation (download+stage, validate+activate+prune) so concurrent
-  /// transactions on the same bundle run serially.
-  ///
-  /// The low-level mutators (`update_version`, `write_remote_bundle`,
-  /// `remove_remote_bundle`, `prune_remote_bundles`) do **not** take this lock
-  /// themselves — they are meant to be called inside an already-locked transaction, so
-  /// self-locking would deadlock. Standalone/manual use of those primitives that must
-  /// not race an install should be wrapped with this guard by the caller.
-  pub(crate) async fn lock_bundle(&self, bundle_name: &str) -> OwnedMutexGuard<()> {
-    let mutex = self
-      .locks
-      .entry(bundle_name.to_string())
-      .or_default()
-      .clone();
-    mutex.lock_owned().await
-  }
-
   fn get_builtin_filepath(&self, bundle_name: &str, version: &str) -> PathBuf {
     self.get_filepath(&self.builtin_dir, bundle_name, version)
   }
@@ -490,6 +460,16 @@ impl BundleSource {
     // TODO: normalize bundle name
     let filename = format!("{bundle_name}_{version}.{EXTENSION}");
     base_dir.join(bundle_name).join(filename)
+  }
+
+  async fn get_file(filepath: &Path) -> crate::Result<File> {
+    let file = File::open(filepath).await.map_err(|e| {
+      if e.kind() == std::io::ErrorKind::NotFound {
+        return crate::Error::BundleNotFound;
+      }
+      crate::Error::from(e)
+    })?;
+    Ok(file)
   }
 }
 
@@ -518,12 +498,6 @@ mod tests {
       .build();
     let descriptor = source.fetch_descriptor("app").await.unwrap();
     assert!(descriptor.index().contains_path("/index.html"));
-    let reader = source.reader("app").await.unwrap();
-    descriptor
-      .async_get_data(reader, "/index.html")
-      .await
-      .unwrap()
-      .unwrap();
   }
 
   #[tokio::test]

@@ -4,7 +4,11 @@ use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
 #[cfg(feature = "signature")]
 use crate::signature::SignatureVerifier;
 use crate::source::{BundleManifestMetadata, BundleSource};
+use crate::{BundleWriter, Writer};
+use dashmap::DashMap;
+use std::io::Cursor;
 use std::sync::Arc;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
@@ -89,6 +93,13 @@ pub struct Updater {
   source: Arc<BundleSource>,
   remote: Arc<Remote>,
   config: UpdaterConfig,
+  // Per-bundle transaction lock. Serializes multi-step mutations of one bundle
+  // (download+stage, validate+activate+prune) so the protocol always resolves to a
+  // present, consistent version. This is the updater's responsibility — the source
+  // stays a lock-free primitive store. The contract: one `Updater` orchestrates a
+  // given source's updates; updates driven through separate `Updater`s are not
+  // serialized against each other.
+  locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
 impl Updater {
@@ -101,6 +112,7 @@ impl Updater {
       source,
       remote,
       config: config.unwrap_or_default(),
+      locks: DashMap::new(),
     }
   }
 
@@ -120,14 +132,14 @@ impl Updater {
     Ok(info)
   }
 
-  pub async fn download_update(
+  pub async fn download(
     &self,
     bundle_name: impl Into<String>,
     version: Option<String>,
   ) -> crate::Result<RemoteBundleInfo> {
     let bundle_name = bundle_name.into();
     // Serialize against concurrent installs/downloads of this same bundle.
-    let _guard = self.source.lock_bundle(&bundle_name).await;
+    let _guard = self.lock_bundle(&bundle_name).await;
     let (info, bundle, data) = match version {
       Some(ver) => self.remote.download_version(&bundle_name, &ver).await,
       None => {
@@ -137,6 +149,7 @@ impl Updater {
           .await
       }
     }?;
+
     #[cfg(feature = "integrity")]
     self
       .verify_bundle(
@@ -146,9 +159,7 @@ impl Updater {
         &data,
       )
       .await?;
-    // `data` (raw bytes) is only consumed by the integrity check.
-    #[cfg(not(feature = "integrity"))]
-    let _ = &data;
+
     self
       .source
       .write_remote_bundle(
@@ -183,7 +194,7 @@ impl Updater {
     let version = version.into();
 
     // Serialize the whole transaction against other installs/downloads of this bundle.
-    let _guard = self.source.lock_bundle(&bundle_name).await;
+    let _guard = self.lock_bundle(&bundle_name).await;
 
     // 1. The version must be staged in the remote manifest.
     let metadata = self
@@ -194,24 +205,32 @@ impl Updater {
 
     // 2. Validate the on-disk bundle. Parsing alone enforces structural validity
     //    (magic/checksum/truncation); integrity & signature add semantic verification.
-    let (_bundle, _data) = self
-      .source
-      .read_remote_version(&bundle_name, &version)
-      .await?;
     #[cfg(feature = "integrity")]
-    self
-      .verify_bundle(
-        metadata.integrity.as_deref(),
-        metadata.signature.as_deref(),
-        &_bundle,
-        &_data,
-      )
-      .await?;
-    #[cfg(not(feature = "integrity"))]
-    let _ = &metadata;
+    {
+      let bundle = self
+        .source
+        .fetch_remote_bundle(&bundle_name, &version)
+        .await?;
+
+      let mut data = vec![];
+      let mut writer = BundleWriter::new(Cursor::new(&mut data));
+      writer.write(&bundle)?;
+
+      self
+        .verify_bundle(
+          metadata.integrity.as_deref(),
+          metadata.signature.as_deref(),
+          &bundle,
+          &data,
+        )
+        .await?;
+    }
 
     // 3. Activate (records current/previous, persists atomically).
-    self.source.update_version(&bundle_name, &version).await?;
+    self
+      .source
+      .update_remote_version(&bundle_name, &version)
+      .await?;
 
     // 4. Next protocol request rebuilds the descriptor from the new version.
     self.source.unload_descriptor(&bundle_name);
@@ -224,7 +243,7 @@ impl Updater {
 
   /// Verifies a bundle against its advertised integrity/signature, per the configured
   /// policy. Shared by the download (fresh bytes) and install (on-disk bytes) paths.
-  #[cfg(feature = "integrity")]
+  #[cfg(any(feature = "integrity", feature = "signature"))]
   async fn verify_bundle(
     &self,
     integrity: Option<&str>,
@@ -232,6 +251,7 @@ impl Updater {
     bundle: &crate::Bundle,
     data: &[u8],
   ) -> crate::Result<()> {
+    #[cfg(feature = "integrity")]
     match self.config.integrity_policy {
       IntegrityPolicy::Strict | IntegrityPolicy::Optional => {
         if let Some(integrity) = integrity {
@@ -273,5 +293,16 @@ impl Updater {
       signature: info.signature.clone(),
       last_modified: info.last_modified.clone(),
     })
+  }
+
+  /// Acquires the per-bundle transaction lock so concurrent update transactions for the
+  /// same bundle run serially. Held for the whole of `download_update` / `install`.
+  async fn lock_bundle(&self, bundle_name: &str) -> OwnedMutexGuard<()> {
+    let mutex = self
+      .locks
+      .entry(bundle_name.to_string())
+      .or_default()
+      .clone();
+    mutex.lock_owned().await
   }
 }
