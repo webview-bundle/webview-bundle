@@ -164,7 +164,7 @@ impl BundleSource {
   }
 
   pub async fn filepath(&self, bundle_name: String) -> Result<String, crate::Error> {
-    let path = self.inner.filepath(&bundle_name).await?;
+    let path = self.inner.bundle_filepath(&bundle_name).await?;
     Ok(path.to_string_lossy().to_string())
   }
 

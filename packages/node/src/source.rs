@@ -315,7 +315,7 @@ impl BundleSource {
   /// ```
   #[napi]
   pub async fn filepath(&self, bundle_name: String) -> crate::Result<String> {
-    let filepath = self.inner.filepath(&bundle_name).await?;
+    let filepath = self.inner.bundle_filepath(&bundle_name).await?;
     Ok(filepath.to_string_lossy().to_string())
   }
 

@@ -43,7 +43,7 @@ pub(crate) async fn source_filepath<R: Runtime>(
   bundle_name: String,
 ) -> crate::Result<String> {
   let wvb = app.wvb();
-  let filepath = wvb.source().filepath(&bundle_name).await?;
+  let filepath = wvb.source().bundle_filepath(&bundle_name).await?;
   Ok(filepath.to_string_lossy().to_string())
 }
 
