@@ -45,6 +45,9 @@ pub enum Error {
     version: String,
     reason: String,
   },
+  #[cfg(feature = "source")]
+  #[error("invalid filepath: {0:?}")]
+  InvalidFilepath(String),
   #[cfg(feature = "_serde")]
   #[error("serde json error: {0}")]
   SerdeJson(#[from] serde_json::Error),
@@ -129,6 +132,11 @@ impl Error {
       version: version.into(),
       reason: reason.into(),
     }
+  }
+
+  #[cfg(feature = "source")]
+  pub(crate) fn invalid_filepath(filepath: impl Into<String>) -> Self {
+    Self::InvalidFilepath(filepath.into())
   }
 
   #[cfg(feature = "remote")]

@@ -166,17 +166,10 @@ pub struct LoadedDescriptor {
 }
 
 impl LoadedDescriptor {
-  /// Opens a reader for the exact file this descriptor was parsed from.
   pub async fn reader(&self) -> crate::Result<File> {
-    File::open(&self.filepath).await.map_err(|e| {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        return crate::Error::BundleNotFound;
-      }
-      crate::Error::from(e)
-    })
+    open_file(&self.filepath).await
   }
 
-  /// Returns the shared descriptor handle (mainly for identity comparisons).
   pub fn descriptor(&self) -> &Arc<BundleDescriptor> {
     &self.descriptor
   }
@@ -248,21 +241,37 @@ impl BundleSource {
     Ok(())
   }
 
-  pub async fn filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
+  pub async fn bundle_filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
     let ver = self
       .load_version(bundle_name)
       .await?
       .ok_or(crate::Error::BundleNotFound)?;
     let filepath = match &ver.kind {
-      BundleSourceKind::Builtin => self.get_builtin_filepath(bundle_name, &ver.version),
-      BundleSourceKind::Remote => self.get_remote_filepath(bundle_name, &ver.version),
+      BundleSourceKind::Builtin => self.get_builtin_bundle_filepath(bundle_name, &ver.version)?,
+      BundleSourceKind::Remote => self.get_remote_bundle_filepath(bundle_name, &ver.version)?,
     };
     Ok(filepath)
   }
 
+  pub fn get_builtin_bundle_filepath(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<PathBuf> {
+    self.get_filepath(&self.builtin_dir, bundle_name, version)
+  }
+
+  pub fn get_remote_bundle_filepath(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<PathBuf> {
+    self.get_filepath(&self.remote_dir, bundle_name, version)
+  }
+
   pub async fn fetch(&self, bundle_name: &str) -> crate::Result<Bundle> {
-    let filepath = self.filepath(bundle_name).await?;
-    let mut file = Self::get_file(&filepath).await?;
+    let filepath = self.bundle_filepath(bundle_name).await?;
+    let mut file = open_file(&filepath).await?;
     let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(bundle)
   }
@@ -272,8 +281,8 @@ impl BundleSource {
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Bundle> {
-    let filepath = self.get_builtin_filepath(bundle_name, version);
-    let mut file = Self::get_file(&filepath).await?;
+    let filepath = self.get_builtin_bundle_filepath(bundle_name, version)?;
+    let mut file = open_file(&filepath).await?;
     let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(bundle)
   }
@@ -283,22 +292,20 @@ impl BundleSource {
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Bundle> {
-    let filepath = self.get_remote_filepath(bundle_name, version);
-    let mut file = Self::get_file(&filepath).await?;
+    let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
+    let mut file = open_file(&filepath).await?;
     let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(bundle)
   }
 
   pub async fn fetch_descriptor(&self, bundle_name: &str) -> crate::Result<BundleDescriptor> {
-    let filepath = self.filepath(bundle_name).await?;
-    let mut file = Self::get_file(&filepath).await?;
+    let filepath = self.bundle_filepath(bundle_name).await?;
+    let mut file = open_file(&filepath).await?;
     let manifest =
       AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(manifest)
   }
 
-  /// Loads the manifest metadata (etag/integrity/signature/...) recorded for a remote
-  /// version at download time. `None` if the version is not staged in the remote manifest.
   pub async fn load_remote_metadata(
     &self,
     bundle_name: &str,
@@ -311,9 +318,7 @@ impl BundleSource {
   }
 
   pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
-    // Resolve the active filepath once; it doubles as the cache fingerprint. A
-    // version swap changes this path, which forces the rebuild branch below.
-    let filepath = self.filepath(bundle_name).await?;
+    let filepath = self.bundle_filepath(bundle_name).await?;
     let cell = match self.descriptors.entry(bundle_name.to_string()) {
       dashmap::Entry::Occupied(mut occupied) => {
         let (cached_path, cell) = occupied.get();
@@ -337,7 +342,7 @@ impl BundleSource {
       .get_or_try_init(|| {
         let filepath = filepath.clone();
         async move {
-          let mut file = Self::get_file(&filepath).await?;
+          let mut file = open_file(&filepath).await?;
           let d =
             AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
           Ok::<Arc<BundleDescriptor>, crate::Error>(Arc::new(d))
@@ -362,31 +367,29 @@ impl BundleSource {
     bundle: &Bundle,
     metadata: BundleManifestMetadata,
   ) -> crate::Result<()> {
-    let filepath = self.get_remote_filepath(bundle_name, version);
+    let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
     if let Some(parent) = filepath.parent() {
       let _ = tokio::fs::create_dir_all(parent).await;
     }
-    // Write to a temp file then atomically rename into place. `File::create` would
-    // truncate the target in place, which corrupts an in-flight protocol read if this
-    // same version is currently being served (e.g. a re-download of the active version).
-    // A rename swaps the inode atomically; readers holding the old file keep reading it.
+
+    // Write to a temp file then atomically rename into place.
     static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+
     let mut tmp = filepath.clone().into_os_string();
     tmp.push(format!(".{}.{seq}.tmp", std::process::id()));
+
     let tmp = PathBuf::from(tmp);
     let mut file = File::create(&tmp).await?;
+
     AsyncBundleWriter::new(&mut file).write(bundle).await?;
     drop(file); // close the temp handle before rename (required on Windows)
+
     if let Err(e) = tokio::fs::rename(&tmp, &filepath).await {
       let _ = tokio::fs::remove_file(&tmp).await;
       return Err(e.into());
     }
-    // Stage the bundle: record it in the manifest and persist to disk, but leave the
-    // active version untouched (`insert_entry` never sets current_version). The
-    // downloaded bundle starts being served only once the caller explicitly activates
-    // it via `update_version`; until then the source resolves to its previous/builtin
-    // version.
+
     self
       .remote_manifest
       .insert_entry(bundle_name, version, metadata)
@@ -397,12 +400,6 @@ impl BundleSource {
 
   /// Removes a single staged remote bundle: drops its manifest entry and deletes its
   /// file from disk. Returns whether the entry existed.
-  ///
-  /// The active version can never be removed (returns an error). Callers must keep the
-  /// *previous* version too if in-flight protocol requests might still reference it —
-  /// see [`BundleSource::remote_retained_versions`]. File deletion is best-effort: a leftover
-  /// `.wvb` without a manifest entry is an inert orphan (invisible to `load_version`)
-  /// and can be reclaimed later, so a failed unlink does not fail the call.
   pub async fn remove_remote_bundle(
     &self,
     bundle_name: &str,
@@ -413,22 +410,18 @@ impl BundleSource {
       .remove_entry(bundle_name, version)
       .await?;
     if removed {
-      let filepath = self.get_remote_filepath(bundle_name, version);
+      let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
       let _ = tokio::fs::remove_file(&filepath).await;
       self.remote_manifest.save().await?;
     }
     Ok(removed)
   }
 
-  /// The remote versions that must be kept on disk: the active version and the one
-  /// immediately before it. Any other downloaded version is safe to prune.
   pub async fn remote_retained_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
     self.remote_manifest.retained_versions(bundle_name).await
   }
 
   /// Removes every staged remote version except the retained set ({current, previous}).
-  /// Best-effort: a failure on one version is skipped so the rest still get reclaimed.
-  /// Returns the versions that were removed.
   pub async fn prune_remote_bundles(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
     let retained = self.remote_retained_versions(bundle_name).await?;
     let all = self.remote_manifest.list_versions(bundle_name).await?;
@@ -448,35 +441,153 @@ impl BundleSource {
     Ok(removed)
   }
 
-  fn get_builtin_filepath(&self, bundle_name: &str, version: &str) -> PathBuf {
-    self.get_filepath(&self.builtin_dir, bundle_name, version)
-  }
-
-  fn get_remote_filepath(&self, bundle_name: &str, version: &str) -> PathBuf {
-    self.get_filepath(&self.remote_dir, bundle_name, version)
-  }
-
-  fn get_filepath(&self, base_dir: &Path, bundle_name: &str, version: &str) -> PathBuf {
-    // TODO: normalize bundle name
+  fn get_filepath(
+    &self,
+    base_dir: &Path,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<PathBuf> {
     let filename = format!("{bundle_name}_{version}.{EXTENSION}");
-    base_dir.join(bundle_name).join(filename)
+    let filepath = base_dir.join(bundle_name).join(filename);
+    if !is_valid_path_component(bundle_name) || !is_valid_path_component(version) {
+      return Err(crate::Error::invalid_filepath(filepath.to_string_lossy()));
+    }
+    Ok(filepath)
   }
+}
 
-  async fn get_file(filepath: &Path) -> crate::Result<File> {
-    let file = File::open(filepath).await.map_err(|e| {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        return crate::Error::BundleNotFound;
-      }
-      crate::Error::from(e)
-    })?;
-    Ok(file)
-  }
+/// Returns whether `value` is safe to use verbatim as a single filesystem path component on
+/// Windows, macOS, and Linux.
+fn is_valid_path_component(value: &str) -> bool {
+  !value.is_empty()
+    && value != "."
+    && value != ".."
+    && value
+      .chars()
+      .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    && !is_windows_reserved_name(value)
+}
+
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+  "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+  "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+fn is_windows_reserved_name(value: &str) -> bool {
+  let base = value.split('.').next().unwrap_or(value);
+  WINDOWS_RESERVED_NAMES
+    .iter()
+    .any(|reserved| reserved.eq_ignore_ascii_case(base))
+}
+
+async fn open_file(filepath: &Path) -> crate::Result<File> {
+  File::open(filepath).await.map_err(|e| {
+    if e.kind() == std::io::ErrorKind::NotFound {
+      return crate::Error::BundleNotFound;
+    }
+    crate::Error::from(e)
+  })
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
   use crate::testing::Fixtures;
+
+  #[test]
+  fn valid_path_component() {
+    for ok in [
+      "app",
+      "my-app",
+      "my_app",
+      "App2",
+      "1.0.0",
+      "1.2.3-beta.4",
+      "a.b.c",
+      // Merely starting with a reserved word, or COM/LPT without a digit, is fine.
+      "console",
+      "com",
+      "com10",
+    ] {
+      assert!(is_valid_path_component(ok), "{ok:?} should be valid");
+    }
+    for bad in [
+      "",
+      ".",
+      "..",
+      "a/b",
+      "a\\b",
+      "../etc",
+      "a b",
+      "안녕",
+      "a\nb",
+      "a\0b",
+      // Windows reserved device names (case-insensitive, with or without an extension).
+      "con",
+      "CON",
+      "NuL",
+      "com1",
+      "LPT9",
+      "aux",
+      "prn",
+      "nul.txt",
+      "con.foo.bar",
+    ] {
+      assert!(!is_valid_path_component(bad), "{bad:?} should be invalid");
+    }
+  }
+
+  #[test]
+  fn invalid_filepath() {
+    let source = BundleSource::builder()
+      .builtin_dir("/tmp/builtin")
+      .remote_dir("/tmp/remote")
+      .build();
+
+    // Valid name + version resolve to a path.
+    assert!(source.get_remote_bundle_filepath("app", "1.0.0").is_ok());
+    assert!(
+      source
+        .get_builtin_bundle_filepath("my-app", "1.2.3-beta.4")
+        .is_ok()
+    );
+
+    // An unsafe bundle name cannot be turned into a filepath.
+    for name in ["", "..", "a/b", "../etc", "a b"] {
+      assert!(
+        matches!(
+          source.get_remote_bundle_filepath(name, "1.0.0"),
+          Err(crate::Error::InvalidFilepath(_))
+        ),
+        "name {name:?} should be rejected"
+      );
+    }
+
+    // An unsafe version is rejected too.
+    for version in ["", "..", "1/0", "1 0"] {
+      assert!(
+        matches!(
+          source.get_remote_bundle_filepath("app", version),
+          Err(crate::Error::InvalidFilepath(_))
+        ),
+        "version {version:?} should be rejected"
+      );
+    }
+  }
+
+  #[tokio::test]
+  async fn invalid_filepath_when_write_remote_bundle() {
+    let fixture = Fixtures::bundles();
+    let source = BundleSource::builder()
+      .remote_dir(fixture.get_path("remote"))
+      .build();
+    let bundle = crate::BundleBuilder::new().build().unwrap();
+    let err = source
+      .write_remote_bundle("../evil", "1.0.0", &bundle, Default::default())
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::InvalidFilepath(_)));
+  }
 
   #[tokio::test]
   async fn fetch() {

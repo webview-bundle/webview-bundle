@@ -4,9 +4,7 @@ use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
 #[cfg(feature = "signature")]
 use crate::signature::SignatureVerifier;
 use crate::source::{BundleManifestMetadata, BundleSource};
-use crate::{BundleWriter, Writer};
 use dashmap::DashMap;
-use std::io::Cursor;
 use std::sync::Arc;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
@@ -93,12 +91,7 @@ pub struct Updater {
   source: Arc<BundleSource>,
   remote: Arc<Remote>,
   config: UpdaterConfig,
-  // Per-bundle transaction lock. Serializes multi-step mutations of one bundle
-  // (download+stage, validate+activate+prune) so the protocol always resolves to a
-  // present, consistent version. This is the updater's responsibility — the source
-  // stays a lock-free primitive store. The contract: one `Updater` orchestrates a
-  // given source's updates; updates driven through separate `Updater`s are not
-  // serialized against each other.
+  // Per-bundle transaction lock.
   locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
@@ -150,6 +143,10 @@ impl Updater {
       }
     }?;
 
+    // `data` (raw bytes) is only consumed by the integrity check.
+    #[cfg(not(feature = "integrity"))]
+    let _ = &data;
+
     #[cfg(feature = "integrity")]
     self
       .verify_bundle(
@@ -174,17 +171,7 @@ impl Updater {
 
   /// Activates a previously-downloaded version so the protocol begins serving it.
   ///
-  /// The version must already be staged in the remote manifest (downloaded). Steps:
-  /// 1. confirm the version is staged (else error);
-  /// 2. validate the on-disk bundle — structural parse always, plus integrity/signature
-  ///    against the metadata captured at download time (when those features are enabled);
-  /// 3. record it as current (demoting the old current to previous) and persist;
-  /// 4. drop the cached descriptor so the next request observes the new version;
-  /// 5. prune older staged versions, keeping {current, previous} (best-effort).
-  ///
-  /// On any failure before step 3 the active version is left unchanged and the
-  /// downloaded files are kept, so a retry (or rollback to a still-present version)
-  /// remains possible.
+  /// The version must already be staged in the remote manifest (downloaded).
   pub async fn install(
     &self,
     bundle_name: impl Into<String>,
@@ -193,28 +180,24 @@ impl Updater {
     let bundle_name = bundle_name.into();
     let version = version.into();
 
-    // Serialize the whole transaction against other installs/downloads of this bundle.
     let _guard = self.lock_bundle(&bundle_name).await;
 
-    // 1. The version must be staged in the remote manifest.
     let metadata = self
       .source
       .load_remote_metadata(&bundle_name, &version)
       .await?
       .ok_or_else(|| crate::Error::bundle_entry_not_exists(&bundle_name, &version))?;
 
-    // 2. Validate the on-disk bundle. Parsing alone enforces structural validity
-    //    (magic/checksum/truncation); integrity & signature add semantic verification.
     #[cfg(feature = "integrity")]
     {
       let bundle = self
         .source
         .fetch_remote_bundle(&bundle_name, &version)
         .await?;
-
-      let mut data = vec![];
-      let mut writer = BundleWriter::new(Cursor::new(&mut data));
-      writer.write(&bundle)?;
+      let filepath = self
+        .source
+        .get_remote_bundle_filepath(&bundle_name, &version)?;
+      let data = tokio::fs::read(&filepath).await?;
 
       self
         .verify_bundle(
@@ -226,23 +209,20 @@ impl Updater {
         .await?;
     }
 
-    // 3. Activate (records current/previous, persists atomically).
+    #[cfg(not(feature = "integrity"))]
+    let _ = &metadata;
+
     self
       .source
       .update_remote_version(&bundle_name, &version)
       .await?;
-
-    // 4. Next protocol request rebuilds the descriptor from the new version.
     self.source.unload_descriptor(&bundle_name);
-
-    // 5. Reclaim disk, keeping the active and immediately-previous versions.
     let _ = self.source.prune_remote_bundles(&bundle_name).await;
 
     Ok(())
   }
 
-  /// Verifies a bundle against its advertised integrity/signature, per the configured
-  /// policy. Shared by the download (fresh bytes) and install (on-disk bytes) paths.
+  /// Verifies a bundle against its advertised integrity/signature.
   #[cfg(any(feature = "integrity", feature = "signature"))]
   async fn verify_bundle(
     &self,
