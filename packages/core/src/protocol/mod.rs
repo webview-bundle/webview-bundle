@@ -1,4 +1,5 @@
 mod bundle;
+#[cfg(feature = "tracing")]
 mod http_ext;
 #[cfg(feature = "protocol-local")]
 mod local;

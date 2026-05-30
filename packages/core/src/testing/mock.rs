@@ -254,6 +254,10 @@ impl MockSource {
       .build()
   }
 
+  pub fn dirs(&self) -> (std::path::PathBuf, std::path::PathBuf) {
+    (self.builtin_dir.clone(), self.remote_dir.clone())
+  }
+
   pub fn add_builtin_bundle(&mut self, bundle: MockBundle) -> &mut Self {
     let filepath = self.builtin_dir.join(bundle.name()).join(format!(
       "{}_{}.wvb",
@@ -413,12 +417,13 @@ impl MockSource {
             .versions
             .insert(bundle.version().to_string(), bundle.metadata());
           if is_current {
-            entry.current_version = bundle.version().to_string();
+            entry.current_version = Some(bundle.version().to_string());
           }
         })
         .or_insert_with(|| BundleManifestEntry {
           versions: HashMap::from([(bundle.version().to_string(), bundle.metadata())]),
-          current_version: bundle.version().to_string(),
+          current_version: is_current.then(|| bundle.version().to_string()),
+          previous_version: None,
         });
     }
     Some(manifest)

@@ -6,4 +6,4 @@ mod temp;
 
 pub(crate) use fixtures::*;
 pub use mock::*;
-pub(crate) use temp::*;
+pub use temp::*;

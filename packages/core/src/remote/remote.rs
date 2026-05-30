@@ -95,10 +95,10 @@ impl RemoteBuilder {
     if self.config.endpoint.is_empty() {
       return Err(crate::Error::invalid_remote_config("endpoint is empty"));
     }
-    let mut client_builder = reqwest::ClientBuilder::new();
-    if let Some(ref http_config) = self.config.http {
-      client_builder = http_config.apply(client_builder);
-    }
+    // Apply HTTP config unconditionally (defaulting when unset) so the default request
+    // timeout is always in effect, even when the caller passes no `HttpConfig`.
+    let http_config = self.config.http.clone().unwrap_or_default();
+    let client_builder = http_config.apply(reqwest::ClientBuilder::new());
     let client = client_builder.build()?;
     Ok(Remote {
       config: self.config,

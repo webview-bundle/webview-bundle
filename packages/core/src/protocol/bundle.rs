@@ -169,7 +169,7 @@ impl BundleProtocol {
     let mut resp = Response::builder();
     let descriptor = self.source.load_descriptor(bundle_name).await?;
 
-    if let Some(entry) = descriptor.index().get_entry(&path) {
+    if let Some(entry) = descriptor.index().get_entry(path) {
       let resp_headers = resp.headers_mut().unwrap();
       resp_headers.clone_from(entry.headers());
       resp_headers.insert(
@@ -238,8 +238,8 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = self.source.reader(bundle_name).await?;
-            let buf = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
+            let reader = descriptor.reader().await?;
+            let buf = if let Some(data) = descriptor.async_get_data(reader, path).await? {
               extract_buf(&data, start, end)
             } else {
               return not_found();
@@ -276,8 +276,8 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = self.source.reader(bundle_name).await?;
-            let buf = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
+            let reader = descriptor.reader().await?;
+            let buf = if let Some(data) = descriptor.async_get_data(reader, path).await? {
               let mut buf = Vec::new();
               for (start, end) in ranges {
                 buf.write_all(boundary_sep.as_bytes()).await?;
@@ -312,8 +312,8 @@ impl BundleProtocol {
         return Ok(response);
       }
 
-      let reader = self.source.reader(bundle_name).await?;
-      let data = if let Some(data) = descriptor.async_get_data(reader, &path).await? {
+      let reader = descriptor.reader().await?;
+      let data = if let Some(data) = descriptor.async_get_data(reader, path).await? {
         data
       } else {
         return not_found();

@@ -111,7 +111,7 @@ impl Updater {
     bundle_name: String,
     version: Option<String>,
   ) -> Result<RemoteBundleInfo, crate::Error> {
-    let info = self.inner.download_update(bundle_name, version).await?;
+    let info = self.inner.download(bundle_name, version).await?;
     Ok(info.into())
   }
 }

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use tokio::sync::{OnceCell, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::{Mutex, OnceCell, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(
@@ -29,7 +30,23 @@ pub struct BundleManifestMetadata {
 #[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct BundleManifestEntry {
   pub versions: HashMap<String, BundleManifestMetadata>,
-  pub current_version: String,
+  /// The active version, or `None` when versions are present on disk but none has
+  /// been activated yet. A download stages a version (adds it to `versions`) without
+  /// activating it; activation happens only via `update_current_version`.
+  #[cfg_attr(
+    feature = "_serde",
+    serde(default, skip_serializing_if = "Option::is_none")
+  )]
+  pub current_version: Option<String>,
+  /// The version that was active immediately before `current_version`. Tracked so a
+  /// just-activated update can clean up older bundles while keeping the previous one
+  /// on disk — it may still be referenced by an in-flight protocol request, and it is
+  /// the target of a one-step rollback. `None` before the first activation swap.
+  #[cfg_attr(
+    feature = "_serde",
+    serde(default, skip_serializing_if = "Option::is_none")
+  )]
+  pub previous_version: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -67,6 +84,13 @@ pub struct BundleManifest<Mode: BundleManifestMode> {
   _mode: std::marker::PhantomData<Mode>,
   filepath: PathBuf,
   data: OnceCell<RwLock<BundleManifestData>>,
+  // Serializes `save()` end-to-end (snapshot + write + rename). The RwLock keeps the
+  // in-memory data consistent, but without this two concurrent saves (e.g. installs of
+  // different bundles, which take different per-bundle locks yet share this one manifest
+  // file) could have their renames reorder, persisting an older snapshot last and losing
+  // a just-activated version on disk. Holding this across snapshot+rename forces the
+  // latest snapshot to land last.
+  save_lock: Mutex<()>,
 }
 
 impl<Mode> BundleManifest<Mode>
@@ -78,6 +102,7 @@ where
       _mode: std::marker::PhantomData,
       filepath: filepath.to_path_buf(),
       data: Default::default(),
+      save_lock: Mutex::new(()),
     }
   }
 
@@ -85,12 +110,12 @@ where
     let data = self.load().await?.read().await;
     let mut items = vec![];
     for (bundle_name, entry) in data.entries.iter() {
-      let current_version = entry.current_version.to_string();
+      let current_version = entry.current_version.as_deref();
       for (version, metadata) in entry.versions.iter() {
         let item = ListBundleManifestItem {
           name: bundle_name.to_string(),
           version: version.to_string(),
-          current: version == &current_version,
+          current: current_version == Some(version.as_str()),
           metadata: metadata.clone(),
         };
         items.push(item);
@@ -112,8 +137,19 @@ where
     let version = data
       .entries
       .get(bundle_name)
-      .map(|x| x.current_version.to_string());
+      .and_then(|x| x.current_version.to_owned());
     Ok(version)
+  }
+
+  /// All versions recorded for `bundle_name` (in unspecified order).
+  pub async fn list_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
+    let data = self.load().await?.read().await;
+    let versions = data
+      .entries
+      .get(bundle_name)
+      .map(|entry| entry.versions.keys().cloned().collect())
+      .unwrap_or_default();
+    Ok(versions)
   }
 
   pub async fn load_current_metadata(
@@ -164,17 +200,44 @@ impl BundleManifest<ReadWrite> {
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<()> {
-    if !self.contains_entry(bundle_name, version).await? {
+    // Check existence and mutate under a single write lock. Splitting the existence
+    // check (a separate read lock) from the mutation would let a concurrent removal
+    // slip in between, leaving current_version pointing at a version no longer staged.
+    let mut data = self.load().await?.write().await;
+    let entry = data
+      .entries
+      .get_mut(bundle_name)
+      .ok_or_else(|| crate::Error::bundle_entry_not_exists(bundle_name, version))?;
+    if !entry.versions.contains_key(version) {
       return Err(crate::Error::bundle_entry_not_exists(bundle_name, version));
     }
-    let mut data = self.load().await?.write().await;
-    data
-      .entries
-      .entry(bundle_name.to_string())
-      .and_modify(|entry| {
-        entry.current_version = version.to_string();
-      });
+    // Activating a different version demotes the old current to previous, so the old
+    // bundle is retained (in-flight requests / one-step rollback) while older versions
+    // become eligible for cleanup. Re-activating the same version is a no-op and leaves
+    // `previous_version` intact.
+    if entry.current_version.as_deref() != Some(version) {
+      entry.previous_version = entry.current_version.take();
+      entry.current_version = Some(version.to_string());
+    }
     Ok(())
+  }
+
+  /// Returns the versions that must be retained for `bundle_name`: the active version
+  /// and the immediately-previous one. Any other version is safe to delete from disk.
+  pub async fn retained_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
+    let data = self.load().await?.read().await;
+    let mut retained = vec![];
+    if let Some(entry) = data.entries.get(bundle_name) {
+      if let Some(current) = &entry.current_version {
+        retained.push(current.clone());
+      }
+      if let Some(previous) = &entry.previous_version {
+        if !retained.contains(previous) {
+          retained.push(previous.clone());
+        }
+      }
+    }
+    Ok(retained)
   }
 
   pub async fn insert_entry(
@@ -197,7 +260,11 @@ impl BundleManifest<ReadWrite> {
       })
       .or_insert_with(|| BundleManifestEntry {
         versions: HashMap::from([(version.to_string(), metadata.clone())]),
-        current_version: version.to_string(),
+        // Stage only — never activated by a download. The caller must explicitly
+        // activate via `update_current_version`. `None` means the version exists on
+        // disk but is not yet served (the source falls back to the builtin version).
+        current_version: None,
+        previous_version: None,
       });
     Ok(inserted)
   }
@@ -205,12 +272,16 @@ impl BundleManifest<ReadWrite> {
   pub async fn remove_entry(&self, bundle_name: &str, version: &str) -> crate::Result<bool> {
     let mut data = self.load().await?.write().await;
     if let Some(entry) = data.entries.get_mut(bundle_name) {
-      if entry.current_version == version {
+      if entry.current_version.as_deref() == Some(version) {
         return Err(crate::Error::bundle_cannot_be_removed(
           bundle_name,
           version,
           "current version of bundle cannot be removed",
         ));
+      }
+      // Don't leave `previous_version` dangling at a version we just removed.
+      if entry.previous_version.as_deref() == Some(version) {
+        entry.previous_version = None;
       }
       return Ok(entry.versions.remove(version).is_some());
     }
@@ -218,6 +289,10 @@ impl BundleManifest<ReadWrite> {
   }
 
   pub async fn save(&self) -> crate::Result<()> {
+    // Serialize the whole save. The snapshot must be taken *under* this lock and held
+    // through the rename; otherwise a save that snapshotted an older state could rename
+    // after a newer one, persisting stale data (see `save_lock`).
+    let _save = self.save_lock.lock().await;
     let raw = {
       let data = self.load().await?.read().await;
       serde_json::to_vec(&*data)
@@ -225,7 +300,21 @@ impl BundleManifest<ReadWrite> {
     if let Some(dir) = self.filepath.parent() {
       tokio::fs::create_dir_all(dir).await?;
     }
-    tokio::fs::write(&self.filepath, raw).await?;
+    // Write to a unique temp file in the same directory, then atomically rename over the
+    // target. A crash mid-write leaves the previous (complete) manifest intact rather than
+    // a truncated/corrupt file. Distinct temp names keep separate source instances that
+    // point at the same file from clobbering each other's temp; each rename is atomic, so
+    // a reader never observes a partial manifest.
+    static SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SAVE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let mut tmp = self.filepath.clone().into_os_string();
+    tmp.push(format!(".{}.{seq}.tmp", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    tokio::fs::write(&tmp, raw).await?;
+    if let Err(e) = tokio::fs::rename(&tmp, &self.filepath).await {
+      let _ = tokio::fs::remove_file(&tmp).await;
+      return Err(e.into());
+    }
     Ok(())
   }
 }
@@ -324,6 +413,35 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn update_current_version_tracks_previous_and_retained() {
+    let fixture = Fixtures::bundles();
+    let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
+    // Fixture starts at current = 1.0.0, previous = None.
+    assert_eq!(
+      manifest.retained_versions("app").await.unwrap(),
+      vec!["1.0.0"]
+    );
+
+    // Activating 1.1.0 demotes 1.0.0 to previous; both are retained.
+    manifest
+      .update_current_version("app", "1.1.0")
+      .await
+      .unwrap();
+    let retained = manifest.retained_versions("app").await.unwrap();
+    assert_eq!(retained, vec!["1.1.0".to_string(), "1.0.0".to_string()]);
+
+    // Re-activating the same version is a no-op and keeps previous intact.
+    manifest
+      .update_current_version("app", "1.1.0")
+      .await
+      .unwrap();
+    assert_eq!(
+      manifest.retained_versions("app").await.unwrap(),
+      vec!["1.1.0".to_string(), "1.0.0".to_string()]
+    );
+  }
+
+  #[tokio::test]
   async fn update_current_version_entry_not_exists() {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
@@ -368,6 +486,11 @@ mod tests {
         .unwrap(),
       metadata
     );
+    // Staging a new version into an existing entry must NOT change the active version.
+    assert_eq!(
+      manifest.load_current_version("app").await.unwrap().unwrap(),
+      "1.0.0"
+    );
   }
 
   #[tokio::test]
@@ -396,6 +519,20 @@ mod tests {
         .unwrap(),
       metadata
     );
+    // A freshly inserted version is staged on disk, not yet activated.
+    assert!(
+      manifest
+        .load_current_version("vite")
+        .await
+        .unwrap()
+        .is_none(),
+      "insert_entry must not activate the version"
+    );
+    // Activation is a separate, explicit step.
+    manifest
+      .update_current_version("vite", "1.0.0")
+      .await
+      .unwrap();
     assert_eq!(
       manifest
         .load_current_version("vite")
@@ -433,6 +570,27 @@ mod tests {
     assert_eq!(
       err.to_string(),
       "bundle cannot be removed (bundle_name: app, version: 1.1.0): current version of bundle cannot be removed"
+    );
+  }
+
+  #[tokio::test]
+  async fn remove_entry_clears_previous_pointer() {
+    let fixture = Fixtures::bundles();
+    let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
+    // current = 1.1.0, previous = 1.0.0
+    manifest
+      .update_current_version("app", "1.1.0")
+      .await
+      .unwrap();
+    assert_eq!(
+      manifest.retained_versions("app").await.unwrap(),
+      vec!["1.1.0".to_string(), "1.0.0".to_string()]
+    );
+    // Removing the previous version drops it from retained and clears the dangling pointer.
+    assert!(manifest.remove_entry("app", "1.0.0").await.unwrap());
+    assert_eq!(
+      manifest.retained_versions("app").await.unwrap(),
+      vec!["1.1.0".to_string()]
     );
   }
 }

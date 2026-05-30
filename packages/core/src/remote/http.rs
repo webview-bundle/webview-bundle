@@ -1,5 +1,11 @@
 use reqwest::header::HeaderMap;
 
+/// Default total request timeout (milliseconds) applied when `HttpConfig::timeout` is
+/// not set. Bounds an otherwise-unbounded download: without it a stalled transfer would
+/// hang forever and keep holding the updater's per-bundle transaction lock. Override
+/// with [`HttpConfig::timeout`].
+pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 120_000;
+
 #[derive(Debug, Clone, Default)]
 pub struct HttpConfig {
   pub default_headers: Option<HeaderMap>,
@@ -76,9 +82,8 @@ impl HttpConfig {
     if let Some(user_agent) = self.user_agent.as_ref() {
       http = http.user_agent(user_agent);
     }
-    if let Some(timeout) = self.timeout {
-      http = http.timeout(std::time::Duration::from_millis(timeout));
-    }
+    let timeout = self.timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT_MS);
+    http = http.timeout(std::time::Duration::from_millis(timeout));
     if let Some(pool_idle_timeout) = self.pool_idle_timeout {
       http = http.pool_idle_timeout(std::time::Duration::from_millis(pool_idle_timeout));
     }

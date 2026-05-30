@@ -156,12 +156,15 @@ impl BundleSource {
     bundle_name: String,
     version: String,
   ) -> Result<(), crate::Error> {
-    self.inner.update_version(&bundle_name, &version).await?;
+    self
+      .inner
+      .update_remote_version(&bundle_name, &version)
+      .await?;
     Ok(())
   }
 
   pub async fn filepath(&self, bundle_name: String) -> Result<String, crate::Error> {
-    let path = self.inner.filepath(&bundle_name).await?;
+    let path = self.inner.bundle_filepath(&bundle_name).await?;
     Ok(path.to_string_lossy().to_string())
   }
 

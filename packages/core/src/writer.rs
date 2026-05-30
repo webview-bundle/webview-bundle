@@ -4,5 +4,5 @@ pub trait Writer<T> {
 
 #[cfg(feature = "async")]
 pub trait AsyncWriter<T> {
-  fn write(&mut self, data: &T) -> impl std::future::Future<Output = crate::Result<usize>>;
+  fn write(&mut self, data: &T) -> impl Future<Output = crate::Result<usize>>;
 }
