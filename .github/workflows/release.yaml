@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_commit: ${{ steps.detect.outputs.release_commit }}
+      release_packages: ${{ steps.detect.outputs.release_packages }}
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
@@ -128,7 +129,9 @@ jobs:
     runs-on: ubuntu-latest
     name: build-ffi-android
     needs: [detect]
-    if: github.event_name == 'workflow_dispatch' || needs.detect.outputs.release_commit == 'true'
+    # Prereleases (workflow_dispatch) release every package, so always build. Stable releases build
+    # ffi only when the `ffi` package is among this commit's release targets.
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'ffi')
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
@@ -171,7 +174,9 @@ jobs:
   build-ffi-apple:
     runs-on: macos-latest
     needs: [detect]
-    if: github.event_name == 'workflow_dispatch' || needs.detect.outputs.release_commit == 'true'
+    # Prereleases (workflow_dispatch) release every package, so always build. Stable releases build
+    # ffi only when the `ffi` package is among this commit's release targets.
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'ffi')
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
@@ -206,7 +211,16 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [detect, build-napi, build-ffi-android, build-ffi-apple]
-    if: github.event_name == 'push' && needs.detect.outputs.release_commit == 'true'
+    # The ffi builds may be skipped (release without ffi); a skipped `needs` job would skip this job
+    # too, so use `!cancelled()` and accept ffi results that are either `success` or `skipped`.
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      needs.detect.result == 'success' &&
+      needs.detect.outputs.release_commit == 'true' &&
+      needs.build-napi.result == 'success' &&
+      (needs.build-ffi-android.result == 'success' || needs.build-ffi-android.result == 'skipped') &&
+      (needs.build-ffi-apple.result == 'success' || needs.build-ffi-apple.result == 'skipped')
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1

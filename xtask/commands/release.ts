@@ -62,6 +62,9 @@ export class ReleaseCommand extends Command {
     // workflow uses this to choose `release` vs `prerelease`, independent of publish success.
     const isReleaseCommit = targets.length > 0;
     await this.setOutput('release_commit', isReleaseCommit ? 'true' : 'false');
+    // The names of the packages this commit releases (always a valid JSON array, `[]` when none).
+    // The workflow reads this to build per-package artifacts (e.g. ffi) only when needed.
+    await this.setOutput('release_packages', JSON.stringify(targets.map(pkg => pkg.name)));
 
     if (this.check) {
       console.log(`${c.info('[root]')} release commit: ${isReleaseCommit}`);
