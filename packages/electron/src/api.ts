@@ -1,4 +1,5 @@
 import type {
+  BundleManifestMetadata,
   BundleSourceVersion,
   BundleUpdateInfo,
   ListBundleItem,
@@ -7,6 +8,7 @@ import type {
 } from '@wvb/node';
 
 export type {
+  BundleManifestMetadata,
   BundleSourceVersion,
   BundleUpdateInfo,
   ListBundleItem,
@@ -19,6 +21,14 @@ export interface WebviewBundleSourceApi {
   loadVersion(bundleName: string): Promise<BundleSourceVersion | null>;
   updateVersion(bundleName: string, version: string): Promise<void>;
   filepath(bundleName: string): Promise<string>;
+  getBuiltinBundleFilepath(bundleName: string, version: string): Promise<string>;
+  getRemoteBundleFilepath(bundleName: string, version: string): Promise<string>;
+  loadBuiltinMetadata(bundleName: string, version: string): Promise<BundleManifestMetadata | null>;
+  loadRemoteMetadata(bundleName: string, version: string): Promise<BundleManifestMetadata | null>;
+  unloadDescriptor(bundleName: string): Promise<boolean>;
+  removeRemoteBundle(bundleName: string, version: string): Promise<boolean>;
+  remoteRetainedVersions(bundleName: string): Promise<string[]>;
+  pruneRemoteBundles(bundleName: string): Promise<string[]>;
 }
 
 export interface WebviewBundleRemoteApi {
@@ -31,7 +41,8 @@ export interface WebviewBundleRemoteApi {
 export interface WebviewBundleUpdaterApi {
   listRemotes(): Promise<ListRemoteBundleInfo[]>;
   getUpdate(bundleName: string): Promise<BundleUpdateInfo>;
-  downloadUpdate(bundleName: string, version?: string): Promise<RemoteBundleInfo>;
+  download(bundleName: string, version?: string): Promise<RemoteBundleInfo>;
+  install(bundleName: string, version: string): Promise<void>;
 }
 
 export interface WebviewBundleApi {
