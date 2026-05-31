@@ -125,6 +125,10 @@ impl Updater {
     Ok(info)
   }
 
+  /// Download a new version of a bundle and save into disk.
+  ///
+  /// Downloaded bundle does not activate automatically.
+  /// To activate the downloaded version, use `Updater::install`.
   pub async fn download(
     &self,
     bundle_name: impl Into<String>,
@@ -169,7 +173,7 @@ impl Updater {
     Ok(info)
   }
 
-  /// Activates a previously-downloaded version so the protocol begins serving it.
+  /// Activates a downloaded version so the protocol begins serving it.
   ///
   /// The version must already be staged in the remote manifest (downloaded).
   pub async fn install(

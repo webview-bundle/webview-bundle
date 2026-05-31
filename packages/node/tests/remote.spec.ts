@@ -56,6 +56,7 @@ beforeAll(async () => {
   });
   server = serve({ fetch: app.fetch, port });
 });
+
 afterAll(() => {
   allowOnlyLatest = false;
   return new Promise<void>((resolve, reject) => {

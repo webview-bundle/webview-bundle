@@ -9,12 +9,12 @@
  * @example
  * ```typescript
  * // Read a bundle from file
- * const bundle = await readBundle("app.wvb");
+ * const bundle = await readBundle('app.wvb');
  *
  * // Access files
- * const html = bundle.getData("/index.html");
+ * const html = bundle.getData('/index.html');
  * if (html) {
- *   console.log(html.toString("utf-8"));
+ *   console.log(html.toString('utf-8'));
  * }
  * ```
  */
@@ -41,9 +41,9 @@ export declare class Bundle {
    *
    * @example
    * ```typescript
-   * const data = bundle.getData("/index.html");
+   * const data = bundle.getData('/index.html');
    * if (data) {
-   *   console.log(data.toString("utf-8"));
+   *   console.log(data.toString('utf-8'));
    * }
    * ```
    */
@@ -67,14 +67,14 @@ export declare class Bundle {
  * const builder = new BundleBuilder();
  *
  * // Add files
- * builder.insertEntry("/index.html", Buffer.from("<html>...</html>"));
- * builder.insertEntry("/app.js", Buffer.from("console.log('hello');"));
+ * builder.insertEntry('/index.html', Buffer.from('<html>...</html>'));
+ * builder.insertEntry('/app.js', Buffer.from("console.log('hello');"));
  *
  * // Build the bundle
  * const bundle = builder.build();
  *
  * // Write to file
- * await writeBundle(bundle, "app.wvb");
+ * await writeBundle(bundle, 'app.wvb');
  * ```
  */
 export declare class BundleBuilder {
@@ -122,14 +122,14 @@ export declare class BundleBuilder {
    * @example
    * ```typescript
    * // Auto-detect MIME type
-   * builder.insertEntry("/index.html", Buffer.from("<html></html>"));
+   * builder.insertEntry('/index.html', Buffer.from('<html></html>'));
    *
    * // Specify MIME type
-   * builder.insertEntry("/data.bin", buffer, "application/octet-stream");
+   * builder.insertEntry('/data.bin', buffer, 'application/octet-stream');
    *
    * // With custom headers
-   * builder.insertEntry("/style.css", cssBuffer, "text/css", {
-   *   "Cache-Control": "max-age=3600"
+   * builder.insertEntry('/style.css', cssBuffer, 'text/css', {
+   *   'Cache-Control': 'max-age=3600',
    * });
    * ```
    */
@@ -142,7 +142,7 @@ export declare class BundleBuilder {
    *
    * @example
    * ```typescript
-   * builder.removeEntry("/old-file.js");
+   * builder.removeEntry('/old-file.js');
    * ```
    */
   removeEntry(path: string): boolean
@@ -154,8 +154,8 @@ export declare class BundleBuilder {
    *
    * @example
    * ```typescript
-   * if (builder.containsEntry("/index.html")) {
-   *   console.log("index.html already added");
+   * if (builder.containsEntry('/index.html')) {
+   *   console.log('index.html already added');
    * }
    * ```
    */
@@ -172,7 +172,7 @@ export declare class BundleBuilder {
    * @example
    * ```typescript
    * const bundle = builder.build();
-   * await writeBundle(bundle, "output.wvb");
+   * await writeBundle(bundle, 'output.wvb');
    * ```
    */
   build(options?: BuildOptions | undefined | null): Bundle
@@ -186,7 +186,7 @@ export declare class BundleBuilder {
  *
  * @example
  * ```typescript
- * const bundle = await readBundle("app.wvb");
+ * const bundle = await readBundle('app.wvb');
  * const descriptor = bundle.descriptor();
  * const header = descriptor.header();
  * const index = descriptor.index();
@@ -205,6 +205,38 @@ export declare class BundleDescriptor {
    * @returns {Index} Bundle index with file metadata
    */
   index(): Index
+  /**
+   * Read data from the bundle.
+   *
+   * @param {string} filepath - File path for the bundle
+   * @param {string} path - Path to the bundle data
+   * @returns {Buffer | null} Data from the bundle or `null` if not found
+   */
+  getData(filepath: string, path: string): Buffer | null
+  /**
+   * Read checksum from the bundle.
+   *
+   * @param {string} filepath - File path for the bundle
+   * @param {string} path - Path to the bundle data
+   * @returns {number | null} Checksum for the bundle data or `null` if not found
+   */
+  getDataChecksum(filepath: string, path: string): number | null
+  /**
+   * Asynchronously read data from the bundle.
+   *
+   * @param {string} filepath - File path for the bundle
+   * @param {string} path - Path to the bundle data
+   * @returns {Promise<Buffer | null>} Data from the bundle or `null` if not found
+   */
+  asyncGetData(filepath: string, path: string): Promise<Buffer | null>
+  /**
+   * Asynchronously read checksum from the bundle.
+   *
+   * @param {string} filepath - File path for the bundle
+   * @param {string} path - Path to the bundle data
+   * @returns {Promise<number | null>} Checksum for the bundle data or `null` if not found
+   */
+  asyncGetDataChecksum(filepath: string, path: string): Promise<number | null>
 }
 
 /**
@@ -218,16 +250,16 @@ export declare class BundleDescriptor {
  * @example
  * ```typescript
  * const source = new BundleSource({
- *   builtinDir: "./bundles/builtin",
- *   remoteDir: "./bundles/remote"
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
  * });
  *
  * const protocol = new BundleProtocol(source);
  *
  * // Handle a request
- * const response = await protocol.handle("GET", "bundle://app/index.html");
+ * const response = await protocol.handle('get', 'bundle://app/index.html');
  * console.log(`Status: ${response.status}`);
- * console.log(`Content-Type: ${response.headers["content-type"]}`);
+ * console.log(`Content-Type: ${response.headers['content-type']}`);
  * ```
  */
 export declare class BundleProtocol {
@@ -239,8 +271,8 @@ export declare class BundleProtocol {
    * @example
    * ```typescript
    * const source = new BundleSource({
-   *   builtinDir: "./bundles",
-   *   remoteDir: "./remote"
+   *   builtinDir: './bundles',
+   *   remoteDir: './remote',
    * });
    * const protocol = new BundleProtocol(source);
    * ```
@@ -259,20 +291,16 @@ export declare class BundleProtocol {
    * @example
    * ```typescript
    * // GET request
-   * const response = await protocol.handle("GET", "bundle://app/index.html");
+   * const response = await protocol.handle('get', 'bundle://app/index.html');
    * if (response.status === 200) {
-   *   console.log(response.body.toString("utf-8"));
+   *   console.log(response.body.toString('utf-8'));
    * }
    * ```
    *
    * @example
    * ```typescript
    * // Range request for streaming
-   * const response = await protocol.handle(
-   *   "GET",
-   *   "bundle://app/video.mp4",
-   *   { "Range": "bytes=0-1023" }
-   * );
+   * const response = await protocol.handle('get', 'bundle://app/video.mp4', { Range: 'bytes=0-1023' });
    * console.log(`Status: ${response.status}`); // 206 Partial Content
    * ```
    */
@@ -292,18 +320,18 @@ export declare class BundleProtocol {
  * @example
  * ```typescript
  * const source = new BundleSource({
- *   builtinDir: "./bundles/builtin",
- *   remoteDir: "./bundles/remote"
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
  * });
  *
  * // List all bundles
  * const bundles = await source.listBundles();
  *
  * // Load current version
- * const version = await source.loadVersion("app");
+ * const version = await source.loadVersion('app');
  *
  * // Fetch bundle
- * const bundle = await source.fetch("app");
+ * const bundle = await source.fetch('app');
  * ```
  */
 export declare class BundleSource {
@@ -315,8 +343,8 @@ export declare class BundleSource {
    * @example
    * ```typescript
    * const source = new BundleSource({
-   *   builtinDir: "./builtin",
-   *   remoteDir: "./remote"
+   *   builtinDir: './builtin',
+   *   remoteDir: './remote',
    * });
    * ```
    */
@@ -348,7 +376,7 @@ export declare class BundleSource {
    *
    * @example
    * ```typescript
-   * const version = await source.loadVersion("app");
+   * const version = await source.loadVersion('app');
    * if (version) {
    *   console.log(`Current version: ${version.version} (${version.type})`);
    * }
@@ -356,7 +384,7 @@ export declare class BundleSource {
    */
   loadVersion(bundleName: string): Promise<BundleSourceVersion | null>
   /**
-   * Updates the current version for a bundle.
+   * Updates the current version for a remote bundle.
    *
    * Changes which version is considered "current" in the manifest.
    *
@@ -365,10 +393,10 @@ export declare class BundleSource {
    *
    * @example
    * ```typescript
-   * await source.updateVersion("app", "1.2.0");
+   * await source.updateRemoteVersion('app', '1.2.0');
    * ```
    */
-  updateVersion(bundleName: string, version: string): Promise<void>
+  updateRemoteVersion(bundleName: string, version: string): Promise<void>
   /**
    * Gets the file path for a bundle.
    *
@@ -380,42 +408,86 @@ export declare class BundleSource {
    *
    * @example
    * ```typescript
-   * const path = await source.filepath("app");
+   * const path = await source.resolveFilepath('app');
    * console.log(`Bundle at: ${path}`);
    * ```
    */
-  filepath(bundleName: string): Promise<string>
+  resolveFilepath(bundleName: string): Promise<string>
   /**
-   * Fetches and loads a bundle.
-   *
-   * Loads the entire bundle into memory for the current version.
+   * Get the file path for a builtin bundle.
    *
    * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<Bundle>} Loaded bundle
+   * @param {string} version - Version of the bundle
+   * @returns {string} Absolute file path
+   */
+  getBuiltinBundleFilepath(bundleName: string, version: string): string
+  /**
+   * Get the file path for a remote bundle.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @param {string} version - Version of the bundle
+   * @returns {string} Absolute file path
+   */
+  getRemoteBundleFilepath(bundleName: string, version: string): string
+  /**
+   * Fetches a bundle.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @returns {Promise<Bundle>} Fetched bundle
    *
    * @example
    * ```typescript
-   * const bundle = await source.fetch("app");
-   * const html = bundle.getData("/index.html");
+   * const bundle = await source.fetchBundle('app');
+   * const html = bundle.getData('/index.html');
    * ```
    */
-  fetch(bundleName: string): Promise<Bundle>
+  fetchBundle(bundleName: string): Promise<Bundle>
   /**
-   * Fetches only the bundle descriptor (metadata).
+   * Fetches a builtin bundle.
    *
-   * Loads only header and index without file data, useful for inspection.
+   * @param {string} bundleName - Name of the bundle
+   * @param {string} version - Version of the bundle
+   * @returns {Promise<Bundle>} Fetched bundle
+   */
+  fetchBuiltinBundle(bundleName: string, version: string): Promise<Bundle>
+  /**
+   * Fetches a remote bundle.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @param {string} version - Version of the bundle
+   * @returns {Promise<Bundle>} Fetched bundle
+   */
+  fetchRemoteBundle(bundleName: string, version: string): Promise<Bundle>
+  /**
+   * Fetches only the bundle descriptor.
    *
    * @param {string} bundleName - Name of the bundle
    * @returns {Promise<BundleDescriptor>} Bundle descriptor
    *
    * @example
    * ```typescript
-   * const descriptor = await source.fetchDescriptor("app");
+   * const descriptor = await source.fetchDescriptor('app');
    * const index = descriptor.index();
    * console.log(`Files: ${Object.keys(index.entries()).length}`);
    * ```
    */
   fetchDescriptor(bundleName: string): Promise<BundleDescriptor>
+  /**
+   * Load builtin bundle metadata.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @param {string} version - Version of the bundle
+   * @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
+   */
+  loadBuiltinMetadata(bundleName: string, version: string): Promise<BundleManifestMetadata | null>
+  /**
+   * Load remote bundle metadata.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @param {string} version - Version of the bundle
+   * @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
+   */
+  loadRemoteMetadata(bundleName: string, version: string): Promise<BundleManifestMetadata | null>
   /**
    * Writes a bundle to the remote directory.
    *
@@ -429,13 +501,67 @@ export declare class BundleSource {
    *
    * @example
    * ```typescript
-   * await source.writeRemoteBundle("app", "1.2.0", bundle, {
-   *   integrity: "sha3-384-...",
-   *   etag: "abc123"
+   * await source.writeRemoteBundle('app', '1.2.0', bundle, {
+   *   integrity: 'sha3-384-...',
+   *   etag: 'abc123',
    * });
    * ```
    */
   writeRemoteBundle(bundleName: string, version: string, bundle: Bundle, metadata: BundleManifestMetadata): Promise<void>
+  /**
+   * Loads (and caches) the descriptor for the current version of a bundle.
+   *
+   * The descriptor reads entry data lazily from disk via
+   * {@link LoadedDescriptor.getData}, avoiding loading the full bundle into memory.
+   * Concurrent calls for the same bundle share a single load (single-flight) and
+   * return the cached descriptor until the active version changes or
+   * {@link BundleSource.unloadDescriptor} is called.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @returns {Promise<LoadedDescriptor>} Loaded descriptor
+   *
+   * @example
+   * ```typescript
+   * const loaded = await source.loadDescriptor('app');
+   * const html = await loaded.getData('/index.html');
+   * ```
+   */
+  loadDescriptor(bundleName: string): Promise<LoadedDescriptor>
+  /**
+   * Drops the cached descriptor for a bundle, if present.
+   *
+   * Already-returned {@link LoadedDescriptor} handles keep working; they hold their
+   * own reference and are unaffected. The next {@link BundleSource.loadDescriptor}
+   * reloads from disk.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @returns {boolean} True if a cached descriptor was removed
+   */
+  unloadDescriptor(bundleName: string): boolean
+  /**
+   * Removes a single staged remote bundle version.
+   *
+   * Drops its manifest entry and deletes its file from disk.
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @param {string} version - Version to remove
+   * @returns {Promise<boolean>} True if the entry existed and was removed
+   */
+  removeRemoteBundle(bundleName: string, version: string): Promise<boolean>
+  /**
+   * Returns the remote versions that pruning retains (the current and previous versions).
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @returns {Promise<string[]>} Retained version strings
+   */
+  remoteRetainedVersions(bundleName: string): Promise<Array<string>>
+  /**
+   * Removes every staged remote version except the retained set (current and previous).
+   *
+   * @param {string} bundleName - Name of the bundle
+   * @returns {Promise<string[]>} Versions that were removed
+   */
+  pruneRemoteBundles(bundleName: string): Promise<Array<string>>
 }
 
 /**
@@ -456,7 +582,7 @@ export declare class Header {
    * @example
    * ```typescript
    * const header = bundle.descriptor().header();
-   * console.log(header.version()); // Version.V1
+   * console.log(header.version()); // 'v1'
    * ```
    */
   version(): Version
@@ -506,7 +632,7 @@ export declare class Index {
    *
    * @example
    * ```typescript
-   * const entry = index.getEntry("/index.html");
+   * const entry = index.getEntry('/index.html');
    * if (entry) {
    *   console.log(`Content-Type: ${entry.contentType}`);
    * }
@@ -521,12 +647,72 @@ export declare class Index {
    *
    * @example
    * ```typescript
-   * if (index.containsPath("/app.js")) {
-   *   console.log("app.js is in the bundle");
+   * if (index.containsPath('/app.js')) {
+   *   console.log('app.js is in the bundle');
    * }
    * ```
    */
   containsPath(path: string): boolean
+}
+
+/**
+ * A descriptor loaded (and cached) by a [`BundleSource`].
+ *
+ * Holds the parsed header/index together with the filepath it was loaded from, so
+ * reading entry data always targets the exact bundle version that produced this
+ * descriptor — even if the source's active version is swapped concurrently.
+ *
+ * The instance owns a reference-counted handle to the cached descriptor. When the
+ * JavaScript object is garbage-collected, the handle is released automatically; the
+ * underlying descriptor stays alive only while the source cache (see
+ * {@link BundleSource.loadDescriptor}) or another `LoadedDescriptor` references it.
+ * No manual disposal is required and no memory is leaked.
+ */
+export declare class LoadedDescriptor {
+  /**
+   * Returns the bundle descriptor
+   *
+   * The returned descriptor shares the same in-memory metadata and carries no
+   * reference back to the source, so it can outlive this `LoadedDescriptor`.
+   *
+   * @returns {BundleDescriptor} Bundle metadata
+   *
+   * @example
+   * ```typescript
+   * const loaded = await source.loadDescriptor('app');
+   * const index = loaded.descriptor().index();
+   * console.log(index.containsPath('/index.html'));
+   * ```
+   */
+  descriptor(): BundleDescriptor
+  /**
+   * Reads file data for `path`, loading it lazily from disk.
+   *
+   * The read targets the bundle file this descriptor was loaded from, so the data
+   * is always consistent with {@link LoadedDescriptor.descriptor} even if the
+   * source's active version changes meanwhile. Returns `null` if the path does not
+   * exist in the bundle.
+   *
+   * @param {string} path - File path in the bundle (e.g., "/index.html")
+   * @returns {Promise<Buffer | null>} File contents or null if not found
+   *
+   * @example
+   * ```typescript
+   * const loaded = await source.loadDescriptor('app');
+   * const html = await loaded.getData('/index.html');
+   * if (html) {
+   *   console.log(html.toString('utf-8'));
+   * }
+   * ```
+   */
+  getData(path: string): Promise<Buffer | null>
+  /**
+   * Reads the checksum of file data for `path`, loading it lazily from disk.
+   *
+   * @param {string} path - File path in the bundle
+   * @returns {Promise<number | null>} xxHash-32 checksum or null if not found
+   */
+  getDataChecksum(path: string): Promise<number | null>
 }
 
 /**
@@ -538,12 +724,12 @@ export declare class Index {
  * @example
  * ```typescript
  * const protocol = new LocalProtocol({
- *   "myapp": "http://localhost:3000",
- *   "api": "http://localhost:8080"
+ *   myapp: 'http://localhost:3000',
+ *   api: 'http://localhost:8080',
  * });
  *
  * // This proxies to http://localhost:3000/index.html
- * const response = await protocol.handle("GET", "app://myapp/index.html");
+ * const response = await protocol.handle('get', 'app://myapp/index.html');
  * ```
  */
 export declare class LocalProtocol {
@@ -555,8 +741,8 @@ export declare class LocalProtocol {
    * @example
    * ```typescript
    * const protocol = new LocalProtocol({
-   *   "myapp": "http://localhost:3000",
-   *   "api": "http://localhost:8080"
+   *   myapp: 'http://localhost:3000',
+   *   api: 'http://localhost:8080',
    * });
    * ```
    */
@@ -574,21 +760,16 @@ export declare class LocalProtocol {
    * @example
    * ```typescript
    * // Proxies to http://localhost:3000/api/data?foo=bar
-   * const response = await protocol.handle(
-   *   "GET",
-   *   "app://myapp/api/data?foo=bar"
-   * );
+   * const response = await protocol.handle('get', 'app://myapp/api/data?foo=bar');
    * console.log(response.status);
    * ```
    *
    * @example
    * ```typescript
    * // POST with headers
-   * const response = await protocol.handle(
-   *   "POST",
-   *   "app://api/submit",
-   *   { "Content-Type": "application/json" }
-   * );
+   * const response = await protocol.handle('post', 'app://api/submit', {
+   *   'Content-Type': 'application/json',
+   * });
    * ```
    */
   handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null): Promise<HttpResponse>
@@ -605,17 +786,17 @@ export declare class LocalProtocol {
  *
  * @example
  * ```typescript
- * const remote = new Remote("https://updates.example.com");
+ * const remote = new Remote('https://updates.example.com');
  *
  * // List all bundles
  * const bundles = await remote.listBundles();
  *
  * // Get current version info
- * const info = await remote.getInfo("app");
+ * const info = await remote.getInfo('app');
  * console.log(`Latest version: ${info.version}`);
  *
  * // Download bundle
- * const [bundleInfo, bundle, data] = await remote.download("app");
+ * const [bundleInfo, bundle, data] = await remote.download('app');
  * ```
  */
 export declare class Remote {
@@ -627,18 +808,18 @@ export declare class Remote {
    *
    * @example
    * ```typescript
-   * const remote = new Remote("https://updates.example.com");
+   * const remote = new Remote('https://updates.example.com');
    * ```
    *
    * @example
    * ```typescript
    * // With options
-   * const remote = new Remote("https://updates.example.com", {
+   * const remote = new Remote('https://updates.example.com', {
    *   http: { timeout: 60000 },
-   *   onDownload: (data) => {
+   *   onDownload: data => {
    *     const percent = (data.downloadedBytes / data.totalBytes) * 100;
    *     console.log(`Progress: ${percent.toFixed(1)}%`);
-   *   }
+   *   },
    * });
    * ```
    */
@@ -669,7 +850,7 @@ export declare class Remote {
    *
    * @example
    * ```typescript
-   * const info = await remote.getInfo("app");
+   * const info = await remote.getInfo('app');
    * console.log(`Current version: ${info.version}`);
    * if (info.integrity) {
    *   console.log(`Integrity: ${info.integrity}`);
@@ -688,12 +869,12 @@ export declare class Remote {
    *
    * @example
    * ```typescript
-   * const [info, bundle, data] = await remote.download("app");
+   * const [info, bundle, data] = await remote.download('app');
    * console.log(`Downloaded ${info.name}@${info.version}`);
    * console.log(`Size: ${data.length} bytes`);
    *
    * // Save to file
-   * await writeBundle(bundle, "app.wvb");
+   * await writeBundle(bundle, 'app.wvb');
    * ```
    */
   download(bundleName: string, channel?: string | undefined | null): Promise<[RemoteBundleInfo, Bundle, Buffer]>
@@ -706,7 +887,7 @@ export declare class Remote {
    *
    * @example
    * ```typescript
-   * const [info, bundle, data] = await remote.downloadVersion("app", "1.0.0");
+   * const [info, bundle, data] = await remote.downloadVersion('app', '1.0.0');
    * console.log(`Downloaded specific version: ${info.version}`);
    * ```
    */
@@ -721,32 +902,33 @@ export declare class Remote {
  *
  * @example
  * ```typescript
- * import { Updater, BundleSource, Remote, IntegrityPolicy, SignatureAlgorithm, VerifyingKeyFormat } from "@wvb/node";
+ * import { Updater, BundleSource, Remote } from '@wvb/node';
  *
  * const source = new BundleSource({
- *   builtinDir: "./bundles/builtin",
- *   remoteDir: "./bundles/remote"
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
  * });
  *
- * const remote = new Remote("https://updates.example.com");
+ * const remote = new Remote('https://updates.example.com');
  *
  * const updater = new Updater(source, remote, {
- *   channel: "stable",
- *   integrityPolicy: IntegrityPolicy.Strict,
+ *   channel: 'stable',
+ *   integrityPolicy: 'strict',
  *   signatureVerifier: {
- *     algorithm: SignatureAlgorithm.Ed25519,
+ *     algorithm: 'ed25519',
  *     key: {
- *       format: VerifyingKeyFormat.SpkiPem,
- *       data: publicKeyPem
- *     }
- *   }
+ *       format: 'spkiPem',
+ *       data: publicKeyPem,
+ *     },
+ *   },
  * });
  *
  * // Check for updates
- * const updateInfo = await updater.getUpdate("app");
+ * const updateInfo = await updater.getUpdate('app');
  * if (updateInfo.isAvailable) {
  *   console.log(`Update available: ${updateInfo.version}`);
- *   await updater.downloadUpdate("app");
+ *   await updater.download('app');
+ *   await updater.install('app', updateInfo.version);
  * }
  * ```
  */
@@ -761,8 +943,8 @@ export declare class Updater {
    * @example
    * ```typescript
    * const updater = new Updater(source, remote, {
-   *   channel: "stable",
-   *   integrityPolicy: IntegrityPolicy.Strict
+   *   channel: 'stable',
+   *   integrityPolicy: 'strict',
    * });
    * ```
    */
@@ -791,20 +973,20 @@ export declare class Updater {
    *
    * @example
    * ```typescript
-   * const updateInfo = await updater.getUpdate("app");
+   * const updateInfo = await updater.getUpdate('app');
    * if (updateInfo.isAvailable) {
    *   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
    * } else {
-   *   console.log("Already up to date");
+   *   console.log('Already up to date');
    * }
    * ```
    */
   getUpdate(bundleName: string): Promise<BundleUpdateInfo>
   /**
-   * Downloads and installs a bundle update.
+   * Downloads a bundle update from remote server.
    *
    * Downloads the specified bundle version (or the latest if not specified),
-   * verifies integrity and signature if configured, and installs it to the remote directory.
+   * verifies integrity and signature if configured, and download it to the remote directory.
    *
    * @param {string} bundleName - Name of the bundle to download
    * @param {string} [version] - Specific version to download (defaults to latest)
@@ -813,18 +995,41 @@ export declare class Updater {
    * @example
    * ```typescript
    * // Download latest version
-   * const info = await updater.downloadUpdate("app");
+   * const info = await updater.download('app');
    * console.log(`Downloaded ${info.name} v${info.version}`);
    * ```
    *
    * @example
    * ```typescript
    * // Download specific version
-   * const info = await updater.downloadUpdate("app", "1.2.3");
+   * const info = await updater.download('app', '1.2.3');
    * console.log(`Downloaded ${info.name} v${info.version}`);
    * ```
    */
-  downloadUpdate(bundleName: string, version?: string | undefined | null): Promise<RemoteBundleInfo>
+  download(bundleName: string, version?: string | undefined | null): Promise<RemoteBundleInfo>
+  /**
+   * Activates a previously downloaded bundle version.
+   *
+   * The version must already be staged in the remote source (via
+   * {@link Updater.download}). When integrity/signature verification is
+   * configured, the staged bundle is verified before activation. On success the
+   * current version is updated so the protocol begins serving it, the cached
+   * descriptor is dropped, and stale staged versions are pruned.
+   *
+   * Concurrent `install`/`download` calls for the same bundle are serialized,
+   * so this never races a download or another install of the same bundle.
+   *
+   * @param {string} bundleName - Name of the bundle to activate
+   * @param {string} version - The downloaded version to activate
+   *
+   * @example
+   * ```typescript
+   * await updater.download('app', '1.2.0');
+   * // ...later, active the latest version:
+   * await updater.install('app', '1.2.0');
+   * ```
+   */
+  install(bundleName: string, version: string): Promise<void>
 }
 
 /**
@@ -921,8 +1126,8 @@ export declare enum BundleManifestVersion {
  * @example
  * ```typescript
  * const config = {
- *   builtinDir: "./bundles/builtin",
- *   remoteDir: "./bundles/remote"
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
  * };
  * const source = new BundleSource(config);
  * ```
@@ -971,10 +1176,10 @@ export interface BundleSourceVersion {
  *
  * @example
  * ```typescript
- * const updateInfo = await updater.getUpdate("app");
+ * const updateInfo = await updater.getUpdate('app');
  * if (updateInfo.isAvailable) {
  *   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
- *   await updater.downloadUpdate("app");
+ *   await updater.download('app');
  * }
  * ```
  */
@@ -1067,16 +1272,16 @@ export type IntegrityAlgorithm = /** SHA-256 (256-bit hash) */
  *
  * @example
  * ```typescript
- * import { Updater, IntegrityPolicy } from "@wvb/node";
+ * import { Updater } from '@wvb/node';
  *
  * // Require integrity for all bundles
  * const updater = new Updater(source, remote, {
- *   integrityPolicy: IntegrityPolicy.Strict
+ *   integrityPolicy: 'strict',
  * });
  *
  * // Optional integrity (warn if missing)
  * const updater2 = new Updater(source, remote, {
- *   integrityPolicy: IntegrityPolicy.Optional
+ *   integrityPolicy: 'optional',
  * });
  * ```
  */
@@ -1124,8 +1329,8 @@ export interface ListRemoteBundleInfo {
  *
  * @example
  * ```typescript
- * const bundle = await readBundle("app.wvb");
- * const html = bundle.getData("/index.html");
+ * const bundle = await readBundle('app.wvb');
+ * const html = bundle.getData('/index.html');
  * ```
  */
 export declare function readBundle(filepath: string): Promise<Bundle>
@@ -1139,8 +1344,8 @@ export declare function readBundle(filepath: string): Promise<Bundle>
  *
  * @example
  * ```typescript
- * import { readFileSync } from "fs";
- * const buffer = readFileSync("app.wvb");
+ * import { readFileSync } from 'fs';
+ * const buffer = readFileSync('app.wvb');
  * const bundle = readBundleFromBuffer(buffer);
  * ```
  */
@@ -1190,11 +1395,11 @@ export interface RemoteOnDownloadData {
  * ```typescript
  * const options = {
  *   http: { timeout: 30000 },
- *   onDownload: (data) => {
+ *   onDownload: data => {
  *     console.log(`Downloaded ${data.downloadedBytes}/${data.totalBytes}`);
- *   }
+ *   },
  * };
- * const remote = new Remote("https://updates.example.com", options);
+ * const remote = new Remote('https://updates.example.com', options);
  * ```
  */
 export interface RemoteOptions {
@@ -1209,18 +1414,16 @@ export interface RemoteOptions {
  *
  * @example
  * ```typescript
- * import { Updater, SignatureAlgorithm, VerifyingKeyFormat } from "@wvb/node";
+ * import { Updater } from '@wvb/node';
  *
  * const updater = new Updater(source, remote, {
  *   signatureVerifier: {
- *     algorithm: SignatureAlgorithm.Ed25519,
+ *     algorithm: 'ed25519',
  *     key: {
- *       format: VerifyingKeyFormat.SpkiPem,
- *       data: "-----BEGIN PUBLIC KEY-----
-...
------END PUBLIC KEY-----"
- *     }
- *   }
+ *       format: 'spkiPem',
+ *       data: publicKeyPem,
+ *     },
+ *   },
  * });
  * ```
  */
@@ -1228,7 +1431,7 @@ export type SignatureAlgorithm = /** ECDSA with P-256 curve (secp256r1) */
 'ecdsaSecp256R1'|
 /** ECDSA with P-384 curve (secp384r1) */
 'ecdsaSecp384R1'|
-/** Ed25519 (EdDSA| recommended for modern applications) */
+/** Ed25519 */
 'ed25519'|
 /** RSA PKCS#1 v1.5 signature scheme */
 'rsaPkcs1V15'|
@@ -1244,13 +1447,11 @@ export type SignatureAlgorithm = /** ECDSA with P-256 curve (secp256r1) */
  * @example
  * ```typescript
  * const verifierOptions = {
- *   algorithm: SignatureAlgorithm.Ed25519,
+ *   algorithm: 'ed25519',
  *   key: {
- *     format: VerifyingKeyFormat.SpkiPem,
- *     data: "-----BEGIN PUBLIC KEY-----
-...
------END PUBLIC KEY-----"
- *   }
+ *     format: 'spkiPem',
+ *     data: publicKeyPem,
+ *   },
  * };
  * ```
  */
@@ -1269,16 +1470,14 @@ export interface SignatureVerifierOptions {
  * ```typescript
  * // PEM format (string)
  * const pemKey = {
- *   format: VerifyingKeyFormat.SpkiPem,
- *   data: "-----BEGIN PUBLIC KEY-----
-...
------END PUBLIC KEY-----"
+ *   format: 'spkiPem',
+ *   data: publicKeyPem,
  * };
  *
  * // DER format (binary)
  * const derKey = {
- *   format: VerifyingKeyFormat.SpkiDer,
- *   data: new Uint8Array([...])
+ *   format: 'spkiDer',
+ *   data: new Uint8Array(derKeyBytes),
  * };
  * ```
  */
@@ -1298,15 +1497,15 @@ export interface SignatureVerifyingKeyOptions {
  * @example
  * ```typescript
  * const updater = new Updater(source, remote, {
- *   channel: "stable",
- *   integrityPolicy: IntegrityPolicy.Strict,
+ *   channel: 'stable',
+ *   integrityPolicy: 'strict',
  *   signatureVerifier: {
- *     algorithm: SignatureAlgorithm.Ed25519,
+ *     algorithm: 'ed25519',
  *     key: {
- *       format: VerifyingKeyFormat.SpkiPem,
- *       data: publicKeyPem
- *     }
- *   }
+ *       format: 'spkiPem',
+ *       data: publicKeyPem,
+ *     },
+ *   },
  * });
  * ```
  *
@@ -1321,7 +1520,7 @@ export interface SignatureVerifyingKeyOptions {
  *   signatureVerifier: async (data, signature) => {
  *     // Custom signature verification
  *     return true;
- *   }
+ *   },
  * });
  * ```
  */
@@ -1339,28 +1538,27 @@ export interface UpdaterOptions {
  *
  * @example
  * ```typescript
- * import { VerifyingKeyFormat } from "@wvb/node";
- * import fs from "fs";
+ * import fs from 'fs';
  *
  * // PEM format (text)
- * const pemKey = fs.readFileSync("./public-key.pem", "utf8");
+ * const pemKey = fs.readFileSync('./public-key.pem', 'utf8');
  * const config1 = {
- *   format: VerifyingKeyFormat.SpkiPem,
- *   data: pemKey
+ *   format: 'spkiPem',
+ *   data: pemKey,
  * };
  *
  * // DER format (binary)
- * const derKey = fs.readFileSync("./public-key.der");
+ * const derKey = fs.readFileSync('./public-key.der');
  * const config2 = {
- *   format: VerifyingKeyFormat.SpkiDer,
- *   data: derKey
+ *   format: 'spkiDer',
+ *   data: derKey,
  * };
  *
  * // Raw bytes (Ed25519 only)
  * const rawKey = new Uint8Array(32);
  * const config3 = {
- *   format: VerifyingKeyFormat.Raw,
- *   data: rawKey
+ *   format: 'raw',
+ *   data: rawKey,
  * };
  * ```
  */
@@ -1390,9 +1588,9 @@ export type Version =  'v1';
  * @example
  * ```typescript
  * const builder = new BundleBuilder();
- * builder.insertEntry("/index.html", Buffer.from("<html></html>"));
+ * builder.insertEntry('/index.html', Buffer.from('<html></html>'));
  * const bundle = builder.build();
- * await writeBundle(bundle, "output.wvb");
+ * await writeBundle(bundle, 'output.wvb');
  * ```
  */
 export declare function writeBundle(bundle: Bundle, filepath: string): Promise<bigint>

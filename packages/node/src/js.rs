@@ -1,17 +1,23 @@
 /// Source codes are from [rolldown](https://github.com/rolldown/rolldown)
 /// See: https://github.com/rolldown/rolldown/blob/fc5ec4dbb8cf7a9bc32f2cba6e0e82eba3ac888d/crates/rolldown_binding/src/types/js_callback.rs#L98
 use napi::bindgen_prelude::{FromNapiValue, JsValuesTupleIntoVec};
-use napi::threadsafe_function::{ThreadsafeFunction, UnknownReturnValue};
+use napi::threadsafe_function::{
+  ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue,
+};
 use napi::{Either, Error, Status};
 use std::future::Future;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
 pub type JsCallback<Args = (), Ret = ()> =
   Arc<ThreadsafeFunction<Args, Either<Ret, UnknownReturnValue>, Args, Status, false, true>>;
 
 pub trait JsCallbackExt<Args, Ret> {
+  /// Invoke the JS callback asynchronously and return its return value.
   fn invoke_async(&self, args: Args) -> impl Future<Output = Result<Ret, Error>> + Send;
-  fn invoke_sync(&self, args: Args) -> Result<Ret, Error>;
+
+  /// Fire-and-forget: enqueue the JS callback on the Node.js event loop and return
+  /// immediately, without waiting for or retrieving its return value.
+  fn fire_and_forgot(&self, args: Args) -> Status;
 }
 
 impl<Args, Ret> JsCallbackExt<Args, Ret> for JsCallback<Args, Ret>
@@ -27,35 +33,8 @@ where
     }
   }
 
-  fn invoke_sync(&self, args: Args) -> Result<Ret, Error> {
-    let init_value = Ok(Either::B(UnknownReturnValue));
-    let pair = Arc::new((Mutex::new(init_value), Condvar::new()));
-    let pair_clone = Arc::clone(&pair);
-
-    self.call_with_return_value(
-      args,
-      napi::threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
-      move |ret, _env| {
-        let (lock, cvar) = &*pair;
-        *lock.lock().unwrap() = ret;
-        cvar.notify_one();
-        Ok(())
-      },
-    );
-
-    let (lock, cvar) = &*pair_clone;
-    let notified = lock.lock().unwrap();
-    let mut res = cvar
-      .wait(notified)
-      .map_err(|err| Error::new(Status::GenericFailure, format!("PoisonError: {err:?}",)))?;
-    let res = res
-      .as_mut()
-      .map_err(|err| Error::new(Status::GenericFailure, format!("{err:?}",)))?;
-
-    match std::mem::replace(res, Either::B(UnknownReturnValue)) {
-      Either::A(ret) => Ok(ret),
-      Either::B(_unknown) => unknown_return_err::<Ret>(),
-    }
+  fn fire_and_forgot(&self, args: Args) -> Status {
+    self.call(args, ThreadsafeFunctionCallMode::NonBlocking)
   }
 }
 

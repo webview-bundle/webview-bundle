@@ -49,16 +49,16 @@ impl From<IntegrityAlgorithm> for integrity::IntegrityAlgorithm {
 ///
 /// @example
 /// ```typescript
-/// import { Updater, IntegrityPolicy } from "@wvb/node";
+/// import { Updater } from '@wvb/node';
 ///
 /// // Require integrity for all bundles
 /// const updater = new Updater(source, remote, {
-///   integrityPolicy: IntegrityPolicy.Strict
+///   integrityPolicy: 'strict',
 /// });
 ///
 /// // Optional integrity (warn if missing)
 /// const updater2 = new Updater(source, remote, {
-///   integrityPolicy: IntegrityPolicy.Optional
+///   integrityPolicy: 'optional',
 /// });
 /// ```
 #[napi(string_enum = "camelCase")]

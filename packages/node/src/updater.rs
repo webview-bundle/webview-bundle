@@ -22,10 +22,10 @@ use wvb::updater;
 ///
 /// @example
 /// ```typescript
-/// const updateInfo = await updater.getUpdate("app");
+/// const updateInfo = await updater.getUpdate('app');
 /// if (updateInfo.isAvailable) {
 ///   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
-///   await updater.downloadUpdate("app");
+///   await updater.download('app');
 /// }
 /// ```
 #[napi(object)]
@@ -82,15 +82,15 @@ pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Pr
 /// @example
 /// ```typescript
 /// const updater = new Updater(source, remote, {
-///   channel: "stable",
-///   integrityPolicy: IntegrityPolicy.Strict,
+///   channel: 'stable',
+///   integrityPolicy: 'strict',
 ///   signatureVerifier: {
-///     algorithm: SignatureAlgorithm.Ed25519,
+///     algorithm: 'ed25519',
 ///     key: {
-///       format: VerifyingKeyFormat.SpkiPem,
-///       data: publicKeyPem
-///     }
-///   }
+///       format: 'spkiPem',
+///       data: publicKeyPem,
+///     },
+///   },
 /// });
 /// ```
 ///
@@ -105,7 +105,7 @@ pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Pr
 ///   signatureVerifier: async (data, signature) => {
 ///     // Custom signature verification
 ///     return true;
-///   }
+///   },
 /// });
 /// ```
 #[napi(object, object_to_js = false)]
@@ -159,32 +159,33 @@ impl From<UpdaterOptions> for updater::UpdaterConfig {
 ///
 /// @example
 /// ```typescript
-/// import { Updater, BundleSource, Remote, IntegrityPolicy, SignatureAlgorithm, VerifyingKeyFormat } from "@wvb/node";
+/// import { Updater, BundleSource, Remote } from '@wvb/node';
 ///
 /// const source = new BundleSource({
-///   builtinDir: "./bundles/builtin",
-///   remoteDir: "./bundles/remote"
+///   builtinDir: './bundles/builtin',
+///   remoteDir: './bundles/remote',
 /// });
 ///
-/// const remote = new Remote("https://updates.example.com");
+/// const remote = new Remote('https://updates.example.com');
 ///
 /// const updater = new Updater(source, remote, {
-///   channel: "stable",
-///   integrityPolicy: IntegrityPolicy.Strict,
+///   channel: 'stable',
+///   integrityPolicy: 'strict',
 ///   signatureVerifier: {
-///     algorithm: SignatureAlgorithm.Ed25519,
+///     algorithm: 'ed25519',
 ///     key: {
-///       format: VerifyingKeyFormat.SpkiPem,
-///       data: publicKeyPem
-///     }
-///   }
+///       format: 'spkiPem',
+///       data: publicKeyPem,
+///     },
+///   },
 /// });
 ///
 /// // Check for updates
-/// const updateInfo = await updater.getUpdate("app");
+/// const updateInfo = await updater.getUpdate('app');
 /// if (updateInfo.isAvailable) {
 ///   console.log(`Update available: ${updateInfo.version}`);
-///   await updater.downloadUpdate("app");
+///   await updater.download('app');
+///   await updater.install('app', updateInfo.version);
 /// }
 /// ```
 #[napi]
@@ -203,8 +204,8 @@ impl Updater {
   /// @example
   /// ```typescript
   /// const updater = new Updater(source, remote, {
-  ///   channel: "stable",
-  ///   integrityPolicy: IntegrityPolicy.Strict
+  ///   channel: 'stable',
+  ///   integrityPolicy: 'strict',
   /// });
   /// ```
   #[napi(constructor)]
@@ -252,11 +253,11 @@ impl Updater {
   ///
   /// @example
   /// ```typescript
-  /// const updateInfo = await updater.getUpdate("app");
+  /// const updateInfo = await updater.getUpdate('app');
   /// if (updateInfo.isAvailable) {
   ///   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
   /// } else {
-  ///   console.log("Already up to date");
+  ///   console.log('Already up to date');
   /// }
   /// ```
   #[napi]
@@ -265,10 +266,10 @@ impl Updater {
     Ok(BundleUpdateInfo::from(update))
   }
 
-  /// Downloads and installs a bundle update.
+  /// Downloads a bundle update from remote server.
   ///
   /// Downloads the specified bundle version (or the latest if not specified),
-  /// verifies integrity and signature if configured, and installs it to the remote directory.
+  /// verifies integrity and signature if configured, and download it to the remote directory.
   ///
   /// @param {string} bundleName - Name of the bundle to download
   /// @param {string} [version] - Specific version to download (defaults to latest)
@@ -277,23 +278,49 @@ impl Updater {
   /// @example
   /// ```typescript
   /// // Download latest version
-  /// const info = await updater.downloadUpdate("app");
+  /// const info = await updater.download('app');
   /// console.log(`Downloaded ${info.name} v${info.version}`);
   /// ```
   ///
   /// @example
   /// ```typescript
   /// // Download specific version
-  /// const info = await updater.downloadUpdate("app", "1.2.3");
+  /// const info = await updater.download('app', '1.2.3');
   /// console.log(`Downloaded ${info.name} v${info.version}`);
   /// ```
   #[napi]
-  pub async fn download_update(
+  pub async fn download(
     &self,
     bundle_name: String,
     version: Option<String>,
   ) -> crate::Result<RemoteBundleInfo> {
     let info = self.inner.download(bundle_name, version).await?;
     Ok(info.into())
+  }
+
+  /// Activates a previously downloaded bundle version.
+  ///
+  /// The version must already be staged in the remote source (via
+  /// {@link Updater.download}). When integrity/signature verification is
+  /// configured, the staged bundle is verified before activation. On success the
+  /// current version is updated so the protocol begins serving it, the cached
+  /// descriptor is dropped, and stale staged versions are pruned.
+  ///
+  /// Concurrent `install`/`download` calls for the same bundle are serialized,
+  /// so this never races a download or another install of the same bundle.
+  ///
+  /// @param {string} bundleName - Name of the bundle to activate
+  /// @param {string} version - The downloaded version to activate
+  ///
+  /// @example
+  /// ```typescript
+  /// await updater.download('app', '1.2.0');
+  /// // ...later, active the latest version:
+  /// await updater.install('app', '1.2.0');
+  /// ```
+  #[napi]
+  pub async fn install(&self, bundle_name: String, version: String) -> crate::Result<()> {
+    self.inner.install(bundle_name, version).await?;
+    Ok(())
   }
 }

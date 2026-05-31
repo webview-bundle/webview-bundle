@@ -164,13 +164,13 @@ impl BundleSource {
   }
 
   pub async fn filepath(&self, bundle_name: String) -> Result<String, crate::Error> {
-    let path = self.inner.bundle_filepath(&bundle_name).await?;
+    let path = self.inner.resolve_filepath(&bundle_name).await?;
     Ok(path.to_string_lossy().to_string())
   }
 
   /// Loads the full bundle (header + index + data) for `bundle_name`.
   pub async fn fetch(&self, bundle_name: String) -> Result<Arc<Bundle>, crate::Error> {
-    let inner = self.inner.fetch(&bundle_name).await?;
+    let inner = self.inner.fetch_bundle(&bundle_name).await?;
     Ok(Arc::new(Bundle {
       inner: Arc::new(inner),
     }))

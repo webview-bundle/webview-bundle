@@ -57,7 +57,7 @@ impl BundleDescriptor {
     &self.index
   }
 
-  /// Reads file data from the bundle using the provided reader.
+  /// Reads the data from the bundle using the provided reader.
   ///
   /// Returns `None` if the path doesn't exist in the bundle.
   ///
@@ -92,7 +92,7 @@ impl BundleDescriptor {
     Ok(Some(checksum))
   }
 
-  /// Asynchronously reads file data from the bundle.
+  /// Asynchronously reads the data from the bundle.
   ///
   /// Returns `None` if the path doesn't exist in the bundle.
   #[cfg(feature = "async")]

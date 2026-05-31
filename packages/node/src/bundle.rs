@@ -6,6 +6,8 @@ use napi_derive::napi;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::ops::Deref;
+use std::path::Path;
+use std::sync::Arc;
 use tokio::fs;
 use wvb::http::HeaderMap;
 use wvb::{
@@ -34,7 +36,7 @@ impl Header {
   /// @example
   /// ```typescript
   /// const header = bundle.descriptor().header();
-  /// console.log(header.version()); // Version.V1
+  /// console.log(header.version()); // 'v1'
   /// ```
   #[napi]
   pub fn version(&self) -> Version {
@@ -132,7 +134,7 @@ impl Index {
   ///
   /// @example
   /// ```typescript
-  /// const entry = index.getEntry("/index.html");
+  /// const entry = index.getEntry('/index.html');
   /// if (entry) {
   ///   console.log(`Content-Type: ${entry.contentType}`);
   /// }
@@ -149,8 +151,8 @@ impl Index {
   ///
   /// @example
   /// ```typescript
-  /// if (index.containsPath("/app.js")) {
-  ///   console.log("app.js is in the bundle");
+  /// if (index.containsPath('/app.js')) {
+  ///   console.log('app.js is in the bundle');
   /// }
   /// ```
   #[napi]
@@ -161,6 +163,7 @@ impl Index {
 
 pub(crate) enum BundleDescriptorInner {
   Owned(wvb::BundleDescriptor),
+  Arc(Arc<wvb::BundleDescriptor>),
   Bundle(SharedReference<Bundle, &'static wvb::BundleDescriptor>),
 }
 
@@ -172,6 +175,7 @@ impl Deref for BundleDescriptorInner {
   fn deref(&self) -> &Self::Target {
     match self {
       Self::Owned(x) => x,
+      Self::Arc(x) => x,
       Self::Bundle(x) => x,
     }
   }
@@ -184,7 +188,7 @@ impl Deref for BundleDescriptorInner {
 ///
 /// @example
 /// ```typescript
-/// const bundle = await readBundle("app.wvb");
+/// const bundle = await readBundle('app.wvb');
 /// const descriptor = bundle.descriptor();
 /// const header = descriptor.header();
 /// const index = descriptor.index();
@@ -213,6 +217,72 @@ impl BundleDescriptor {
     let inner = this.share_with(env, |manifest| Ok(manifest.inner.index()))?;
     Ok(Index { inner })
   }
+
+  /// Read data from the bundle.
+  ///
+  /// @param {string} filepath - File path for the bundle
+  /// @param {string} path - Path to the bundle data
+  /// @returns {Buffer | null} Data from the bundle or `null` if not found
+  #[napi]
+  pub fn get_data(&self, filepath: String, path: String) -> crate::Result<Option<Buffer>> {
+    let file = Self::open_file(&filepath)?;
+    let data = self.inner.get_data(file, &path)?;
+    Ok(data.map(Buffer::from))
+  }
+
+  /// Read checksum from the bundle.
+  ///
+  /// @param {string} filepath - File path for the bundle
+  /// @param {string} path - Path to the bundle data
+  /// @returns {number | null} Checksum for the bundle data or `null` if not found
+  #[napi]
+  pub fn get_data_checksum(&self, filepath: String, path: String) -> crate::Result<Option<u32>> {
+    let file = Self::open_file(&filepath)?;
+    let checksum = self.inner.get_data_checksum(file, &path)?;
+    Ok(checksum)
+  }
+
+  /// Asynchronously read data from the bundle.
+  ///
+  /// @param {string} filepath - File path for the bundle
+  /// @param {string} path - Path to the bundle data
+  /// @returns {Promise<Buffer | null>} Data from the bundle or `null` if not found
+  #[napi]
+  pub async fn async_get_data(
+    &self,
+    filepath: String,
+    path: String,
+  ) -> crate::Result<Option<Buffer>> {
+    let file = Self::async_open_file(&filepath).await?;
+    let data = self.inner.async_get_data(file, &path).await?;
+    Ok(data.map(Buffer::from))
+  }
+
+  /// Asynchronously read checksum from the bundle.
+  ///
+  /// @param {string} filepath - File path for the bundle
+  /// @param {string} path - Path to the bundle data
+  /// @returns {Promise<number | null>} Checksum for the bundle data or `null` if not found
+  #[napi]
+  pub async fn async_get_data_checksum(
+    &self,
+    filepath: String,
+    path: String,
+  ) -> crate::Result<Option<u32>> {
+    let file = Self::async_open_file(&filepath).await?;
+    let checksum = self.inner.async_get_data_checksum(file, &path).await?;
+    Ok(checksum)
+  }
+
+  fn open_file(filepath: &str) -> crate::Result<std::fs::File> {
+    std::fs::File::open(Path::new(filepath)).map_err(|e| crate::Error::Core(wvb::Error::Io(e)))
+  }
+
+  async fn async_open_file(filepath: &str) -> crate::Result<fs::File> {
+    fs::File::open(Path::new(filepath))
+      .await
+      .map_err(|e| crate::Error::Core(wvb::Error::Io(e)))
+  }
 }
 
 /// A complete bundle including metadata and file data.
@@ -223,12 +293,12 @@ impl BundleDescriptor {
 /// @example
 /// ```typescript
 /// // Read a bundle from file
-/// const bundle = await readBundle("app.wvb");
+/// const bundle = await readBundle('app.wvb');
 ///
 /// // Access files
-/// const html = bundle.getData("/index.html");
+/// const html = bundle.getData('/index.html');
 /// if (html) {
-///   console.log(html.toString("utf-8"));
+///   console.log(html.toString('utf-8'));
 /// }
 /// ```
 #[napi]
@@ -264,9 +334,9 @@ impl Bundle {
   ///
   /// @example
   /// ```typescript
-  /// const data = bundle.getData("/index.html");
+  /// const data = bundle.getData('/index.html');
   /// if (data) {
-  ///   console.log(data.toString("utf-8"));
+  ///   console.log(data.toString('utf-8'));
   /// }
   /// ```
   #[napi]
@@ -294,8 +364,8 @@ impl Bundle {
 ///
 /// @example
 /// ```typescript
-/// import { readFileSync } from "fs";
-/// const buffer = readFileSync("app.wvb");
+/// import { readFileSync } from 'fs';
+/// const buffer = readFileSync('app.wvb');
 /// const bundle = readBundleFromBuffer(buffer);
 /// ```
 #[napi]
@@ -313,8 +383,8 @@ pub fn read_bundle_from_buffer(buffer: BufferSlice) -> crate::Result<Bundle> {
 ///
 /// @example
 /// ```typescript
-/// const bundle = await readBundle("app.wvb");
-/// const html = bundle.getData("/index.html");
+/// const bundle = await readBundle('app.wvb');
+/// const html = bundle.getData('/index.html');
 /// ```
 #[napi]
 pub async fn read_bundle(filepath: String) -> crate::Result<Bundle> {
@@ -335,9 +405,9 @@ pub async fn read_bundle(filepath: String) -> crate::Result<Bundle> {
 /// @example
 /// ```typescript
 /// const builder = new BundleBuilder();
-/// builder.insertEntry("/index.html", Buffer.from("<html></html>"));
+/// builder.insertEntry('/index.html', Buffer.from('<html></html>'));
 /// const bundle = builder.build();
-/// await writeBundle(bundle, "output.wvb");
+/// await writeBundle(bundle, 'output.wvb');
 /// ```
 #[napi]
 pub async fn write_bundle(bundle: &Bundle, filepath: String) -> crate::Result<usize> {
@@ -441,14 +511,14 @@ impl From<BuildIndexOptions> for IndexWriterOptions {
 /// const builder = new BundleBuilder();
 ///
 /// // Add files
-/// builder.insertEntry("/index.html", Buffer.from("<html>...</html>"));
-/// builder.insertEntry("/app.js", Buffer.from("console.log('hello');"));
+/// builder.insertEntry('/index.html', Buffer.from('<html>...</html>'));
+/// builder.insertEntry('/app.js', Buffer.from("console.log('hello');"));
 ///
 /// // Build the bundle
 /// const bundle = builder.build();
 ///
 /// // Write to file
-/// await writeBundle(bundle, "app.wvb");
+/// await writeBundle(bundle, 'app.wvb');
 /// ```
 #[napi]
 pub struct BundleBuilder {
@@ -510,14 +580,14 @@ impl BundleBuilder {
   /// @example
   /// ```typescript
   /// // Auto-detect MIME type
-  /// builder.insertEntry("/index.html", Buffer.from("<html></html>"));
+  /// builder.insertEntry('/index.html', Buffer.from('<html></html>'));
   ///
   /// // Specify MIME type
-  /// builder.insertEntry("/data.bin", buffer, "application/octet-stream");
+  /// builder.insertEntry('/data.bin', buffer, 'application/octet-stream');
   ///
   /// // With custom headers
-  /// builder.insertEntry("/style.css", cssBuffer, "text/css", {
-  ///   "Cache-Control": "max-age=3600"
+  /// builder.insertEntry('/style.css', cssBuffer, 'text/css', {
+  ///   'Cache-Control': 'max-age=3600',
   /// });
   /// ```
   #[napi]
@@ -552,7 +622,7 @@ impl BundleBuilder {
   ///
   /// @example
   /// ```typescript
-  /// builder.removeEntry("/old-file.js");
+  /// builder.removeEntry('/old-file.js');
   /// ```
   #[napi]
   pub fn remove_entry(&mut self, path: String) -> bool {
@@ -566,8 +636,8 @@ impl BundleBuilder {
   ///
   /// @example
   /// ```typescript
-  /// if (builder.containsEntry("/index.html")) {
-  ///   console.log("index.html already added");
+  /// if (builder.containsEntry('/index.html')) {
+  ///   console.log('index.html already added');
   /// }
   /// ```
   #[napi]
@@ -586,7 +656,7 @@ impl BundleBuilder {
   /// @example
   /// ```typescript
   /// const bundle = builder.build();
-  /// await writeBundle(bundle, "output.wvb");
+  /// await writeBundle(bundle, 'output.wvb');
   /// ```
   #[napi]
   pub fn build(&mut self, options: Option<BuildOptions>) -> crate::Result<Bundle> {

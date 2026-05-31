@@ -515,6 +515,7 @@ module.exports.BundleProtocol = nativeBinding.BundleProtocol
 module.exports.BundleSource = nativeBinding.BundleSource
 module.exports.Header = nativeBinding.Header
 module.exports.Index = nativeBinding.Index
+module.exports.LoadedDescriptor = nativeBinding.LoadedDescriptor
 module.exports.LocalProtocol = nativeBinding.LocalProtocol
 module.exports.Remote = nativeBinding.Remote
 module.exports.Updater = nativeBinding.Updater

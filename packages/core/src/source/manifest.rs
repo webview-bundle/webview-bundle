@@ -194,6 +194,8 @@ where
   }
 }
 
+static SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
+
 impl BundleManifest<ReadWrite> {
   pub async fn update_current_version(
     &self,
@@ -260,9 +262,6 @@ impl BundleManifest<ReadWrite> {
       })
       .or_insert_with(|| BundleManifestEntry {
         versions: HashMap::from([(version.to_string(), metadata.clone())]),
-        // Stage only — never activated by a download. The caller must explicitly
-        // activate via `update_current_version`. `None` means the version exists on
-        // disk but is not yet served (the source falls back to the builtin version).
         current_version: None,
         previous_version: None,
       });
@@ -289,32 +288,30 @@ impl BundleManifest<ReadWrite> {
   }
 
   pub async fn save(&self) -> crate::Result<()> {
-    // Serialize the whole save. The snapshot must be taken *under* this lock and held
-    // through the rename; otherwise a save that snapshotted an older state could rename
-    // after a newer one, persisting stale data (see `save_lock`).
     let _save = self.save_lock.lock().await;
     let raw = {
       let data = self.load().await?.read().await;
       serde_json::to_vec(&*data)
     }?;
+
     if let Some(dir) = self.filepath.parent() {
       tokio::fs::create_dir_all(dir).await?;
     }
-    // Write to a unique temp file in the same directory, then atomically rename over the
-    // target. A crash mid-write leaves the previous (complete) manifest intact rather than
-    // a truncated/corrupt file. Distinct temp names keep separate source instances that
-    // point at the same file from clobbering each other's temp; each rename is atomic, so
-    // a reader never observes a partial manifest.
-    static SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    // Write to a temp file then atomically rename into place.
     let seq = SAVE_SEQ.fetch_add(1, Ordering::Relaxed);
+
     let mut tmp = self.filepath.clone().into_os_string();
-    tmp.push(format!(".{}.{seq}.tmp", std::process::id()));
+    tmp.push(format!(".{seq}.tmp"));
+
     let tmp = PathBuf::from(tmp);
     tokio::fs::write(&tmp, raw).await?;
+
     if let Err(e) = tokio::fs::rename(&tmp, &self.filepath).await {
       let _ = tokio::fs::remove_file(&tmp).await;
       return Err(e.into());
     }
+
     Ok(())
   }
 }

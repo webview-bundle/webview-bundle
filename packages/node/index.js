@@ -508,7 +508,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { Bundle, BundleBuilder, BundleDescriptor, BundleProtocol, BundleSource, Header, Index, LocalProtocol, Remote, Updater, BundleManifestVersion, BundleSourceKind, HttpMethod, IntegrityAlgorithm, IntegrityPolicy, readBundle, readBundleFromBuffer, SignatureAlgorithm, VerifyingKeyFormat, Version, writeBundle, writeBundleIntoBuffer } = nativeBinding
+const { Bundle, BundleBuilder, BundleDescriptor, BundleProtocol, BundleSource, Header, Index, LoadedDescriptor, LocalProtocol, Remote, Updater, BundleManifestVersion, BundleSourceKind, HttpMethod, IntegrityAlgorithm, IntegrityPolicy, readBundle, readBundleFromBuffer, SignatureAlgorithm, VerifyingKeyFormat, Version, writeBundle, writeBundleIntoBuffer } = nativeBinding
 export { Bundle }
 export { BundleBuilder }
 export { BundleDescriptor }
@@ -516,6 +516,7 @@ export { BundleProtocol }
 export { BundleSource }
 export { Header }
 export { Index }
+export { LoadedDescriptor }
 export { LocalProtocol }
 export { Remote }
 export { Updater }
