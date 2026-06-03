@@ -26,22 +26,28 @@ async function getUpdate(bundleName: string): Promise<BundleUpdateInfo> {
   return info;
 }
 
-async function downloadUpdate(bundleName: string, version?: string): Promise<RemoteBundleInfo> {
-  const info = await invoke<RemoteBundleInfo>('plugin:wvb|updater_download_update', {
+async function download(bundleName: string, version?: string): Promise<RemoteBundleInfo> {
+  const info = await invoke<RemoteBundleInfo>('plugin:wvb|updater_download', {
     bundleName,
     version,
   });
   return info;
 }
 
+async function install(bundleName: string, version: string): Promise<void> {
+  await invoke<void>('plugin:wvb|updater_install', { bundleName, version });
+}
+
 export interface UpdaterApi {
   listRemotes: typeof listRemotes;
   getUpdate: typeof getUpdate;
-  downloadUpdate: typeof downloadUpdate;
+  download: typeof download;
+  install: typeof install;
 }
 
 export const updater: UpdaterApi = {
   listRemotes,
   getUpdate,
-  downloadUpdate,
+  download,
+  install,
 };

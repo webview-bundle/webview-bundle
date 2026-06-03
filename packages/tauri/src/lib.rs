@@ -82,6 +82,14 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
       commands::source_load_version,
       commands::source_update_version,
       commands::source_filepath,
+      commands::source_get_builtin_bundle_filepath,
+      commands::source_get_remote_bundle_filepath,
+      commands::source_load_builtin_metadata,
+      commands::source_load_remote_metadata,
+      commands::source_unload_descriptor,
+      commands::source_remove_remote_bundle,
+      commands::source_remote_retained_versions,
+      commands::source_prune_remote_bundles,
       // remote
       commands::remote_list_bundles,
       commands::remote_get_info,
@@ -90,7 +98,8 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
       // updater
       commands::updater_list_remotes,
       commands::updater_get_update,
-      commands::updater_download_update,
+      commands::updater_download,
+      commands::updater_install,
     ])
     .build()
 }
