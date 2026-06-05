@@ -1203,7 +1203,7 @@ __metadata:
     "@vercel/examples-ui": "npm:1.0.5"
     autoprefixer: "npm:^10.4.20"
     next: "npm:15.5.18"
-    postcss: "npm:^8.5.12"
+    postcss: "npm:^8.5.13"
     react: "npm:18.3.1"
     react-dom: "npm:18.3.1"
     tailwindcss: "npm:^3.4.14"
@@ -6029,7 +6029,7 @@ __metadata:
     cli-progress: "npm:^3.12.0"
     clipanion: "npm:4.0.0-rc.4"
     es-toolkit: "npm:^1.43.0"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     kleur: "npm:^4.1.5"
     picomatch: "npm:^4.0.4"
     rolldown: "npm:1.0.0-beta.51"
@@ -6178,7 +6178,7 @@ __metadata:
     "@wvb/node-win32-ia32-msvc": "workspace:^"
     "@wvb/node-win32-x64-msvc": "workspace:^"
     get-port: "npm:^7.1.0"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     tinyglobby: "npm:^0.2.14"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -6238,7 +6238,7 @@ __metadata:
     "@types/aws-lambda": "npm:^8.10.159"
     "@types/node": "catalog:"
     aws-lambda: "npm:^1.0.7"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -6311,7 +6311,7 @@ __metadata:
   dependencies:
     "@types/node": "catalog:"
     "@wvb/remote-local": "workspace:^"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -8194,16 +8194,16 @@ __metadata:
   linkType: hard
 
 "hono@npm:^4":
-  version: 4.12.18
-  resolution: "hono@npm:4.12.18"
-  checksum: 10c0/b0b9688fd9e41a1847b077d579dc0e92a28b67c247c6ee7d1e751c0bae269824c30c7773feff1a2874e40ea36a3d2f9d1fc5ba618a28ecdf2ca1b33ed2473864
+  version: 4.12.21
+  resolution: "hono@npm:4.12.21"
+  checksum: 10c0/2d26049eadc7dc879f7a442e127bea5c896b029050dc9fb81c950c190d5bd15da66a161b5132331451584d6a596a59162200f8840e796ddb9ae34a0e358e48a7
   languageName: node
   linkType: hard
 
-"hono@npm:^4.12.18":
-  version: 4.12.22
-  resolution: "hono@npm:4.12.22"
-  checksum: 10c0/5a6cf6cb63c892978eadca0b2e32d8a9adee020228e7cb66349eaacc5fa493ce2943fc8715f1c8f10a5280e9639f10d6c539f00475dba455a8178c5773407443
+"hono@npm:^4.12.21":
+  version: 4.12.23
+  resolution: "hono@npm:4.12.23"
+  checksum: 10c0/58945bb3aeb16d710b4a6c2809ba02b86b7269f6a3a67e126fc81cee5e9ae8ad2d9aa553db03c4f1a104ec03e423072e33932cb23eb3bbc48774acc72fc9c346
   languageName: node
   linkType: hard
 
@@ -9903,14 +9903,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"postcss@npm:^8.5.12":
-  version: 8.5.12
-  resolution: "postcss@npm:8.5.12"
+"postcss@npm:^8.5.13":
+  version: 8.5.13
+  resolution: "postcss@npm:8.5.13"
   dependencies:
     nanoid: "npm:^3.3.11"
     picocolors: "npm:^1.1.1"
     source-map-js: "npm:^1.2.1"
-  checksum: 10c0/5baebaf574c567bc1b3d61197f38af4ce5920b8f611c887fb6bc3dcc14af00253c169dbf19897bc889cce0b0d9818ab5eb4ea0caedf02b0bab10da8a43ce8c12
+  checksum: 10c0/3aa7c8cbdfbfd99b34406a433cef56d164dd135fc9cb9e63d487cc363291f877a55ec7b8ff6ec15348c17c2d98a43be46bfad671e6340403041a3e79f70c2f2f
   languageName: node
   linkType: hard
 
