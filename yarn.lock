@@ -5242,11 +5242,11 @@ __metadata:
   linkType: hard
 
 "@types/node@npm:^20.1.0, @types/node@npm:^20.11.30":
-  version: 20.19.41
-  resolution: "@types/node@npm:20.19.41"
+  version: 20.19.42
+  resolution: "@types/node@npm:20.19.42"
   dependencies:
     undici-types: "npm:~6.21.0"
-  checksum: 10c0/aa2a07317bbd700bea68d5784b403a738dbcebadbe2d8ef05649f7953065120d5d37f7edfdd7881df3a3bd15328c8a4dc46fdd69732ab540d552c505378c585b
+  checksum: 10c0/e21d8ee6e45480688b933fd6d61c1e538efff5cbd88e3bd737fba4d41511ab0904ad5b5a86d3fe5977984496f51d25f7304c8652f5a0efdb6a44ec9458dd6b74
   languageName: node
   linkType: hard
 
@@ -5525,7 +5525,7 @@ __metadata:
     cli-progress: "npm:^3.12.0"
     clipanion: "npm:4.0.0-rc.4"
     es-toolkit: "npm:^1.43.0"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     kleur: "npm:^4.1.5"
     picomatch: "npm:^4.0.4"
     rolldown: "npm:1.0.0-beta.51"
@@ -5680,7 +5680,7 @@ __metadata:
     "@wvb/node-win32-ia32-msvc": "workspace:^"
     "@wvb/node-win32-x64-msvc": "workspace:^"
     get-port: "npm:^7.1.0"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     tinyglobby: "npm:^0.2.14"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -5740,7 +5740,7 @@ __metadata:
     "@types/aws-lambda": "npm:^8.10.159"
     "@types/node": "catalog:"
     aws-lambda: "npm:^1.0.7"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -5813,7 +5813,7 @@ __metadata:
   dependencies:
     "@types/node": "catalog:"
     "@wvb/remote-local": "workspace:^"
-    hono: "npm:^4.12.18"
+    hono: "npm:^4.12.21"
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -6342,11 +6342,11 @@ __metadata:
   linkType: hard
 
 "bare-url@npm:^2.2.2":
-  version: 2.4.3
-  resolution: "bare-url@npm:2.4.3"
+  version: 2.4.5
+  resolution: "bare-url@npm:2.4.5"
   dependencies:
     bare-path: "npm:^3.0.0"
-  checksum: 10c0/c3286d1d4aa0c7a174995b1bd651083889303183537528c8847d3289f7d1689a8d3d35e803e664dc8996aefcb90ec66251e59c944850d53d775b50b1e18cc029
+  checksum: 10c0/5077ddb2386548a1efad58418e4d7d6895700b1ecf95d1a63e020f4ae01ebdf7e5f393c9f9b45f3228de32c4803161a80785cf999b03cecdd913516795c50f7c
   languageName: node
   linkType: hard
 
@@ -8667,16 +8667,16 @@ __metadata:
   linkType: hard
 
 "hono@npm:^4":
-  version: 4.12.18
-  resolution: "hono@npm:4.12.18"
-  checksum: 10c0/b0b9688fd9e41a1847b077d579dc0e92a28b67c247c6ee7d1e751c0bae269824c30c7773feff1a2874e40ea36a3d2f9d1fc5ba618a28ecdf2ca1b33ed2473864
+  version: 4.12.21
+  resolution: "hono@npm:4.12.21"
+  checksum: 10c0/2d26049eadc7dc879f7a442e127bea5c896b029050dc9fb81c950c190d5bd15da66a161b5132331451584d6a596a59162200f8840e796ddb9ae34a0e358e48a7
   languageName: node
   linkType: hard
 
-"hono@npm:^4.12.18":
-  version: 4.12.22
-  resolution: "hono@npm:4.12.22"
-  checksum: 10c0/5a6cf6cb63c892978eadca0b2e32d8a9adee020228e7cb66349eaacc5fa493ce2943fc8715f1c8f10a5280e9639f10d6c539f00475dba455a8178c5773407443
+"hono@npm:^4.12.21":
+  version: 4.12.23
+  resolution: "hono@npm:4.12.23"
+  checksum: 10c0/58945bb3aeb16d710b4a6c2809ba02b86b7269f6a3a67e126fc81cee5e9ae8ad2d9aa553db03c4f1a104ec03e423072e33932cb23eb3bbc48774acc72fc9c346
   languageName: node
   linkType: hard
 
@@ -11519,7 +11519,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"semver@npm:7.8.1, semver@npm:^7.6.3, semver@npm:^7.7.4, semver@npm:^7.8.0":
+"semver@npm:7.8.1, semver@npm:^7.6.3, semver@npm:^7.8.0":
   version: 7.8.1
   resolution: "semver@npm:7.8.1"
   bin:
@@ -11534,6 +11534,15 @@ __metadata:
   bin:
     semver: bin/semver.js
   checksum: 10c0/5215ad0234e2845d4ea5bb9d836d42b03499546ddafb12075566899fc617f68794bb6f146076b6881d755de17d6c6cc73372555879ec7dce2c2feee947866ad2
+  languageName: node
+  linkType: hard
+
+"semver@npm:^7.7.4":
+  version: 7.8.2
+  resolution: "semver@npm:7.8.2"
+  bin:
+    semver: bin/semver.js
+  checksum: 10c0/8e8c193fa75b938e5b3ccf6707c6447e4b34f73e493e72b03f3185393489f45e049144052f624217c346d6c6e0a301dda8eeab2f14413e337218ecb1cbd2de16
   languageName: node
   linkType: hard
 
@@ -12030,13 +12039,13 @@ __metadata:
   linkType: hard
 
 "streamx@npm:^2.12.5, streamx@npm:^2.15.0, streamx@npm:^2.25.0":
-  version: 2.26.0
-  resolution: "streamx@npm:2.26.0"
+  version: 2.27.0
+  resolution: "streamx@npm:2.27.0"
   dependencies:
     events-universal: "npm:^1.0.0"
     fast-fifo: "npm:^1.3.2"
     text-decoder: "npm:^1.1.0"
-  checksum: 10c0/4230fee44e5251d14c9c9bb793f8ffae569ee4217f06f14fe75928ad068f678931f27cd8fab7cab029db58b483bda69679bb5e3aae9256fd20fdd536d36ed3d4
+  checksum: 10c0/8746bbf0e735067ccafb2b95198fbdcd53aaed0f610d0406b5aa1b321c75fac80dee928e902684b2d3fd3435f55cdd9da6b1a1e36be41a5903e8e4d58602468a
   languageName: node
   linkType: hard
 
@@ -12644,9 +12653,9 @@ __metadata:
   linkType: hard
 
 "undici@npm:^7.19.0":
-  version: 7.27.0
-  resolution: "undici@npm:7.27.0"
-  checksum: 10c0/6fd15a81b0ca177b2667738b830ed175363e5e2164e992251d03aaee6c6517098b930085bd68b8fe5911920371076526657de035e07dc72377b9c5c731b90f0b
+  version: 7.27.2
+  resolution: "undici@npm:7.27.2"
+  checksum: 10c0/714632147c80eb8eda8a52df51b481d346df5e035ccc1d87eb3bbcb8f92ec25d7cbbe81abdeae5db4e37a93e490c8d2fa2359ecdca4b2c5c6c513dcd2626ad47
   languageName: node
   linkType: hard
 
