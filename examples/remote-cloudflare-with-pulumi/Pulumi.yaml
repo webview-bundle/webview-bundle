@@ -1,6 +1,0 @@
-name: remote-cloudflare
-description: A minimal Webview Bundle Remote Provider for Cloudflare
-runtime:
-  name: nodejs
-  options:
-    packagemanager: yarn
