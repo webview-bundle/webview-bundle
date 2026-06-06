@@ -4,7 +4,7 @@ import type { ListRemoteBundleInfo, RemoteBundleInfo } from './remote.js';
 export type { ListRemoteBundleInfo, RemoteBundleInfo } from './remote.js';
 
 async function listRemotes(): Promise<ListRemoteBundleInfo[]> {
-  const remotes = await invoke<ListRemoteBundleInfo[]>('plugin:wvb|updater_list_remotes');
+  const remotes = await invoke<ListRemoteBundleInfo[]>('plugin:wvb-tauri|updater_list_remotes');
   return remotes;
 }
 
@@ -20,14 +20,14 @@ export interface BundleUpdateInfo {
 }
 
 async function getUpdate(bundleName: string): Promise<BundleUpdateInfo> {
-  const info = await invoke<BundleUpdateInfo>('plugin:wvb|updater_get_update', {
+  const info = await invoke<BundleUpdateInfo>('plugin:wvb-tauri|updater_get_update', {
     bundleName,
   });
   return info;
 }
 
 async function download(bundleName: string, version?: string): Promise<RemoteBundleInfo> {
-  const info = await invoke<RemoteBundleInfo>('plugin:wvb|updater_download', {
+  const info = await invoke<RemoteBundleInfo>('plugin:wvb-tauri|updater_download', {
     bundleName,
     version,
   });
@@ -35,7 +35,7 @@ async function download(bundleName: string, version?: string): Promise<RemoteBun
 }
 
 async function install(bundleName: string, version: string): Promise<void> {
-  await invoke<void>('plugin:wvb|updater_install', { bundleName, version });
+  await invoke<void>('plugin:wvb-tauri|updater_install', { bundleName, version });
 }
 
 export interface UpdaterApi {

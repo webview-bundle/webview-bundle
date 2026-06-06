@@ -14,8 +14,9 @@ const sourceUpdateVersion: IpcInvoke<'webview-bundle:source:update-version'> = a
   bundleName,
   version
 ) => api().source.updateVersion(bundleName, version);
-const sourceFilepath: IpcInvoke<'webview-bundle:source:resolve-filepath'> = async bundleName =>
-  api().source.filepath(bundleName);
+const sourceResolveFilepath: IpcInvoke<
+  'webview-bundle:source:resolve-filepath'
+> = async bundleName => api().source.resolveFilepath(bundleName);
 const sourceGetBuiltinBundleFilepath: IpcInvoke<
   'webview-bundle:source:get-builtin-bundle-filepath'
 > = async (bundleName, version) => api().source.getBuiltinBundleFilepath(bundleName, version);
@@ -48,7 +49,7 @@ export const source: WebviewBundleSourceApi = {
   listBundles: sourceListBundles,
   loadVersion: sourceLoadVersion,
   updateVersion: sourceUpdateVersion,
-  filepath: sourceFilepath,
+  resolveFilepath: sourceResolveFilepath,
   getBuiltinBundleFilepath: sourceGetBuiltinBundleFilepath,
   getRemoteBundleFilepath: sourceGetRemoteBundleFilepath,
   loadBuiltinMetadata: sourceLoadBuiltinMetadata,

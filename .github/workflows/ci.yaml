@@ -126,8 +126,11 @@ jobs:
       - name: Run build
         run: ${{ matrix.settings.build }}
         shell: bash
-      - name: Run vitest
-        run: yarn vitest run
+      - name: Run test
+        run: yarn vitest run --config vitest.workspace.ts
+        shell: bash
+      - name: Run e2e test
+        run: yarn vitest run --config vitest.e2e.workspace.ts
         shell: bash
   lint-rust:
     runs-on: ubuntu-latest
@@ -185,21 +188,9 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
       - run: yarn install --immutable
-      - name: Run build
-        run: yarn workspaces foreach -Apt --include='@wvb/*' run build
+      - name: Run attw (with build)
+        run: node ./xtask/cli.ts attw --include='packages/*' --exclude='**/npm/*'
       - name: Run biome
         run: yarn biome check
       - name: Run typecheck
         run: yarn workspaces foreach -Apt run typecheck
-  attw:
-    runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
-      - name: Setup Node.js
-        uses: ./.github/actions/node-setup
-      - run: yarn install --immutable
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
-      - name: Run attw
-        run: just xtask attw --include='packages/*' --exclude='**/npm/*'

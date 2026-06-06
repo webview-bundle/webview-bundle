@@ -50,6 +50,7 @@
     "@wvb/node": "workspace:^"
   },
   "devDependencies": {
+    "@playwright/test": "1.60.0",
     "@types/node": "catalog:",
     "electron": "^42.2.0",
     "tsdown": "catalog:",

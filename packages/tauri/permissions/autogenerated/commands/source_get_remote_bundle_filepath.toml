@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-source-get-remote-bundle-filepath"
+description = "Enables the source_get_remote_bundle_filepath command without any pre-configured scope."
+commands.allow = ["source_get_remote_bundle_filepath"]
+
+[[permission]]
+identifier = "deny-source-get-remote-bundle-filepath"
+description = "Denies the source_get_remote_bundle_filepath command without any pre-configured scope."
+commands.deny = ["source_get_remote_bundle_filepath"]

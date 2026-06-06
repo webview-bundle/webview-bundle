@@ -101,10 +101,13 @@ impl Index {
 ///
 /// `Owned` holds a standalone descriptor (returned by `fetch_descriptor`); it
 /// has no data section so `index()` is not supported on this variant.
+/// `Arc` shares a cached descriptor (returned via `LoadedDescriptor::descriptor`);
+/// like `Owned` it carries only metadata, so `index()` is not supported either.
 /// `Bundle` shares the full bundle via `Arc` so both descriptor and data can be
 /// accessed through the same object.
 pub(crate) enum BundleDescriptorInner {
   Owned(wvb::BundleDescriptor),
+  Arc(Arc<wvb::BundleDescriptor>),
   Bundle(Arc<wvb::Bundle>),
 }
 
@@ -118,6 +121,7 @@ impl BundleDescriptor {
   fn descriptor(&self) -> &wvb::BundleDescriptor {
     match &self.inner {
       BundleDescriptorInner::Owned(d) => d,
+      BundleDescriptorInner::Arc(d) => d,
       BundleDescriptorInner::Bundle(b) => b.descriptor(),
     }
   }
@@ -135,15 +139,16 @@ impl BundleDescriptor {
   /// Returns an [`Index`] view backed by the full bundle.
   ///
   /// # Panics
-  /// Panics when called on a descriptor obtained via `BundleSource::fetch_descriptor`,
-  /// because that variant holds only metadata and has no data section.
-  /// Use `BundleSource::fetch` instead when data access is required.
+  /// Panics when called on a metadata-only descriptor (obtained via
+  /// `BundleSource::fetch_descriptor` or `LoadedDescriptor::descriptor`), because
+  /// those variants have no data section. Use `BundleSource::fetch_bundle` instead
+  /// when data access is required.
   pub fn index(&self) -> Arc<Index> {
     match &self.inner {
       BundleDescriptorInner::Bundle(b) => Arc::new(Index { bundle: b.clone() }),
-      BundleDescriptorInner::Owned(_) => {
+      BundleDescriptorInner::Owned(_) | BundleDescriptorInner::Arc(_) => {
         panic!(
-          "BundleDescriptor from fetch_descriptor does not support index(). Use fetch() instead."
+          "BundleDescriptor without a data section does not support index(). Use fetch_bundle() instead."
         );
       }
     }

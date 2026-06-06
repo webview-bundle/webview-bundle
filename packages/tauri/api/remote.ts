@@ -6,7 +6,7 @@ export interface ListRemoteBundleInfo {
 }
 
 async function listBundles(channel?: string): Promise<ListRemoteBundleInfo[]> {
-  const bundles = await invoke<ListRemoteBundleInfo[]>('plugin:wvb|remote_list_bundles', {
+  const bundles = await invoke<ListRemoteBundleInfo[]>('plugin:wvb-tauri|remote_list_bundles', {
     channel,
   });
   return bundles;
@@ -22,7 +22,7 @@ export interface RemoteBundleInfo {
 }
 
 async function getInfo(bundleName: string, channel?: string): Promise<RemoteBundleInfo> {
-  const info = await invoke<RemoteBundleInfo>('plugin:wvb|remote_get_info', {
+  const info = await invoke<RemoteBundleInfo>('plugin:wvb-tauri|remote_get_info', {
     bundleName,
     channel,
   });
@@ -30,7 +30,7 @@ async function getInfo(bundleName: string, channel?: string): Promise<RemoteBund
 }
 
 async function download(bundleName: string, channel?: string): Promise<RemoteBundleInfo> {
-  const info = await invoke<RemoteBundleInfo>('plugin:wvb|remote_download', {
+  const info = await invoke<RemoteBundleInfo>('plugin:wvb-tauri|remote_download', {
     bundleName,
     channel,
   });
@@ -38,7 +38,7 @@ async function download(bundleName: string, channel?: string): Promise<RemoteBun
 }
 
 async function downloadVersion(bundleName: string, version: string): Promise<RemoteBundleInfo> {
-  const info = await invoke<RemoteBundleInfo>('plugin:wvb|remote_download_version', {
+  const info = await invoke<RemoteBundleInfo>('plugin:wvb-tauri|remote_download_version', {
     bundleName,
     version,
   });

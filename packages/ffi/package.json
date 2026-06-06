@@ -10,15 +10,23 @@
     "test-ffi": "yarn test-ffi-android && yarn test-ffi-apple",
     "test-ffi-android": "node ./cli/main.ts test android",
     "test-ffi-apple": "node ./cli/main.ts test apple",
+    "e2e-ffi": "vitest run --config e2e/vitest.e2e-ffi.config.ts",
+    "e2e-ffi-android": "vitest run --config e2e/vitest.e2e-ffi.config.ts -t android*",
+    "e2e-ffi-apple": "vitest run --config e2e/vitest.e2e-ffi.config.ts -t apple*",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@ltd/j-toml": "^1.38.0",
     "@types/yazl": "^3",
+    "appium": "3.5.0",
     "clipanion": "4.0.0-rc.4",
+    "es-toolkit": "^1.43.0",
     "execa": "^9",
+    "tinyglobby": "^0.2.14",
     "typanion": "^3.14.0",
     "typescript": "catalog:",
+    "vitest": "catalog:",
+    "webdriverio": "9.27.2",
     "yazl": "^3.3.1",
     "zod": "^4.0.5"
   }

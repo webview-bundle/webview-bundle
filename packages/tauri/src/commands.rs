@@ -38,7 +38,7 @@ pub(crate) async fn source_update_version<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn source_filepath<R: Runtime>(
+pub(crate) async fn source_resolve_filepath<R: Runtime>(
   app: AppHandle<R>,
   bundle_name: String,
 ) -> crate::Result<String> {

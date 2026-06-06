@@ -114,4 +114,16 @@ impl Updater {
     let info = self.inner.download(bundle_name, version).await?;
     Ok(info.into())
   }
+
+  /// Activates a previously downloaded bundle version.
+  ///
+  /// The version must already be staged in the remote source (via
+  /// [`download_update`](Updater::download_update)). When integrity/signature
+  /// verification is configured, the staged bundle is verified before activation.
+  /// On success the current version is updated, the cached descriptor is dropped,
+  /// and stale staged versions are pruned.
+  pub async fn install(&self, bundle_name: String, version: String) -> Result<(), crate::Error> {
+    self.inner.install(bundle_name, version).await?;
+    Ok(())
+  }
 }

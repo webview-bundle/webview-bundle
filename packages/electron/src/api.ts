@@ -20,7 +20,7 @@ export interface WebviewBundleSourceApi {
   listBundles(): Promise<ListBundleItem[]>;
   loadVersion(bundleName: string): Promise<BundleSourceVersion | null>;
   updateVersion(bundleName: string, version: string): Promise<void>;
-  filepath(bundleName: string): Promise<string>;
+  resolveFilepath(bundleName: string): Promise<string>;
   getBuiltinBundleFilepath(bundleName: string, version: string): Promise<string>;
   getRemoteBundleFilepath(bundleName: string, version: string): Promise<string>;
   loadBuiltinMetadata(bundleName: string, version: string): Promise<BundleManifestMetadata | null>;

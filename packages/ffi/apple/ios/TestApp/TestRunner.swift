@@ -218,7 +218,7 @@ final class TestRunner: ObservableObject {
         // ── Builtin bundle ───────────────────────────────────────────────
         await testAsync("BundleSource: fetch builtin bundle") {
             try await withBuiltinSource { source in
-                let bundle = try await source.fetch(bundleName: "app")
+                let bundle = try await source.fetchBundle(bundleName: "app")
                 guard try bundle.getData(path: "/index.html") != nil else {
                     throw Fail("index.html not found in builtin bundle")
                 }

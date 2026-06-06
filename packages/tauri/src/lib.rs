@@ -37,7 +37,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
   let config = Arc::new(config);
   let c = config.clone();
 
-  let mut builder = Builder::<R>::new("wvb").setup(move |app, _api| {
+  let mut builder = Builder::<R>::new("wvb-tauri").setup(move |app, _api| {
     #[cfg(desktop)]
     let webview_bundle = desktop::init(app, c)?;
     app.manage(webview_bundle);
@@ -81,7 +81,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
       commands::source_list_bundles,
       commands::source_load_version,
       commands::source_update_version,
-      commands::source_filepath,
+      commands::source_resolve_filepath,
       commands::source_get_builtin_bundle_filepath,
       commands::source_get_remote_bundle_filepath,
       commands::source_load_builtin_metadata,
