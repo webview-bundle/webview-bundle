@@ -3,9 +3,6 @@
   "productName": "wvb-tauri-e2e",
   "version": "0.0.0",
   "identifier": "dev.wvb.tauri-e2e",
-  "build": {
-    "frontendDist": "../dist"
-  },
   "app": {
     "windows": [
       {
