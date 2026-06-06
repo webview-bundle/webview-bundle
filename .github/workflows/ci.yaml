@@ -111,6 +111,9 @@ jobs:
         with:
           targets: ${{ matrix.settings.target }}
           cache-key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - name: Setup tauri for linux
+        if: ${{ matrix.settings.host == 'ubuntu-latest' }}
+        uses: ./.github/actions/tauri-linux-setup
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # 2.2.1
         if: ${{ contains(matrix.settings.target, 'musl') }}
         with:
