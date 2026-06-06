@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
-identifier = "allow-updater-download"
-description = "Enables the updater_download command without any pre-configured scope."
 commands.allow = ["updater_download"]
+description    = "Enables the updater_download command without any pre-configured scope."
+identifier     = "allow-updater-download"
 
 [[permission]]
-identifier = "deny-updater-download"
-description = "Denies the updater_download command without any pre-configured scope."
 commands.deny = ["updater_download"]
+description   = "Denies the updater_download command without any pre-configured scope."
+identifier    = "deny-updater-download"

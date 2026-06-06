@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
-identifier = "allow-updater-list-remotes"
-description = "Enables the updater_list_remotes command without any pre-configured scope."
 commands.allow = ["updater_list_remotes"]
+description    = "Enables the updater_list_remotes command without any pre-configured scope."
+identifier     = "allow-updater-list-remotes"
 
 [[permission]]
-identifier = "deny-updater-list-remotes"
-description = "Denies the updater_list_remotes command without any pre-configured scope."
 commands.deny = ["updater_list_remotes"]
+description   = "Denies the updater_list_remotes command without any pre-configured scope."
+identifier    = "deny-updater-list-remotes"

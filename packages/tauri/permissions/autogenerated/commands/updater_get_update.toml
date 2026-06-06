@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
-identifier = "allow-updater-get-update"
-description = "Enables the updater_get_update command without any pre-configured scope."
 commands.allow = ["updater_get_update"]
+description    = "Enables the updater_get_update command without any pre-configured scope."
+identifier     = "allow-updater-get-update"
 
 [[permission]]
-identifier = "deny-updater-get-update"
-description = "Denies the updater_get_update command without any pre-configured scope."
 commands.deny = ["updater_get_update"]
+description   = "Denies the updater_get_update command without any pre-configured scope."
+identifier    = "deny-updater-get-update"

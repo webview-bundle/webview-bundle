@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
-identifier = "allow-source-list-bundles"
-description = "Enables the source_list_bundles command without any pre-configured scope."
 commands.allow = ["source_list_bundles"]
+description    = "Enables the source_list_bundles command without any pre-configured scope."
+identifier     = "allow-source-list-bundles"
 
 [[permission]]
-identifier = "deny-source-list-bundles"
-description = "Denies the source_list_bundles command without any pre-configured scope."
 commands.deny = ["source_list_bundles"]
+description   = "Denies the source_list_bundles command without any pre-configured scope."
+identifier    = "deny-source-list-bundles"

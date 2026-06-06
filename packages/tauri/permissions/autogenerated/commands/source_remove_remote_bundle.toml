@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
-identifier = "allow-source-remove-remote-bundle"
-description = "Enables the source_remove_remote_bundle command without any pre-configured scope."
 commands.allow = ["source_remove_remote_bundle"]
+description    = "Enables the source_remove_remote_bundle command without any pre-configured scope."
+identifier     = "allow-source-remove-remote-bundle"
 
 [[permission]]
-identifier = "deny-source-remove-remote-bundle"
-description = "Denies the source_remove_remote_bundle command without any pre-configured scope."
 commands.deny = ["source_remove_remote_bundle"]
+description   = "Denies the source_remove_remote_bundle command without any pre-configured scope."
+identifier    = "deny-source-remove-remote-bundle"

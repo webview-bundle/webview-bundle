@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
-identifier = "allow-source-load-remote-metadata"
-description = "Enables the source_load_remote_metadata command without any pre-configured scope."
 commands.allow = ["source_load_remote_metadata"]
+description    = "Enables the source_load_remote_metadata command without any pre-configured scope."
+identifier     = "allow-source-load-remote-metadata"
 
 [[permission]]
-identifier = "deny-source-load-remote-metadata"
-description = "Denies the source_load_remote_metadata command without any pre-configured scope."
 commands.deny = ["source_load_remote_metadata"]
+description   = "Denies the source_load_remote_metadata command without any pre-configured scope."
+identifier    = "deny-source-load-remote-metadata"
