@@ -24,15 +24,27 @@ setup:
     just build
 
 # Test all files
-test: test-rs test-js
+test: test-rs test-js test-e2e test-ffi test-ffi-e2e
 
 # Test JS files
 test-js: build-napi build-js
-    yarn vitest run
+    yarn vitest run --config vitest.workspace.ts
 
 # Test Rust files
 test-rs:
     cargo test --workspace --no-fail-fast --all-features
+
+# Test E2E
+test-e2e:
+    yarn vitest run --config vitest.e2e.workspace.ts
+
+# Test FFI
+test-ffi: build-ffi
+    yarn workspace @wvb/ffi run test-ffi
+
+# Test FFI-E2E
+test-ffi-e2e:
+    yarn workspace @wvb/ffi run e2e-ffi
 
 # Format all files
 format: format-rs format-js format-toml

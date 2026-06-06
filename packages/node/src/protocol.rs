@@ -19,16 +19,16 @@ use wvb::protocol::Protocol;
 /// @example
 /// ```typescript
 /// const source = new BundleSource({
-///   builtinDir: "./bundles/builtin",
-///   remoteDir: "./bundles/remote"
+///   builtinDir: './bundles/builtin',
+///   remoteDir: './bundles/remote',
 /// });
 ///
 /// const protocol = new BundleProtocol(source);
 ///
 /// // Handle a request
-/// const response = await protocol.handle("GET", "bundle://app/index.html");
+/// const response = await protocol.handle('get', 'bundle://app/index.html');
 /// console.log(`Status: ${response.status}`);
-/// console.log(`Content-Type: ${response.headers["content-type"]}`);
+/// console.log(`Content-Type: ${response.headers['content-type']}`);
 /// ```
 #[napi]
 pub struct BundleProtocol {
@@ -44,8 +44,8 @@ impl BundleProtocol {
   /// @example
   /// ```typescript
   /// const source = new BundleSource({
-  ///   builtinDir: "./bundles",
-  ///   remoteDir: "./remote"
+  ///   builtinDir: './bundles',
+  ///   remoteDir: './remote',
   /// });
   /// const protocol = new BundleProtocol(source);
   /// ```
@@ -68,20 +68,16 @@ impl BundleProtocol {
   /// @example
   /// ```typescript
   /// // GET request
-  /// const response = await protocol.handle("GET", "bundle://app/index.html");
+  /// const response = await protocol.handle('get', 'bundle://app/index.html');
   /// if (response.status === 200) {
-  ///   console.log(response.body.toString("utf-8"));
+  ///   console.log(response.body.toString('utf-8'));
   /// }
   /// ```
   ///
   /// @example
   /// ```typescript
   /// // Range request for streaming
-  /// const response = await protocol.handle(
-  ///   "GET",
-  ///   "bundle://app/video.mp4",
-  ///   { "Range": "bytes=0-1023" }
-  /// );
+  /// const response = await protocol.handle('get', 'bundle://app/video.mp4', { Range: 'bytes=0-1023' });
   /// console.log(`Status: ${response.status}`); // 206 Partial Content
   /// ```
   #[napi]
@@ -115,12 +111,12 @@ impl BundleProtocol {
 /// @example
 /// ```typescript
 /// const protocol = new LocalProtocol({
-///   "myapp": "http://localhost:3000",
-///   "api": "http://localhost:8080"
+///   myapp: 'http://localhost:3000',
+///   api: 'http://localhost:8080',
 /// });
 ///
 /// // This proxies to http://localhost:3000/index.html
-/// const response = await protocol.handle("GET", "app://myapp/index.html");
+/// const response = await protocol.handle('get', 'app://myapp/index.html');
 /// ```
 #[napi]
 pub struct LocalProtocol {
@@ -136,8 +132,8 @@ impl LocalProtocol {
   /// @example
   /// ```typescript
   /// const protocol = new LocalProtocol({
-  ///   "myapp": "http://localhost:3000",
-  ///   "api": "http://localhost:8080"
+  ///   myapp: 'http://localhost:3000',
+  ///   api: 'http://localhost:8080',
   /// });
   /// ```
   #[napi(constructor)]
@@ -159,21 +155,16 @@ impl LocalProtocol {
   /// @example
   /// ```typescript
   /// // Proxies to http://localhost:3000/api/data?foo=bar
-  /// const response = await protocol.handle(
-  ///   "GET",
-  ///   "app://myapp/api/data?foo=bar"
-  /// );
+  /// const response = await protocol.handle('get', 'app://myapp/api/data?foo=bar');
   /// console.log(response.status);
   /// ```
   ///
   /// @example
   /// ```typescript
   /// // POST with headers
-  /// const response = await protocol.handle(
-  ///   "POST",
-  ///   "app://api/submit",
-  ///   { "Content-Type": "application/json" }
-  /// );
+  /// const response = await protocol.handle('post', 'app://api/submit', {
+  ///   'Content-Type': 'application/json',
+  /// });
   /// ```
   #[napi]
   pub fn handle(

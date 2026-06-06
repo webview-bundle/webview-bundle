@@ -32,10 +32,9 @@ jobs:
       - name: Setup Node.js
         uses: ./.github/actions/node-setup
       - run: yarn install --immutable
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
       - name: Detect release commit
         id: detect
-        run: just xtask release --check
+        run: node ./xtask/cli.ts release --check
 
   build-napi:
     name: build-napi (${{ matrix.settings.host }}, ${{ matrix.settings.target }})
@@ -115,9 +114,9 @@ jobs:
       - name: Run build
         run: ${{ matrix.settings.build }}
         shell: bash
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
       - name: Merge artifacts
-        run: just xtask artifacts merge
+        run: node ./xtask/cli.ts artifacts merge
+        shell: bash
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
@@ -161,9 +160,9 @@ jobs:
           cargo install cargo-ndk
       - name: Build ffi android
         run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
       - name: Merge artifacts
-        run: just xtask artifacts merge
+        run: node ./xtask/cli.ts artifacts merge
+        shell: bash
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
@@ -198,9 +197,9 @@ jobs:
           install_args: "tuist"
       - name: Build ffi apple
         run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-apple
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
       - name: Merge artifacts
-        run: just xtask artifacts merge
+        run: node ./xtask/cli.ts artifacts merge
+        shell: bash
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
@@ -240,11 +239,12 @@ jobs:
           pattern: artifacts-${{ github.ref_name }}-*
           merge-multiple: true
           path: artifacts-merged
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
       - name: Spread artifacts
-        run: just xtask artifacts spread
+        run: node ./xtask/cli.ts artifacts spread
+        shell: bash
       - name: Release
-        run: just xtask release --github-token=${{ github.token }}
+        run: node ./xtask/cli.ts release --github-token=${{ github.token }}
+        shell: bash
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -272,11 +272,12 @@ jobs:
           pattern: artifacts-${{ github.ref_name }}-*
           merge-multiple: true
           path: artifacts-merged
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # 4.0.0
       - name: Spread artifacts
-        run: just xtask artifacts spread
+        run: node ./xtask/cli.ts artifacts spread
+        shell: bash
       - name: Prerelease
-        run: just xtask prerelease --id=${{ inputs.id }} --github-token=${{ github.token }}
+        run: node ./xtask/cli.ts prerelease --id=${{ inputs.id }} --github-token=${{ github.token }}
+        shell: bash
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

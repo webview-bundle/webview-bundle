@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+commands.allow = ["source_unload_descriptor"]
+description    = "Enables the source_unload_descriptor command without any pre-configured scope."
+identifier     = "allow-source-unload-descriptor"
+
+[[permission]]
+commands.deny = ["source_unload_descriptor"]
+description   = "Denies the source_unload_descriptor command without any pre-configured scope."
+identifier    = "deny-source-unload-descriptor"

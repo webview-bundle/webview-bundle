@@ -1,0 +1,24 @@
+[package]
+edition = "2021"
+name    = "wvb-tauri-e2e-app"
+publish = false
+version = "0.0.0"
+
+# Empty `[workspace]` makes this fixture its OWN workspace root, so it is excluded from the repo's
+# root Cargo workspace — `cargo build`/`test` at the root never compiles this heavy Tauri/WebKit
+# app. It builds into its own `target/` (see e2e/.gitignore) and has its own Cargo.lock.
+[workspace]
+
+[lib]
+# `_lib`/`app_lib` suffix keeps the lib name distinct from the bin (Windows requirement).
+crate-type = ["staticlib", "cdylib", "rlib"]
+name       = "app_lib"
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[dependencies]
+serde      = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+tauri      = { version = "2.11.2", features = [] }
+wvb-tauri  = { path = "../../../.." }

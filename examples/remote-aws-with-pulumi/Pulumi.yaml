@@ -1,6 +1,0 @@
-name: remote-aws-with-pulumi
-description: A minimal Webview Bundle Remote Provider for AWS
-runtime:
-  name: nodejs
-  options:
-    packagemanager: yarn

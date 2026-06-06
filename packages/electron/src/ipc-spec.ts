@@ -1,5 +1,6 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import type {
+  BundleManifestMetadata,
   BundleSourceVersion,
   BundleUpdateInfo,
   ListBundleItem,
@@ -12,7 +13,15 @@ export const IpcChannels = {
     ListBundles: 'webview-bundle:source:list-bundles',
     LoadVersion: 'webview-bundle:source:load-version',
     UpdateVersion: 'webview-bundle:source:update-version',
-    Filepath: 'webview-bundle:source:filepath',
+    ResolveFilepath: 'webview-bundle:source:resolve-filepath',
+    GetBuiltinBundleFilepath: 'webview-bundle:source:get-builtin-bundle-filepath',
+    GetRemoteBundleFilepath: 'webview-bundle:source:get-remote-bundle-filepath',
+    LoadBuiltinMetadata: 'webview-bundle:source:load-builtin-metadata',
+    LoadRemoteMetadata: 'webview-bundle:source:load-remote-metadata',
+    UnloadDescriptor: 'webview-bundle:source:unload-descriptor',
+    RemoveRemoteBundle: 'webview-bundle:source:remove-remote-bundle',
+    RemoteRetainedVersions: 'webview-bundle:source:remote-retained-versions',
+    PruneRemoteBundles: 'webview-bundle:source:prune-remote-bundles',
   },
   Remote: {
     ListBundles: 'webview-bundle:remote:list-bundles',
@@ -23,7 +32,8 @@ export const IpcChannels = {
   Updater: {
     ListRemotes: 'webview-bundle:updater:list-remotes',
     GetUpdate: 'webview-bundle:updater:get-update',
-    DownloadUpdate: 'webview-bundle:updater:download-update',
+    Download: 'webview-bundle:updater:download',
+    Install: 'webview-bundle:updater:install',
   },
 } as const;
 
@@ -45,7 +55,30 @@ export type IpcHandlerSpecs = {
     [bundleName: string]
   >;
   'webview-bundle:source:update-version': IpcHandler<void, [bundleName: string, version: string]>;
-  'webview-bundle:source:filepath': IpcHandler<string, [bundleName: string]>;
+  'webview-bundle:source:resolve-filepath': IpcHandler<string, [bundleName: string]>;
+  'webview-bundle:source:get-builtin-bundle-filepath': IpcHandler<
+    string,
+    [bundleName: string, version: string]
+  >;
+  'webview-bundle:source:get-remote-bundle-filepath': IpcHandler<
+    string,
+    [bundleName: string, version: string]
+  >;
+  'webview-bundle:source:load-builtin-metadata': IpcHandler<
+    BundleManifestMetadata | null,
+    [bundleName: string, version: string]
+  >;
+  'webview-bundle:source:load-remote-metadata': IpcHandler<
+    BundleManifestMetadata | null,
+    [bundleName: string, version: string]
+  >;
+  'webview-bundle:source:unload-descriptor': IpcHandler<boolean, [bundleName: string]>;
+  'webview-bundle:source:remove-remote-bundle': IpcHandler<
+    boolean,
+    [bundleName: string, version: string]
+  >;
+  'webview-bundle:source:remote-retained-versions': IpcHandler<string[], [bundleName: string]>;
+  'webview-bundle:source:prune-remote-bundles': IpcHandler<string[], [bundleName: string]>;
   // remote
   'webview-bundle:remote:list-bundles': IpcHandler<
     ListRemoteBundleInfo[],
@@ -66,10 +99,11 @@ export type IpcHandlerSpecs = {
   // updater
   'webview-bundle:updater:list-remotes': IpcHandler<ListRemoteBundleInfo[]>;
   'webview-bundle:updater:get-update': IpcHandler<BundleUpdateInfo, [bundleName: string]>;
-  'webview-bundle:updater:download-update': IpcHandler<
+  'webview-bundle:updater:download': IpcHandler<
     RemoteBundleInfo,
     [bundleName: string, version?: string | undefined]
   >;
+  'webview-bundle:updater:install': IpcHandler<void, [bundleName: string, version: string]>;
 };
 export type IpcHandlerSpecsByScope<Scope extends IpcChannelScope> = {
   [K in Extract<keyof IpcHandlerSpecs, `webview-bundle:${Scope}:${string}`>]: IpcHandlerSpecs[K];

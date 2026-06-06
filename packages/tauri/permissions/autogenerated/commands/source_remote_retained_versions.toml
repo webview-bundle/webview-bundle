@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+commands.allow = ["source_remote_retained_versions"]
+description    = "Enables the source_remote_retained_versions command without any pre-configured scope."
+identifier     = "allow-source-remote-retained-versions"
+
+[[permission]]
+commands.deny = ["source_remote_retained_versions"]
+description   = "Denies the source_remote_retained_versions command without any pre-configured scope."
+identifier    = "deny-source-remote-retained-versions"

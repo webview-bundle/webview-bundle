@@ -11,16 +11,16 @@ use wvb::signature;
 ///
 /// @example
 /// ```typescript
-/// import { Updater, SignatureAlgorithm, VerifyingKeyFormat } from "@wvb/node";
+/// import { Updater } from '@wvb/node';
 ///
 /// const updater = new Updater(source, remote, {
 ///   signatureVerifier: {
-///     algorithm: SignatureAlgorithm.Ed25519,
+///     algorithm: 'ed25519',
 ///     key: {
-///       format: VerifyingKeyFormat.SpkiPem,
-///       data: "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
-///     }
-///   }
+///       format: 'spkiPem',
+///       data: publicKeyPem,
+///     },
+///   },
 /// });
 /// ```
 #[napi(string_enum = "camelCase")]
@@ -30,7 +30,7 @@ pub enum SignatureAlgorithm {
   EcdsaSecp256r1,
   /// ECDSA with P-384 curve (secp384r1)
   EcdsaSecp384r1,
-  /// Ed25519 (EdDSA, recommended for modern applications)
+  /// Ed25519
   Ed25519,
   /// RSA PKCS#1 v1.5 signature scheme
   RsaPkcs1V1_5,
@@ -44,28 +44,27 @@ pub enum SignatureAlgorithm {
 ///
 /// @example
 /// ```typescript
-/// import { VerifyingKeyFormat } from "@wvb/node";
-/// import fs from "fs";
+/// import fs from 'fs';
 ///
 /// // PEM format (text)
-/// const pemKey = fs.readFileSync("./public-key.pem", "utf8");
+/// const pemKey = fs.readFileSync('./public-key.pem', 'utf8');
 /// const config1 = {
-///   format: VerifyingKeyFormat.SpkiPem,
-///   data: pemKey
+///   format: 'spkiPem',
+///   data: pemKey,
 /// };
 ///
 /// // DER format (binary)
-/// const derKey = fs.readFileSync("./public-key.der");
+/// const derKey = fs.readFileSync('./public-key.der');
 /// const config2 = {
-///   format: VerifyingKeyFormat.SpkiDer,
-///   data: derKey
+///   format: 'spkiDer',
+///   data: derKey,
 /// };
 ///
 /// // Raw bytes (Ed25519 only)
 /// const rawKey = new Uint8Array(32);
 /// const config3 = {
-///   format: VerifyingKeyFormat.Raw,
-///   data: rawKey
+///   format: 'raw',
+///   data: rawKey,
 /// };
 /// ```
 #[napi(string_enum = "camelCase")]
@@ -101,11 +100,11 @@ pub struct SignatureVerifier {
 /// @example
 /// ```typescript
 /// const verifierOptions = {
-///   algorithm: SignatureAlgorithm.Ed25519,
+///   algorithm: 'ed25519',
 ///   key: {
-///     format: VerifyingKeyFormat.SpkiPem,
-///     data: "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
-///   }
+///     format: 'spkiPem',
+///     data: publicKeyPem,
+///   },
 /// };
 /// ```
 #[napi(object, object_to_js = false)]
@@ -123,14 +122,14 @@ pub struct SignatureVerifierOptions {
 /// ```typescript
 /// // PEM format (string)
 /// const pemKey = {
-///   format: VerifyingKeyFormat.SpkiPem,
-///   data: "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+///   format: 'spkiPem',
+///   data: publicKeyPem,
 /// };
 ///
 /// // DER format (binary)
 /// const derKey = {
-///   format: VerifyingKeyFormat.SpkiDer,
-///   data: new Uint8Array([...])
+///   format: 'spkiDer',
+///   data: new Uint8Array(derKeyBytes),
 /// };
 /// ```
 #[napi(object, object_to_js = false)]

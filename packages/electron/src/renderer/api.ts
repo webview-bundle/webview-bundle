@@ -14,14 +14,50 @@ const sourceUpdateVersion: IpcInvoke<'webview-bundle:source:update-version'> = a
   bundleName,
   version
 ) => api().source.updateVersion(bundleName, version);
-const sourceFilepath: IpcInvoke<'webview-bundle:source:filepath'> = async bundleName =>
-  api().source.filepath(bundleName);
+const sourceResolveFilepath: IpcInvoke<
+  'webview-bundle:source:resolve-filepath'
+> = async bundleName => api().source.resolveFilepath(bundleName);
+const sourceGetBuiltinBundleFilepath: IpcInvoke<
+  'webview-bundle:source:get-builtin-bundle-filepath'
+> = async (bundleName, version) => api().source.getBuiltinBundleFilepath(bundleName, version);
+const sourceGetRemoteBundleFilepath: IpcInvoke<
+  'webview-bundle:source:get-remote-bundle-filepath'
+> = async (bundleName, version) => api().source.getRemoteBundleFilepath(bundleName, version);
+const sourceLoadBuiltinMetadata: IpcInvoke<'webview-bundle:source:load-builtin-metadata'> = async (
+  bundleName,
+  version
+) => api().source.loadBuiltinMetadata(bundleName, version);
+const sourceLoadRemoteMetadata: IpcInvoke<'webview-bundle:source:load-remote-metadata'> = async (
+  bundleName,
+  version
+) => api().source.loadRemoteMetadata(bundleName, version);
+const sourceUnloadDescriptor: IpcInvoke<
+  'webview-bundle:source:unload-descriptor'
+> = async bundleName => api().source.unloadDescriptor(bundleName);
+const sourceRemoveRemoteBundle: IpcInvoke<'webview-bundle:source:remove-remote-bundle'> = async (
+  bundleName,
+  version
+) => api().source.removeRemoteBundle(bundleName, version);
+const sourceRemoteRetainedVersions: IpcInvoke<
+  'webview-bundle:source:remote-retained-versions'
+> = async bundleName => api().source.remoteRetainedVersions(bundleName);
+const sourcePruneRemoteBundles: IpcInvoke<
+  'webview-bundle:source:prune-remote-bundles'
+> = async bundleName => api().source.pruneRemoteBundles(bundleName);
 
 export const source: WebviewBundleSourceApi = {
   listBundles: sourceListBundles,
   loadVersion: sourceLoadVersion,
   updateVersion: sourceUpdateVersion,
-  filepath: sourceFilepath,
+  resolveFilepath: sourceResolveFilepath,
+  getBuiltinBundleFilepath: sourceGetBuiltinBundleFilepath,
+  getRemoteBundleFilepath: sourceGetRemoteBundleFilepath,
+  loadBuiltinMetadata: sourceLoadBuiltinMetadata,
+  loadRemoteMetadata: sourceLoadRemoteMetadata,
+  unloadDescriptor: sourceUnloadDescriptor,
+  removeRemoteBundle: sourceRemoveRemoteBundle,
+  remoteRetainedVersions: sourceRemoteRetainedVersions,
+  pruneRemoteBundles: sourcePruneRemoteBundles,
 };
 
 const remoteListBundles: IpcInvoke<'webview-bundle:remote:list-bundles'> = async channel =>
@@ -46,15 +82,16 @@ const updaterListRemotes: IpcInvoke<'webview-bundle:updater:list-remotes'> = asy
   api().updater.listRemotes();
 const updaterGetUpdate: IpcInvoke<'webview-bundle:updater:get-update'> = async bundleName =>
   api().updater.getUpdate(bundleName);
-const updateDownloadUpdate: IpcInvoke<'webview-bundle:updater:download-update'> = async (
-  bundleName,
-  version
-) => api().updater.downloadUpdate(bundleName, version);
+const updaterDownload: IpcInvoke<'webview-bundle:updater:download'> = async (bundleName, version) =>
+  api().updater.download(bundleName, version);
+const updaterInstall: IpcInvoke<'webview-bundle:updater:install'> = async (bundleName, version) =>
+  api().updater.install(bundleName, version);
 
 export const updater: WebviewBundleUpdaterApi = {
   listRemotes: updaterListRemotes,
   getUpdate: updaterGetUpdate,
-  downloadUpdate: updateDownloadUpdate,
+  download: updaterDownload,
+  install: updaterInstall,
 };
 
 function api(): WebviewBundleApi {

@@ -69,19 +69,6 @@
   },
   "overrides": [
     {
-      "includes": ["bench/fixtures/**"],
-      "linter": {
-        "rules": {
-          "correctness": {
-            "useImportExtensions": "off"
-          },
-          "style": {
-            "noCommonJs": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["xtask/**/*.ts", "packages/ffi/cli/**/*.ts"],
       "linter": {
         "rules": {

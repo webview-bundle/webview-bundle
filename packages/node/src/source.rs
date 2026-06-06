@@ -1,6 +1,7 @@
 use crate::bundle::Bundle;
 use crate::bundle::BundleDescriptor;
 use crate::bundle::BundleDescriptorInner;
+use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -148,6 +149,81 @@ impl From<source::ListBundleItem> for ListBundleItem {
   }
 }
 
+/// A descriptor loaded (and cached) by a [`BundleSource`].
+///
+/// Holds the parsed header/index together with the filepath it was loaded from, so
+/// reading entry data always targets the exact bundle version that produced this
+/// descriptor — even if the source's active version is swapped concurrently.
+///
+/// The instance owns a reference-counted handle to the cached descriptor. When the
+/// JavaScript object is garbage-collected, the handle is released automatically; the
+/// underlying descriptor stays alive only while the source cache (see
+/// {@link BundleSource.loadDescriptor}) or another `LoadedDescriptor` references it.
+/// No manual disposal is required and no memory is leaked.
+#[napi]
+pub struct LoadedDescriptor {
+  pub(crate) inner: Arc<source::LoadedDescriptor>,
+}
+
+#[napi]
+impl LoadedDescriptor {
+  /// Returns the bundle descriptor
+  ///
+  /// The returned descriptor shares the same in-memory metadata and carries no
+  /// reference back to the source, so it can outlive this `LoadedDescriptor`.
+  ///
+  /// @returns {BundleDescriptor} Bundle metadata
+  ///
+  /// @example
+  /// ```typescript
+  /// const loaded = await source.loadDescriptor('app');
+  /// const index = loaded.descriptor().index();
+  /// console.log(index.containsPath('/index.html'));
+  /// ```
+  #[napi]
+  pub fn descriptor(&self) -> BundleDescriptor {
+    BundleDescriptor {
+      inner: BundleDescriptorInner::Arc(self.inner.descriptor().clone()),
+    }
+  }
+
+  /// Reads file data for `path`, loading it lazily from disk.
+  ///
+  /// The read targets the bundle file this descriptor was loaded from, so the data
+  /// is always consistent with {@link LoadedDescriptor.descriptor} even if the
+  /// source's active version changes meanwhile. Returns `null` if the path does not
+  /// exist in the bundle.
+  ///
+  /// @param {string} path - File path in the bundle (e.g., "/index.html")
+  /// @returns {Promise<Buffer | null>} File contents or null if not found
+  ///
+  /// @example
+  /// ```typescript
+  /// const loaded = await source.loadDescriptor('app');
+  /// const html = await loaded.getData('/index.html');
+  /// if (html) {
+  ///   console.log(html.toString('utf-8'));
+  /// }
+  /// ```
+  #[napi]
+  pub async fn get_data(&self, path: String) -> crate::Result<Option<Buffer>> {
+    let reader = self.inner.reader().await?;
+    let data = self.inner.async_get_data(reader, &path).await?;
+    Ok(data.map(|x| x.into()))
+  }
+
+  /// Reads the checksum of file data for `path`, loading it lazily from disk.
+  ///
+  /// @param {string} path - File path in the bundle
+  /// @returns {Promise<number | null>} xxHash-32 checksum or null if not found
+  #[napi]
+  pub async fn get_data_checksum(&self, path: String) -> crate::Result<Option<u32>> {
+    let reader = self.inner.reader().await?;
+    let checksum = self.inner.async_get_data_checksum(reader, &path).await?;
+    Ok(checksum)
+  }
+}
+
 /// Configuration for creating a bundle source.
 ///
 /// @property {string} builtinDir - Directory containing builtin bundles
@@ -158,8 +234,8 @@ impl From<source::ListBundleItem> for ListBundleItem {
 /// @example
 /// ```typescript
 /// const config = {
-///   builtinDir: "./bundles/builtin",
-///   remoteDir: "./bundles/remote"
+///   builtinDir: './bundles/builtin',
+///   remoteDir: './bundles/remote',
 /// };
 /// const source = new BundleSource(config);
 /// ```
@@ -183,18 +259,18 @@ pub struct BundleSourceConfig {
 /// @example
 /// ```typescript
 /// const source = new BundleSource({
-///   builtinDir: "./bundles/builtin",
-///   remoteDir: "./bundles/remote"
+///   builtinDir: './bundles/builtin',
+///   remoteDir: './bundles/remote',
 /// });
 ///
 /// // List all bundles
 /// const bundles = await source.listBundles();
 ///
 /// // Load current version
-/// const version = await source.loadVersion("app");
+/// const version = await source.loadVersion('app');
 ///
 /// // Fetch bundle
-/// const bundle = await source.fetch("app");
+/// const bundle = await source.fetch('app');
 /// ```
 #[napi]
 pub struct BundleSource {
@@ -210,8 +286,8 @@ impl BundleSource {
   /// @example
   /// ```typescript
   /// const source = new BundleSource({
-  ///   builtinDir: "./builtin",
-  ///   remoteDir: "./remote"
+  ///   builtinDir: './builtin',
+  ///   remoteDir: './remote',
   /// });
   /// ```
   #[napi(constructor)]
@@ -266,7 +342,7 @@ impl BundleSource {
   ///
   /// @example
   /// ```typescript
-  /// const version = await source.loadVersion("app");
+  /// const version = await source.loadVersion('app');
   /// if (version) {
   ///   console.log(`Current version: ${version.version} (${version.type})`);
   /// }
@@ -280,7 +356,7 @@ impl BundleSource {
     Ok(version.map(Into::into))
   }
 
-  /// Updates the current version for a bundle.
+  /// Updates the current version for a remote bundle.
   ///
   /// Changes which version is considered "current" in the manifest.
   ///
@@ -289,10 +365,14 @@ impl BundleSource {
   ///
   /// @example
   /// ```typescript
-  /// await source.updateVersion("app", "1.2.0");
+  /// await source.updateRemoteVersion('app', '1.2.0');
   /// ```
   #[napi]
-  pub async fn update_version(&self, bundle_name: String, version: String) -> crate::Result<()> {
+  pub async fn update_remote_version(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<()> {
     self
       .inner
       .update_remote_version(&bundle_name, &version)
@@ -310,43 +390,109 @@ impl BundleSource {
   ///
   /// @example
   /// ```typescript
-  /// const path = await source.filepath("app");
+  /// const path = await source.resolveFilepath('app');
   /// console.log(`Bundle at: ${path}`);
   /// ```
   #[napi]
-  pub async fn filepath(&self, bundle_name: String) -> crate::Result<String> {
-    let filepath = self.inner.bundle_filepath(&bundle_name).await?;
+  pub async fn resolve_filepath(&self, bundle_name: String) -> crate::Result<String> {
+    let filepath = self.inner.resolve_filepath(&bundle_name).await?;
     Ok(filepath.to_string_lossy().to_string())
   }
 
-  /// Fetches and loads a bundle.
-  ///
-  /// Loads the entire bundle into memory for the current version.
+  /// Get the file path for a builtin bundle.
   ///
   /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<Bundle>} Loaded bundle
+  /// @param {string} version - Version of the bundle
+  /// @returns {string} Absolute file path
+  #[napi]
+  pub fn get_builtin_bundle_filepath(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<String> {
+    let filepath = self
+      .inner
+      .get_builtin_bundle_filepath(&bundle_name, &version)?;
+    Ok(filepath.to_string_lossy().to_string())
+  }
+
+  /// Get the file path for a remote bundle.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @param {string} version - Version of the bundle
+  /// @returns {string} Absolute file path
+  #[napi]
+  pub fn get_remote_bundle_filepath(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<String> {
+    let filepath = self
+      .inner
+      .get_remote_bundle_filepath(&bundle_name, &version)?;
+    Ok(filepath.to_string_lossy().to_string())
+  }
+
+  /// Fetches a bundle.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @returns {Promise<Bundle>} Fetched bundle
   ///
   /// @example
   /// ```typescript
-  /// const bundle = await source.fetch("app");
-  /// const html = bundle.getData("/index.html");
+  /// const bundle = await source.fetchBundle('app');
+  /// const html = bundle.getData('/index.html');
   /// ```
   #[napi]
-  pub async fn fetch(&self, bundle_name: String) -> crate::Result<Bundle> {
-    let inner = self.inner.fetch(&bundle_name).await?;
+  pub async fn fetch_bundle(&self, bundle_name: String) -> crate::Result<Bundle> {
+    let inner = self.inner.fetch_bundle(&bundle_name).await?;
     Ok(Bundle { inner })
   }
 
-  /// Fetches only the bundle descriptor (metadata).
+  /// Fetches a builtin bundle.
   ///
-  /// Loads only header and index without file data, useful for inspection.
+  /// @param {string} bundleName - Name of the bundle
+  /// @param {string} version - Version of the bundle
+  /// @returns {Promise<Bundle>} Fetched bundle
+  #[napi]
+  pub async fn fetch_builtin_bundle(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<Bundle> {
+    let inner = self
+      .inner
+      .fetch_builtin_bundle(&bundle_name, &version)
+      .await?;
+    Ok(Bundle { inner })
+  }
+
+  /// Fetches a remote bundle.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @param {string} version - Version of the bundle
+  /// @returns {Promise<Bundle>} Fetched bundle
+  #[napi]
+  pub async fn fetch_remote_bundle(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<Bundle> {
+    let inner = self
+      .inner
+      .fetch_remote_bundle(&bundle_name, &version)
+      .await?;
+    Ok(Bundle { inner })
+  }
+
+  /// Fetches only the bundle descriptor.
   ///
   /// @param {string} bundleName - Name of the bundle
   /// @returns {Promise<BundleDescriptor>} Bundle descriptor
   ///
   /// @example
   /// ```typescript
-  /// const descriptor = await source.fetchDescriptor("app");
+  /// const descriptor = await source.fetchDescriptor('app');
   /// const index = descriptor.index();
   /// console.log(`Files: ${Object.keys(index.entries()).length}`);
   /// ```
@@ -356,6 +502,44 @@ impl BundleSource {
     Ok(BundleDescriptor {
       inner: BundleDescriptorInner::Owned(inner),
     })
+  }
+
+  /// Load builtin bundle metadata.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @param {string} version - Version of the bundle
+  /// @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
+  #[napi]
+  pub async fn load_builtin_metadata(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<Option<BundleManifestMetadata>> {
+    let metadata = self
+      .inner
+      .load_builtin_metadata(&bundle_name, &version)
+      .await?
+      .map(BundleManifestMetadata::from);
+    Ok(metadata)
+  }
+
+  /// Load remote bundle metadata.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @param {string} version - Version of the bundle
+  /// @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
+  #[napi]
+  pub async fn load_remote_metadata(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<Option<BundleManifestMetadata>> {
+    let metadata = self
+      .inner
+      .load_remote_metadata(&bundle_name, &version)
+      .await?
+      .map(BundleManifestMetadata::from);
+    Ok(metadata)
   }
 
   /// Writes a bundle to the remote directory.
@@ -370,9 +554,9 @@ impl BundleSource {
   ///
   /// @example
   /// ```typescript
-  /// await source.writeRemoteBundle("app", "1.2.0", bundle, {
-  ///   integrity: "sha3-384-...",
-  ///   etag: "abc123"
+  /// await source.writeRemoteBundle('app', '1.2.0', bundle, {
+  ///   integrity: 'sha3-384-...',
+  ///   etag: 'abc123',
   /// });
   /// ```
   #[napi]
@@ -388,5 +572,80 @@ impl BundleSource {
       .write_remote_bundle(&bundle_name, &version, &bundle.inner, metadata.into())
       .await?;
     Ok(())
+  }
+
+  /// Loads (and caches) the descriptor for the current version of a bundle.
+  ///
+  /// The descriptor reads entry data lazily from disk via
+  /// {@link LoadedDescriptor.getData}, avoiding loading the full bundle into memory.
+  /// Concurrent calls for the same bundle share a single load (single-flight) and
+  /// return the cached descriptor until the active version changes or
+  /// {@link BundleSource.unloadDescriptor} is called.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @returns {Promise<LoadedDescriptor>} Loaded descriptor
+  ///
+  /// @example
+  /// ```typescript
+  /// const loaded = await source.loadDescriptor('app');
+  /// const html = await loaded.getData('/index.html');
+  /// ```
+  #[napi]
+  pub async fn load_descriptor(&self, bundle_name: String) -> crate::Result<LoadedDescriptor> {
+    let inner = self.inner.load_descriptor(&bundle_name).await?;
+    Ok(LoadedDescriptor { inner })
+  }
+
+  /// Drops the cached descriptor for a bundle, if present.
+  ///
+  /// Already-returned {@link LoadedDescriptor} handles keep working; they hold their
+  /// own reference and are unaffected. The next {@link BundleSource.loadDescriptor}
+  /// reloads from disk.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @returns {boolean} True if a cached descriptor was removed
+  #[napi]
+  pub fn unload_descriptor(&self, bundle_name: String) -> bool {
+    self.inner.unload_descriptor(&bundle_name)
+  }
+
+  /// Removes a single staged remote bundle version.
+  ///
+  /// Drops its manifest entry and deletes its file from disk.
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @param {string} version - Version to remove
+  /// @returns {Promise<boolean>} True if the entry existed and was removed
+  #[napi]
+  pub async fn remove_remote_bundle(
+    &self,
+    bundle_name: String,
+    version: String,
+  ) -> crate::Result<bool> {
+    let removed = self
+      .inner
+      .remove_remote_bundle(&bundle_name, &version)
+      .await?;
+    Ok(removed)
+  }
+
+  /// Returns the remote versions that pruning retains (the current and previous versions).
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @returns {Promise<string[]>} Retained version strings
+  #[napi]
+  pub async fn remote_retained_versions(&self, bundle_name: String) -> crate::Result<Vec<String>> {
+    let versions = self.inner.remote_retained_versions(&bundle_name).await?;
+    Ok(versions)
+  }
+
+  /// Removes every staged remote version except the retained set (current and previous).
+  ///
+  /// @param {string} bundleName - Name of the bundle
+  /// @returns {Promise<string[]>} Versions that were removed
+  #[napi]
+  pub async fn prune_remote_bundles(&self, bundle_name: String) -> crate::Result<Vec<String>> {
+    let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
+    Ok(removed)
   }
 }

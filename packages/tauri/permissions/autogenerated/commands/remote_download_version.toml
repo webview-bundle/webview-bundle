@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+commands.allow = ["remote_download_version"]
+description    = "Enables the remote_download_version command without any pre-configured scope."
+identifier     = "allow-remote-download-version"
+
+[[permission]]
+commands.deny = ["remote_download_version"]
+description   = "Denies the remote_download_version command without any pre-configured scope."
+identifier    = "deny-remote-download-version"

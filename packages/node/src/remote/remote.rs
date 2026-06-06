@@ -17,11 +17,11 @@ use wvb::remote::HttpConfig;
 /// ```typescript
 /// const options = {
 ///   http: { timeout: 30000 },
-///   onDownload: (data) => {
+///   onDownload: data => {
 ///     console.log(`Downloaded ${data.downloadedBytes}/${data.totalBytes}`);
-///   }
+///   },
 /// };
-/// const remote = new Remote("https://updates.example.com", options);
+/// const remote = new Remote('https://updates.example.com', options);
 /// ```
 #[napi(object, object_to_js = false)]
 pub struct RemoteOptions {
@@ -117,17 +117,17 @@ impl From<RemoteBundleInfo> for remote::RemoteBundleInfo {
 ///
 /// @example
 /// ```typescript
-/// const remote = new Remote("https://updates.example.com");
+/// const remote = new Remote('https://updates.example.com');
 ///
 /// // List all bundles
 /// const bundles = await remote.listBundles();
 ///
 /// // Get current version info
-/// const info = await remote.getInfo("app");
+/// const info = await remote.getInfo('app');
 /// console.log(`Latest version: ${info.version}`);
 ///
 /// // Download bundle
-/// const [bundleInfo, bundle, data] = await remote.download("app");
+/// const [bundleInfo, bundle, data] = await remote.download('app');
 /// ```
 #[napi]
 pub struct Remote {
@@ -143,18 +143,18 @@ impl Remote {
   ///
   /// @example
   /// ```typescript
-  /// const remote = new Remote("https://updates.example.com");
+  /// const remote = new Remote('https://updates.example.com');
   /// ```
   ///
   /// @example
   /// ```typescript
   /// // With options
-  /// const remote = new Remote("https://updates.example.com", {
+  /// const remote = new Remote('https://updates.example.com', {
   ///   http: { timeout: 60000 },
-  ///   onDownload: (data) => {
+  ///   onDownload: data => {
   ///     const percent = (data.downloadedBytes / data.totalBytes) * 100;
   ///     console.log(`Progress: ${percent.toFixed(1)}%`);
-  ///   }
+  ///   },
   /// });
   /// ```
   #[napi(constructor)]
@@ -169,7 +169,7 @@ impl Remote {
       if let Some(on_download) = options.on_download {
         builder = builder.on_download(move |downloaded_bytes, total_bytes, endpoint| {
           let on_download_fn = Arc::clone(&on_download);
-          let _ = on_download_fn.invoke_sync(RemoteOnDownloadData {
+          let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
             downloaded_bytes: downloaded_bytes as u32,
             total_bytes: total_bytes as u32,
             endpoint,
@@ -220,7 +220,7 @@ impl Remote {
   ///
   /// @example
   /// ```typescript
-  /// const info = await remote.getInfo("app");
+  /// const info = await remote.getInfo('app');
   /// console.log(`Current version: ${info.version}`);
   /// if (info.integrity) {
   ///   console.log(`Integrity: ${info.integrity}`);
@@ -249,12 +249,12 @@ impl Remote {
   ///
   /// @example
   /// ```typescript
-  /// const [info, bundle, data] = await remote.download("app");
+  /// const [info, bundle, data] = await remote.download('app');
   /// console.log(`Downloaded ${info.name}@${info.version}`);
   /// console.log(`Size: ${data.length} bytes`);
   ///
   /// // Save to file
-  /// await writeBundle(bundle, "app.wvb");
+  /// await writeBundle(bundle, 'app.wvb');
   /// ```
   #[napi]
   pub async fn download(
@@ -274,7 +274,7 @@ impl Remote {
   ///
   /// @example
   /// ```typescript
-  /// const [info, bundle, data] = await remote.downloadVersion("app", "1.0.0");
+  /// const [info, bundle, data] = await remote.downloadVersion('app', '1.0.0');
   /// console.log(`Downloaded specific version: ${info.version}`);
   /// ```
   #[napi]

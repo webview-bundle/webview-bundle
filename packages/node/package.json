@@ -39,7 +39,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "artifacts": "node .scripts/artifacts.ts",
+    "artifacts": "node scripts/artifacts.ts",
     "build-napi": "yarn build-napi-esm && yarn build-napi-cjs",
     "build-napi-esm": "napi build --platform --release --js=index.js --dts=index.d.ts --esm --no-const-enum --no-dts-cache",
     "build-napi-cjs": "napi build --platform --release --js=index.cjs --dts=index.d.cts --no-const-enum --no-dts-cache",

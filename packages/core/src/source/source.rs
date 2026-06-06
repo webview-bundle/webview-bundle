@@ -183,6 +183,8 @@ impl std::ops::Deref for LoadedDescriptor {
   }
 }
 
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+
 impl BundleSource {
   pub fn builder() -> BundleSourceBuilder {
     BundleSourceBuilder::new()
@@ -241,7 +243,7 @@ impl BundleSource {
     Ok(())
   }
 
-  pub async fn bundle_filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
+  pub async fn resolve_filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
     let ver = self
       .load_version(bundle_name)
       .await?
@@ -269,8 +271,8 @@ impl BundleSource {
     self.get_filepath(&self.remote_dir, bundle_name, version)
   }
 
-  pub async fn fetch(&self, bundle_name: &str) -> crate::Result<Bundle> {
-    let filepath = self.bundle_filepath(bundle_name).await?;
+  pub async fn fetch_bundle(&self, bundle_name: &str) -> crate::Result<Bundle> {
+    let filepath = self.resolve_filepath(bundle_name).await?;
     let mut file = open_file(&filepath).await?;
     let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(bundle)
@@ -299,11 +301,22 @@ impl BundleSource {
   }
 
   pub async fn fetch_descriptor(&self, bundle_name: &str) -> crate::Result<BundleDescriptor> {
-    let filepath = self.bundle_filepath(bundle_name).await?;
+    let filepath = self.resolve_filepath(bundle_name).await?;
     let mut file = open_file(&filepath).await?;
     let manifest =
       AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
     Ok(manifest)
+  }
+
+  pub async fn load_builtin_metadata(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<Option<BundleManifestMetadata>> {
+    self
+      .builtin_manifest
+      .load_metadata(bundle_name, version)
+      .await
   }
 
   pub async fn load_remote_metadata(
@@ -318,7 +331,7 @@ impl BundleSource {
   }
 
   pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
-    let filepath = self.bundle_filepath(bundle_name).await?;
+    let filepath = self.resolve_filepath(bundle_name).await?;
     let cell = match self.descriptors.entry(bundle_name.to_string()) {
       dashmap::Entry::Occupied(mut occupied) => {
         let (cached_path, cell) = occupied.get();
@@ -373,11 +386,10 @@ impl BundleSource {
     }
 
     // Write to a temp file then atomically rename into place.
-    static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
 
     let mut tmp = filepath.clone().into_os_string();
-    tmp.push(format!(".{}.{seq}.tmp", std::process::id()));
+    tmp.push(format!(".{seq}.tmp"));
 
     let tmp = PathBuf::from(tmp);
     let mut file = File::create(&tmp).await?;
@@ -596,7 +608,7 @@ mod tests {
       .builtin_dir(fixture.get_path("builtin"))
       .remote_dir(fixture.get_path("remote"))
       .build();
-    let bundle = source.fetch("app").await.unwrap();
+    let bundle = source.fetch_bundle("app").await.unwrap();
     bundle.get_data("/index.html").unwrap().unwrap();
   }
 
@@ -624,7 +636,7 @@ mod tests {
     for _i in 0..10 {
       let s = source.clone();
       let handle = tokio::spawn(async move {
-        let bundle = s.fetch("app").await.unwrap();
+        let bundle = s.fetch_bundle("app").await.unwrap();
         bundle.get_data("/index.html").unwrap().unwrap();
       });
       handles.push(handle);
@@ -641,7 +653,7 @@ mod tests {
       .builtin_dir(fixture.get_path("builtin"))
       .remote_dir(fixture.get_path("remote"))
       .build();
-    let bundle = source.fetch("not-found").await;
+    let bundle = source.fetch_bundle("not-found").await;
     assert!(matches!(bundle.unwrap_err(), crate::Error::BundleNotFound));
   }
 

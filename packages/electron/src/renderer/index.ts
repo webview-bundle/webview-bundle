@@ -9,4 +9,4 @@ export type {
   WebviewBundleSourceApi,
   WebviewBundleUpdaterApi,
 } from '../api.js';
-export { remote, updater } from './api.js';
+export { remote, source, updater } from './api.js';

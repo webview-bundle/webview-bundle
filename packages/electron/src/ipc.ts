@@ -14,8 +14,25 @@ function registerSourceIpc(wvb: WebviewBundle): void {
     [IpcChannels.Source.ListBundles]: async () => wvb.source.listBundles(),
     [IpcChannels.Source.LoadVersion]: async (_, bundleName) => wvb.source.loadVersion(bundleName),
     [IpcChannels.Source.UpdateVersion]: async (_, bundleName, version) =>
-      wvb.source.updateVersion(bundleName, version),
-    [IpcChannels.Source.Filepath]: async (_, bundleName) => wvb.source.filepath(bundleName),
+      wvb.source.updateRemoteVersion(bundleName, version),
+    [IpcChannels.Source.ResolveFilepath]: async (_, bundleName) =>
+      wvb.source.resolveFilepath(bundleName),
+    [IpcChannels.Source.GetBuiltinBundleFilepath]: async (_, bundleName, version) =>
+      wvb.source.getBuiltinBundleFilepath(bundleName, version),
+    [IpcChannels.Source.GetRemoteBundleFilepath]: async (_, bundleName, version) =>
+      wvb.source.getRemoteBundleFilepath(bundleName, version),
+    [IpcChannels.Source.LoadBuiltinMetadata]: async (_, bundleName, version) =>
+      wvb.source.loadBuiltinMetadata(bundleName, version),
+    [IpcChannels.Source.LoadRemoteMetadata]: async (_, bundleName, version) =>
+      wvb.source.loadRemoteMetadata(bundleName, version),
+    [IpcChannels.Source.UnloadDescriptor]: async (_, bundleName) =>
+      wvb.source.unloadDescriptor(bundleName),
+    [IpcChannels.Source.RemoveRemoteBundle]: async (_, bundleName, version) =>
+      wvb.source.removeRemoteBundle(bundleName, version),
+    [IpcChannels.Source.RemoteRetainedVersions]: async (_, bundleName) =>
+      wvb.source.remoteRetainedVersions(bundleName),
+    [IpcChannels.Source.PruneRemoteBundles]: async (_, bundleName) =>
+      wvb.source.pruneRemoteBundles(bundleName),
   } satisfies IpcHandlerSpecsByScope<'source'>;
 
   for (const [channel, handler] of Object.entries(handlers)) {
@@ -59,9 +76,12 @@ function registerUpdaterIpc(wvb: WebviewBundle): void {
   const handlers = {
     [IpcChannels.Updater.ListRemotes]: async () => updater().listRemotes(),
     [IpcChannels.Updater.GetUpdate]: async (_, remoteName) => updater().getUpdate(remoteName),
-    [IpcChannels.Updater.DownloadUpdate]: async (_, remoteName, version) => {
-      const info = await updater().downloadUpdate(remoteName, version);
+    [IpcChannels.Updater.Download]: async (_, remoteName, version) => {
+      const info = await updater().download(remoteName, version);
       return info;
+    },
+    [IpcChannels.Updater.Install]: async (_, remoteName, version) => {
+      await updater().install(remoteName, version);
     },
   } satisfies IpcHandlerSpecsByScope<'updater'>;
 

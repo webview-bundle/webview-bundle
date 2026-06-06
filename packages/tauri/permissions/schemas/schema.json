@@ -295,10 +295,250 @@
       "type": "string",
       "oneOf": [
         {
-          "description": "Default permissions for the plugin",
+          "description": "Enables the remote_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-download",
+          "markdownDescription": "Enables the remote_download command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-download",
+          "markdownDescription": "Denies the remote_download command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_download_version command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-download-version",
+          "markdownDescription": "Enables the remote_download_version command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_download_version command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-download-version",
+          "markdownDescription": "Denies the remote_download_version command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_get_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-get-info",
+          "markdownDescription": "Enables the remote_get_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_get_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-get-info",
+          "markdownDescription": "Denies the remote_get_info command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_list_bundles command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-list-bundles",
+          "markdownDescription": "Enables the remote_list_bundles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_list_bundles command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-list-bundles",
+          "markdownDescription": "Denies the remote_list_bundles command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_get_builtin_bundle_filepath command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-get-builtin-bundle-filepath",
+          "markdownDescription": "Enables the source_get_builtin_bundle_filepath command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_get_builtin_bundle_filepath command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-get-builtin-bundle-filepath",
+          "markdownDescription": "Denies the source_get_builtin_bundle_filepath command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_get_remote_bundle_filepath command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-get-remote-bundle-filepath",
+          "markdownDescription": "Enables the source_get_remote_bundle_filepath command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_get_remote_bundle_filepath command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-get-remote-bundle-filepath",
+          "markdownDescription": "Denies the source_get_remote_bundle_filepath command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_list_bundles command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-list-bundles",
+          "markdownDescription": "Enables the source_list_bundles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_list_bundles command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-list-bundles",
+          "markdownDescription": "Denies the source_list_bundles command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_load_builtin_metadata command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-load-builtin-metadata",
+          "markdownDescription": "Enables the source_load_builtin_metadata command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_load_builtin_metadata command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-load-builtin-metadata",
+          "markdownDescription": "Denies the source_load_builtin_metadata command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_load_remote_metadata command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-load-remote-metadata",
+          "markdownDescription": "Enables the source_load_remote_metadata command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_load_remote_metadata command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-load-remote-metadata",
+          "markdownDescription": "Denies the source_load_remote_metadata command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_load_version command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-load-version",
+          "markdownDescription": "Enables the source_load_version command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_load_version command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-load-version",
+          "markdownDescription": "Denies the source_load_version command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_prune_remote_bundles command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-prune-remote-bundles",
+          "markdownDescription": "Enables the source_prune_remote_bundles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_prune_remote_bundles command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-prune-remote-bundles",
+          "markdownDescription": "Denies the source_prune_remote_bundles command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_remote_retained_versions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-remote-retained-versions",
+          "markdownDescription": "Enables the source_remote_retained_versions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_remote_retained_versions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-remote-retained-versions",
+          "markdownDescription": "Denies the source_remote_retained_versions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_remove_remote_bundle command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-remove-remote-bundle",
+          "markdownDescription": "Enables the source_remove_remote_bundle command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_remove_remote_bundle command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-remove-remote-bundle",
+          "markdownDescription": "Denies the source_remove_remote_bundle command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_resolve_filepath command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-resolve-filepath",
+          "markdownDescription": "Enables the source_resolve_filepath command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_resolve_filepath command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-resolve-filepath",
+          "markdownDescription": "Denies the source_resolve_filepath command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_unload_descriptor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-unload-descriptor",
+          "markdownDescription": "Enables the source_unload_descriptor command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_unload_descriptor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-unload-descriptor",
+          "markdownDescription": "Denies the source_unload_descriptor command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the source_update_version command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-source-update-version",
+          "markdownDescription": "Enables the source_update_version command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the source_update_version command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-source-update-version",
+          "markdownDescription": "Denies the source_update_version command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the updater_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-updater-download",
+          "markdownDescription": "Enables the updater_download command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the updater_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-updater-download",
+          "markdownDescription": "Denies the updater_download command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the updater_get_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-updater-get-update",
+          "markdownDescription": "Enables the updater_get_update command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the updater_get_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-updater-get-update",
+          "markdownDescription": "Denies the updater_get_update command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the updater_install command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-updater-install",
+          "markdownDescription": "Enables the updater_install command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the updater_install command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-updater-install",
+          "markdownDescription": "Denies the updater_install command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the updater_list_remotes command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-updater-list-remotes",
+          "markdownDescription": "Enables the updater_list_remotes command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the updater_list_remotes command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-updater-list-remotes",
+          "markdownDescription": "Denies the updater_list_remotes command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the WebView Bundle plugin. Grants access to all of the source, remote, and\nupdater commands. To restrict access, replace this set with the individual `allow-*` permissions you\nneed (see `autogenerated/reference.md`).\n\n#### This default permission set includes:\n\n- `allow-source-list-bundles`\n- `allow-source-load-version`\n- `allow-source-update-version`\n- `allow-source-resolve-filepath`\n- `allow-source-get-builtin-bundle-filepath`\n- `allow-source-get-remote-bundle-filepath`\n- `allow-source-load-builtin-metadata`\n- `allow-source-load-remote-metadata`\n- `allow-source-unload-descriptor`\n- `allow-source-remove-remote-bundle`\n- `allow-source-remote-retained-versions`\n- `allow-source-prune-remote-bundles`\n- `allow-remote-list-bundles`\n- `allow-remote-get-info`\n- `allow-remote-download`\n- `allow-remote-download-version`\n- `allow-updater-list-remotes`\n- `allow-updater-get-update`\n- `allow-updater-download`\n- `allow-updater-install`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin"
+          "markdownDescription": "Default permissions for the WebView Bundle plugin. Grants access to all of the source, remote, and\nupdater commands. To restrict access, replace this set with the individual `allow-*` permissions you\nneed (see `autogenerated/reference.md`).\n\n#### This default permission set includes:\n\n- `allow-source-list-bundles`\n- `allow-source-load-version`\n- `allow-source-update-version`\n- `allow-source-resolve-filepath`\n- `allow-source-get-builtin-bundle-filepath`\n- `allow-source-get-remote-bundle-filepath`\n- `allow-source-load-builtin-metadata`\n- `allow-source-load-remote-metadata`\n- `allow-source-unload-descriptor`\n- `allow-source-remove-remote-bundle`\n- `allow-source-remote-retained-versions`\n- `allow-source-prune-remote-bundles`\n- `allow-remote-list-bundles`\n- `allow-remote-get-info`\n- `allow-remote-download`\n- `allow-remote-download-version`\n- `allow-updater-list-remotes`\n- `allow-updater-get-update`\n- `allow-updater-download`\n- `allow-updater-install`"
         }
       ]
     }

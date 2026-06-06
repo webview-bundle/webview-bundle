@@ -1,7 +1,7 @@
 use crate::WebviewBundleExtra;
 use tauri::{AppHandle, Runtime, command};
 use wvb::remote::{ListRemoteBundleInfo, RemoteBundleInfo};
-use wvb::source::{BundleSourceVersion, ListBundleItem};
+use wvb::source::{BundleManifestMetadata, BundleSourceVersion, ListBundleItem};
 use wvb::updater::BundleUpdateInfo;
 
 #[command]
@@ -38,13 +38,110 @@ pub(crate) async fn source_update_version<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn source_filepath<R: Runtime>(
+pub(crate) async fn source_resolve_filepath<R: Runtime>(
   app: AppHandle<R>,
   bundle_name: String,
 ) -> crate::Result<String> {
   let wvb = app.wvb();
-  let filepath = wvb.source().bundle_filepath(&bundle_name).await?;
+  let filepath = wvb.source().resolve_filepath(&bundle_name).await?;
   Ok(filepath.to_string_lossy().to_string())
+}
+
+#[command]
+pub(crate) async fn source_get_builtin_bundle_filepath<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+  version: String,
+) -> crate::Result<String> {
+  let wvb = app.wvb();
+  let filepath = wvb
+    .source()
+    .get_builtin_bundle_filepath(&bundle_name, &version)?;
+  Ok(filepath.to_string_lossy().to_string())
+}
+
+#[command]
+pub(crate) async fn source_get_remote_bundle_filepath<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+  version: String,
+) -> crate::Result<String> {
+  let wvb = app.wvb();
+  let filepath = wvb
+    .source()
+    .get_remote_bundle_filepath(&bundle_name, &version)?;
+  Ok(filepath.to_string_lossy().to_string())
+}
+
+#[command]
+pub(crate) async fn source_load_builtin_metadata<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+  version: String,
+) -> crate::Result<Option<BundleManifestMetadata>> {
+  let wvb = app.wvb();
+  let metadata = wvb
+    .source()
+    .load_builtin_metadata(&bundle_name, &version)
+    .await?;
+  Ok(metadata)
+}
+
+#[command]
+pub(crate) async fn source_load_remote_metadata<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+  version: String,
+) -> crate::Result<Option<BundleManifestMetadata>> {
+  let wvb = app.wvb();
+  let metadata = wvb
+    .source()
+    .load_remote_metadata(&bundle_name, &version)
+    .await?;
+  Ok(metadata)
+}
+
+#[command]
+pub(crate) async fn source_unload_descriptor<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+) -> crate::Result<bool> {
+  let wvb = app.wvb();
+  Ok(wvb.source().unload_descriptor(&bundle_name))
+}
+
+#[command]
+pub(crate) async fn source_remove_remote_bundle<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+  version: String,
+) -> crate::Result<bool> {
+  let wvb = app.wvb();
+  let removed = wvb
+    .source()
+    .remove_remote_bundle(&bundle_name, &version)
+    .await?;
+  Ok(removed)
+}
+
+#[command]
+pub(crate) async fn source_remote_retained_versions<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+) -> crate::Result<Vec<String>> {
+  let wvb = app.wvb();
+  let versions = wvb.source().remote_retained_versions(&bundle_name).await?;
+  Ok(versions)
+}
+
+#[command]
+pub(crate) async fn source_prune_remote_bundles<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+) -> crate::Result<Vec<String>> {
+  let wvb = app.wvb();
+  let removed = wvb.source().prune_remote_bundles(&bundle_name).await?;
+  Ok(removed)
 }
 
 #[command]
@@ -134,7 +231,7 @@ pub(crate) async fn updater_get_update<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn updater_download_update<R: Runtime>(
+pub(crate) async fn updater_download<R: Runtime>(
   app: AppHandle<R>,
   bundle_name: String,
   version: Option<String>,
@@ -146,4 +243,19 @@ pub(crate) async fn updater_download_update<R: Runtime>(
     .download(bundle_name, version)
     .await?;
   Ok(info)
+}
+
+#[command]
+pub(crate) async fn updater_install<R: Runtime>(
+  app: AppHandle<R>,
+  bundle_name: String,
+  version: String,
+) -> crate::Result<()> {
+  let wvb = app.wvb();
+  wvb
+    .updater()
+    .ok_or(crate::Error::UpdaterIsNotInitialized)?
+    .install(bundle_name, version)
+    .await?;
+  Ok(())
 }

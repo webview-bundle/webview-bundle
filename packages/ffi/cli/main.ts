@@ -16,4 +16,5 @@ cli.register(BuildAndroidCommand);
 cli.register(BuildAppleCommand);
 cli.register(TestAndroidCommand);
 cli.register(TestAppleCommand);
-cli.runExit(args);
+
+await cli.runExit(args);

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+commands.allow = ["updater_install"]
+description    = "Enables the updater_install command without any pre-configured scope."
+identifier     = "allow-updater-install"
+
+[[permission]]
+commands.deny = ["updater_install"]
+description   = "Denies the updater_install command without any pre-configured scope."
+identifier    = "deny-updater-install"

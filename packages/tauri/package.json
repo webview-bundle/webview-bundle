@@ -1,6 +1,6 @@
 {
   "name": "@wvb/tauri",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Webview Bundle API for Tauri",
   "homepage": "https://github.com/webview-bundle/webview-bundle",
   "bugs": {
@@ -48,14 +48,16 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "@tauri-apps/api": "^2"
+  },
   "devDependencies": {
     "@tauri-apps/api": "^2",
     "@types/node": "catalog:",
+    "@types/selenium-webdriver": "4.35.6",
+    "selenium-webdriver": "4.44.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "peerDependencies": {
-    "@tauri-apps/api": "^2"
   }
 }
