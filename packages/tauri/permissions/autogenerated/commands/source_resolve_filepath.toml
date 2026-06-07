@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
+identifier = "allow-source-resolve-filepath"
+description = "Enables the source_resolve_filepath command without any pre-configured scope."
 commands.allow = ["source_resolve_filepath"]
-description    = "Enables the source_resolve_filepath command without any pre-configured scope."
-identifier     = "allow-source-resolve-filepath"
 
 [[permission]]
+identifier = "deny-source-resolve-filepath"
+description = "Denies the source_resolve_filepath command without any pre-configured scope."
 commands.deny = ["source_resolve_filepath"]
-description   = "Denies the source_resolve_filepath command without any pre-configured scope."
-identifier    = "deny-source-resolve-filepath"
