@@ -3,11 +3,11 @@
 "$schema" = "../../schemas/schema.json"
 
 [[permission]]
+identifier = "allow-source-get-builtin-bundle-filepath"
+description = "Enables the source_get_builtin_bundle_filepath command without any pre-configured scope."
 commands.allow = ["source_get_builtin_bundle_filepath"]
-description    = "Enables the source_get_builtin_bundle_filepath command without any pre-configured scope."
-identifier     = "allow-source-get-builtin-bundle-filepath"
 
 [[permission]]
+identifier = "deny-source-get-builtin-bundle-filepath"
+description = "Denies the source_get_builtin_bundle_filepath command without any pre-configured scope."
 commands.deny = ["source_get_builtin_bundle_filepath"]
-description   = "Denies the source_get_builtin_bundle_filepath command without any pre-configured scope."
-identifier    = "deny-source-get-builtin-bundle-filepath"
