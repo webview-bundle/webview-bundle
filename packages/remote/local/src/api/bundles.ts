@@ -16,6 +16,16 @@ export function readBundleStream({ baseDir, bundle, version }: ReadBundleStreamP
   return createReadStream(filePath);
 }
 
+export async function getBundleFileSize({
+  baseDir,
+  bundle,
+  version,
+}: ReadBundleStreamParams): Promise<number> {
+  const filePath = getBundleFilePath(baseDir, bundle, version);
+  const stats = await fs.stat(filePath);
+  return stats.size;
+}
+
 interface WriteBundleParams {
   baseDir: string;
   bundle: string;

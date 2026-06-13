@@ -1,9 +1,8 @@
-/** biome-ignore-all lint/complexity/noBannedTypes: expected */
-
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
+  bundleFileSize,
   readAllDeployments,
   readBundleMetadata,
   readBundleStream,
@@ -15,6 +14,7 @@ import type { Variables } from './types.js';
 import { getRemoteBundleDeploymentVersion } from './utils.js';
 
 interface Env {
+  // biome-ignore lint/complexity/noBannedTypes: expected
   Bindings: {};
   Variables: Variables;
 }
@@ -56,7 +56,7 @@ export function webviewBundleRemote({ baseDir, allowOtherVersions }: WebviewBund
 
   async function getBundleResponse(c: Context<Env>, bundle: string, version: string) {
     const metadata = await readBundleMetadata({
-      baseDir: '',
+      baseDir: c.get('baseDir'),
       bundle,
       version,
     });
@@ -68,6 +68,9 @@ export function webviewBundleRemote({ baseDir, allowOtherVersions }: WebviewBund
     if (metadata?.signature != null) {
       c.header('webview-bundle-signature', metadata.signature);
     }
+
+    const size = await bundleFileSize({ baseDir: c.get('baseDir'), bundle, version });
+    c.header('content-length', String(size));
 
     if (c.req.method.toUpperCase() === 'HEAD') {
       return c.body(null);
