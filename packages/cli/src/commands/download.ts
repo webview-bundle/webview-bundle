@@ -95,7 +95,8 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       this.logger.error('"endpoint" is required for remote operations.');
       return 1;
     }
-    const bundleName = this.bundleName ?? (await resolveBundleName(config));
+    const bundleName =
+      this.bundleName ?? (await resolveBundleName(config, config.remote?.bundleName));
     if (bundleName == null) {
       this.logger.error('"bundleName" is required for remote operations.');
       return 1;

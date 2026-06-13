@@ -96,6 +96,7 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
         return loadLocalBundles(cwd, target, {
           include,
           exclude,
+          write,
           logLevel,
           logger,
         });
@@ -131,7 +132,6 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
     } catch (e: unknown) {
       delete manifest.entries[bundle.name];
       return { success: false, name: bundle.name, version: bundle.version, error: e as Error };
-    } finally {
     }
   };
 
@@ -158,6 +158,10 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
 
   const manifestFilepath = path.join(dir, 'manifest.json');
   if (write) {
+    // `dir` is created lazily per-bundle by install(); when nothing was installed (empty workspace
+    // glob, or every bundle filtered out) it won't exist yet — and `clean` may have removed it — so
+    // ensure it exists before writing the manifest to avoid an ENOENT.
+    await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(manifestFilepath, JSON.stringify(manifest, null, 2));
     logger?.info(`Manifest saved: ${c.bold(c.success(manifestFilepath))}`);
     logger?.info(`Builtin bundles installed: ${c.bold(c.success(dir))}`);
@@ -217,6 +221,7 @@ async function* loadLocalBundles(
   options: {
     include?: BuiltinBundleMatches[];
     exclude?: BuiltinBundleMatches[];
+    write?: boolean;
     logLevel?: LogLevel;
     logger?: Logger;
   }
@@ -235,6 +240,7 @@ async function* loadLocalBundles(
   }
 
   if (resolvedWorkspaces.length === 0) {
+    options.logger?.warn('No local workspaces to install.');
     return;
   }
 
@@ -245,27 +251,27 @@ async function* loadLocalBundles(
     const outDir = resolveOutDir(w.config);
 
     if (outFile == null) {
-      const message = `Out file is not specified. Set "pack.outFile" int the config file. (from "${w.dir}" workspace)`;
+      const message = `Out file is not specified. Set "pack.outFileName" in the config file. (from "${w.dir}" workspace)`;
       options.logger?.error(message);
       throw new ApiError(message);
     }
 
     const outFilePath = withWvbExtension(
-      path.isAbsolute(outFile) ? outFile : path.join(outDir, outFile)
+      path.isAbsolute(outFile) ? outFile : path.join(w.config.root, outDir, outFile)
     );
 
     const bundleName = await resolveBundleName(w.config, target.bundleName, {
       file: outFilePath,
     });
     if (bundleName == null) {
-      const message = `Bundle name is require for this operation. (from "${w.dir}" workspace)`;
+      const message = `Bundle name is required for this operation. (from "${w.dir}" workspace)`;
       options.logger?.error(message);
       throw new ApiError(message);
     }
 
     const version = await resolveVersion(w.config, target.version);
     if (version == null) {
-      const message = `Version is require for this operation. (from "${w.dir}" workspace)`;
+      const message = `Version is required for this operation. (from "${w.dir}" workspace)`;
       options.logger?.error(message);
       throw new ApiError(message);
     }
@@ -297,7 +303,9 @@ async function* loadLocalBundles(
         outFile,
         outDir,
         overwrite,
-        write: true,
+        // Honor the caller's `write` flag so `--no-write` is a true simulation (pack still builds the
+        // bundle in memory, it just doesn't touch disk).
+        write: options.write ?? true,
         cwd: w.config.root,
         logLevel: options.logLevel,
         logger: options.logger,
@@ -307,13 +315,20 @@ async function* loadLocalBundles(
       bundle = await readBundle(outFilePath);
     }
 
-    const stat = await fs.stat(outFilePath);
+    let lastModified: string | undefined;
+    try {
+      const stat = await fs.stat(outFilePath);
+      // HTTP `Last-Modified` header format (RFC 7231 IMF-fixdate), e.g. "Wed, 21 Oct 2015 07:28:00 GMT".
+      lastModified = stat.mtime.toUTCString();
+    } catch {
+      // bundle was not written so leave `lastModified` undefined.
+    }
+
     const loaded: LoadedBundle = {
       name: bundleName,
       version,
       data: writeBundleIntoBuffer(bundle),
-      // HTTP `Last-Modified` header format (RFC 7231 IMF-fixdate), e.g. "Wed, 21 Oct 2015 07:28:00 GMT".
-      lastModified: stat.mtime.toUTCString(),
+      lastModified,
     };
 
     if (target.integrity !== false) {
@@ -324,7 +339,7 @@ async function* loadLocalBundles(
 
     if (target.signature != null) {
       if (loaded.integrity == null) {
-        const message = `Cannot make signature without integrity. Make sure integrity options is enabled.`;
+        const message = `Cannot make signature without integrity. Make sure the integrity option is enabled.`;
         options.logger?.error(message);
         throw new ApiError(message);
       }
@@ -487,7 +502,8 @@ async function isInMatches(
     const predicates = coerceArray(match);
     for (const predicate of predicates) {
       if (typeof predicate === 'string') {
-        if (pm.isMatch(bundleName, predicate)) {
+        // picomatch throws on an empty pattern; treat "" as a no-op predicate.
+        if (predicate.length > 0 && pm.isMatch(bundleName, predicate)) {
           return true;
         }
       }
