@@ -5535,6 +5535,11 @@ __metadata:
     typanion: "npm:^3.14.0"
     typescript: "catalog:"
     vitest: "catalog:"
+  peerDependencies:
+    "@wvb/remote-local-provider": "workspace:^"
+  peerDependenciesMeta:
+    "@wvb/remote-local-provider":
+      optional: true
   bin:
     webview-bundle: ./dist/cli.mjs
     wvb: ./dist/cli.mjs
@@ -5546,7 +5551,9 @@ __metadata:
   resolution: "@wvb/config@workspace:packages/config"
   dependencies:
     "@types/node": "catalog:"
+    "@wvb/node": "workspace:^"
     tsdown: "catalog:"
+    type-fest: "npm:^4.40.1"
     typescript: "catalog:"
     vitest: "catalog:"
   languageName: unknown
