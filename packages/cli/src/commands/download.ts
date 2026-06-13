@@ -8,7 +8,7 @@ import { logRemoteBundleInfo } from '../api/remote/logging.js';
 import { resolveBundleName, resolveConfig } from '../config.js';
 import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
-import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
+import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import { BaseCommand } from './base.js';
 
 export class DownloadCommand extends BaseCommand {
@@ -131,7 +131,7 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       return 0;
     }
 
-    const outFile = this.out ?? withWVBExtension(bundleName);
+    const outFile = this.out ?? withWvbExtension(bundleName);
     const outFilePath = toAbsolutePath(outFile, config.root);
     if (await pathExists(outFilePath)) {
       const overwrite = this.overwrite ?? false;

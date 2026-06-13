@@ -3,7 +3,7 @@ import path from 'node:path';
 import { type Bundle, type IndexEntry, readBundle } from '@wvb/node';
 import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
-import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
+import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import type { Logger } from '../log.js';
 import { ApiError } from './error.js';
 
@@ -29,7 +29,7 @@ export async function extract(params: ExtractParams): Promise<Bundle> {
     logger,
   } = params;
 
-  const filePath = toAbsolutePath(withWVBExtension(file), cwd);
+  const filePath = toAbsolutePath(withWvbExtension(file), cwd);
   const displayFilePath = path.relative(cwd, filePath);
   if (!(await pathExists(filePath))) {
     const message = `File does not exist: ${displayFilePath}`;

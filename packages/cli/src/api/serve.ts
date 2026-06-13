@@ -1,7 +1,7 @@
 import type { ServerType } from '@hono/node-server';
 import { readBundle } from '@wvb/node';
 import { c, isColorEnabled } from '../console.js';
-import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
+import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import type { Logger } from '../log.js';
 import { ApiError } from './error.js';
 
@@ -33,7 +33,7 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
     logger,
     colorEnabled = isColorEnabled(),
   } = params;
-  const filepath = toAbsolutePath(withWVBExtension(file), cwd);
+  const filepath = toAbsolutePath(withWvbExtension(file), cwd);
 
   if (!(await pathExists(filepath))) {
     const message = `File does not exist: ${filepath}`;

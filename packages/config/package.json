@@ -43,7 +43,9 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@wvb/node": "workspace:^",
     "tsdown": "catalog:",
+    "type-fest": "^4.40.1",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

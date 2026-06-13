@@ -1,44 +1,62 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { type BundleManifestData, type ListRemoteBundleInfo, Remote } from '@wvb/node';
+import type {
+  BuiltinBundleMatches,
+  BuiltinLocalTargetConfig,
+  BuiltinRemoteTargetConfig,
+  BuiltinTarget,
+} from '@wvb/config';
+import { makeIntegrity, signSignature } from '@wvb/config/remote';
+import {
+  type Bundle,
+  type BundleManifestData,
+  Remote,
+  type RemoteOptions,
+  readBundle,
+  writeBundleIntoBuffer,
+} from '@wvb/node';
 import { MultiBar, Presets, type SingleBar } from 'cli-progress';
-import { filterAsync } from 'es-toolkit';
-import { limitAsync } from 'es-toolkit/array';
+import { chunk, filterAsync } from 'es-toolkit';
 import { isRegExp } from 'es-toolkit/predicate';
 import pm from 'picomatch';
+import { glob } from 'tinyglobby';
+import {
+  type ResolvedConfig,
+  resolveBundleName,
+  resolveConfig,
+  resolveOutDir,
+  resolveOutFileName,
+  resolveVersion,
+} from '../config.js';
 import { c } from '../console.js';
-import { pathExists, toAbsolutePath } from '../fs.js';
-import type { Logger } from '../log.js';
+import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
+import { isLogLevelAtLeast, type Logger, type LogLevel } from '../log.js';
 import { coerceArray } from '../utils/coerce.js';
 import { ApiError } from './error.js';
-
-type RemoteBundleMatches =
-  | string
-  | RegExp
-  | Array<string | RegExp>
-  | ((info: ListRemoteBundleInfo) => boolean | Promise<boolean>);
+import { pack } from './pack.js';
 
 export interface BuiltinParams {
-  remoteEndpoint: string;
+  target: BuiltinTarget;
   dir?: string;
-  include?: RemoteBundleMatches[];
-  exclude?: RemoteBundleMatches[];
+  include?: BuiltinBundleMatches[];
+  exclude?: BuiltinBundleMatches[];
   channel?: string;
   clean?: boolean;
   cwd?: string;
   write?: boolean;
+  logLevel?: LogLevel;
   logger?: Logger;
-  downloadConcurrency?: number;
   progress?: boolean;
 }
 
 /**
- * Install builtin Webview Bundles from remote.
+ * Install builtin Webview Bundles from remote and/or local files.
  */
 export async function builtin(params: BuiltinParams): Promise<BundleManifestData> {
   const {
-    remoteEndpoint,
+    target,
     dir: dirInput = path.join('.wvb', 'builtin', 'bundles'),
     include,
     exclude,
@@ -46,123 +64,94 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
     clean = true,
     write = true,
     cwd = process.cwd(),
+    logLevel,
     logger,
-    downloadConcurrency = defaultConcurrency(),
     progress: showProgress = false,
   } = params;
+
   const dir = toAbsolutePath(dirInput, cwd);
+
   if (clean && write && (await pathExists(dir))) {
     await fs.rm(dir, { recursive: true });
   }
-  let remote = new Remote(remoteEndpoint);
-  const remoteBundles = await remote.listBundles(channel);
-  if (remoteBundles.length > 0) {
-    logger?.info(channel != null ? `Remote bundles (${channel}):` : 'Remote bundles:');
-    for (const remoteBundle of remoteBundles) {
-      logger?.info(`  ${c.info(remoteBundle.name)}: ${c.bold(c.info(remoteBundle.version))}`);
-    }
-  }
-
-  const progress = showProgress
-    ? new MultiBar(
-        {
-          format: `{bundleName} ${c.progress('{bar}')} {percentage}% ({value}/{total})`,
-          clearOnComplete: false,
-          // https://github.com/npkgz/cli-progress/issues/126
-          gracefulExit: false,
-        },
-        Presets.shades_grey
-      )
-    : null;
-  const progressBars = new Map<string, SingleBar>();
-  remote = new Remote(remoteEndpoint, {
-    onDownload: ({ downloadedBytes, totalBytes, endpoint }) => {
-      if (progress == null) {
-        return;
-      }
-      const bundleName = findBundleNameFromEndpoint(endpoint);
-      if (bundleName == null) {
-        return;
-      }
-      const bar =
-        progressBars.get(bundleName) ??
-        progress.create(totalBytes, downloadedBytes, { bundleName });
-      if (bar.isActive) {
-        bar.update(downloadedBytes);
-      }
-      progressBars.set(bundleName, bar);
-    },
-  });
 
   const manifest: BundleManifestData = {
     manifestVersion: 1,
     entries: {},
   };
+  const progress = showProgress && target.type === 'remote' ? buildProgress() : null;
 
-  const install = limitAsync(async (remoteBundle: ListRemoteBundleInfo) => {
-    const bundleName = remoteBundle.name;
+  const getLoadedBundles = (): AsyncGenerator<LoadedBundle[]> => {
+    switch (target.type) {
+      case 'remote':
+        return loadRemoteBundles(target, {
+          channel,
+          onDownload: progress?.onDownload,
+          include,
+          exclude,
+          logLevel,
+          logger,
+        });
+      case 'local':
+        return loadLocalBundles(cwd, target, {
+          include,
+          exclude,
+          logLevel,
+          logger,
+        });
+    }
+  };
+
+  type InstallResult =
+    | { success: true; name: string; version: string }
+    | { success: false; name: string; version: string; error: Error };
+
+  const install = async (bundle: LoadedBundle): Promise<InstallResult> => {
     try {
-      const [{ version, etag, integrity, signature, lastModified }, , buffer] =
-        await remote.download(remoteBundle.name, channel);
-      manifest.entries[bundleName] = {
+      manifest.entries[bundle.name] = {
         versions: {
-          [version]: {
-            etag,
-            integrity,
-            signature,
-            lastModified,
+          [bundle.version]: {
+            etag: bundle.etag,
+            integrity: bundle.integrity,
+            signature: bundle.signature,
+            lastModified: bundle.lastModified,
           },
         },
-        currentVersion: version,
+        currentVersion: bundle.version,
       };
 
       if (write) {
-        const filename = `${bundleName}_${version}.wvb`;
-        const filepath = path.join(dir, bundleName, filename);
+        const filename = `${bundle.name}_${bundle.version}.wvb`;
+        const filepath = path.join(dir, bundle.name, filename);
         await fs.mkdir(path.dirname(filepath), { recursive: true });
-        await fs.writeFile(filepath, buffer);
+        await fs.writeFile(filepath, bundle.data);
       }
 
-      return { success: true, bundleName } as const;
-    } catch (error) {
-      return { success: false, bundleName, error } as const;
+      return { success: true, name: bundle.name, version: bundle.version };
+    } catch (e: unknown) {
+      delete manifest.entries[bundle.name];
+      return { success: false, name: bundle.name, version: bundle.version, error: e as Error };
     } finally {
-      progressBars.get(bundleName)?.stop();
     }
-  }, downloadConcurrency);
+  };
 
-  const remoteBundlesToDownload = await filterAsync(remoteBundles, async remoteBundle => {
-    const shouldInclude = include != null ? await isInMatches(remoteBundle, include, true) : true;
-    if (!shouldInclude) {
-      logger?.debug(`Remote bundle not included: ${remoteBundle.name}`);
-      return false;
-    }
-    const shouldExclude = exclude != null ? await isInMatches(remoteBundle, exclude, false) : false;
-    if (shouldExclude) {
-      logger?.debug(`Remote bundle excluded: ${remoteBundle.name}`);
-      return false;
-    }
-    return true;
-  });
+  const installResults: InstallResult[] = [];
 
-  if (remoteBundlesToDownload.length === 0) {
-    const message = 'No remote bundles to install.';
-    logger?.error(message);
-    throw new ApiError(message);
+  for await (const loadedBundles of getLoadedBundles()) {
+    const results = await Promise.all(loadedBundles.map(install));
+    installResults.push(...results);
   }
+  progress?.progress.stop();
 
-  const result = await Promise.all(remoteBundlesToDownload.map(install));
-  progress?.stop();
-
-  const failures = result.filter(x => !x.success);
+  const failures = installResults.filter(x => !x.success);
   if (failures.length > 0) {
     for (const failure of failures) {
-      logger?.error(`"${c.bold(failure.bundleName)}" install failed: {error}`, {
+      logger?.error(`"${c.bold(failure.name)}" install failed: {error}`, {
         error: failure.error,
       });
     }
     throw new ApiError(
-      `Install failed: ${failures.map(x => x.bundleName).join(', ')}`,
+      `Install failed: ${failures.map(x => `${x.name}@${x.version}`).join(', ')}`,
       failures.map(x => x.error)
     );
   }
@@ -177,7 +166,293 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
   return manifest;
 }
 
-function defaultConcurrency() {
+function buildProgress() {
+  const progress = new MultiBar(
+    {
+      format: `{bundleName} ${c.progress('{bar}')} {percentage}% ({value}/{total})`,
+      clearOnComplete: false,
+      // https://github.com/npkgz/cli-progress/issues/126
+      gracefulExit: false,
+    },
+    Presets.shades_grey
+  );
+  const progressBars = new Map<string, SingleBar>();
+
+  const onDownload: NonNullable<RemoteOptions['onDownload']> = ({
+    downloadedBytes,
+    totalBytes,
+    endpoint,
+  }) => {
+    if (progress == null) {
+      return;
+    }
+    const bundleName = findBundleNameFromEndpoint(endpoint);
+    if (bundleName == null) {
+      return;
+    }
+    const bar =
+      progressBars.get(bundleName) ?? progress.create(totalBytes, downloadedBytes, { bundleName });
+    if (bar.isActive) {
+      bar.update(downloadedBytes);
+    }
+    progressBars.set(bundleName, bar);
+  };
+
+  return { progress, progressBars, onDownload };
+}
+
+interface LoadedBundle {
+  name: string;
+  version: string;
+  data: Buffer;
+  etag?: string;
+  signature?: string;
+  integrity?: string;
+  lastModified?: string;
+}
+
+async function* loadLocalBundles(
+  cwd: string,
+  target: BuiltinLocalTargetConfig,
+  options: {
+    include?: BuiltinBundleMatches[];
+    exclude?: BuiltinBundleMatches[];
+    logLevel?: LogLevel;
+    logger?: Logger;
+  }
+): AsyncGenerator<LoadedBundle[]> {
+  const workspaces =
+    typeof target.workspaces === 'function' ? await target.workspaces() : target.workspaces;
+  const resolvedWorkspaces = await resolveLocalWorkspaces(
+    cwd,
+    workspaces,
+    options.logLevel != null ? isLogLevelAtLeast(options.logLevel, 'debug') : false
+  );
+
+  options.logger?.info(`Found ${resolvedWorkspaces.length} local workspaces`);
+  for (const resolvedWorkspace of resolvedWorkspaces) {
+    options.logger?.info(`- ${resolvedWorkspace.dir}`);
+  }
+
+  if (resolvedWorkspaces.length === 0) {
+    return;
+  }
+
+  for (const w of resolvedWorkspaces) {
+    let bundle: Bundle;
+
+    const outFile = resolveOutFileName(w.config);
+    const outDir = resolveOutDir(w.config);
+
+    if (outFile == null) {
+      const message = `Out file is not specified. Set "pack.outFile" int the config file. (from "${w.dir}" workspace)`;
+      options.logger?.error(message);
+      throw new ApiError(message);
+    }
+
+    const outFilePath = withWvbExtension(
+      path.isAbsolute(outFile) ? outFile : path.join(outDir, outFile)
+    );
+
+    const bundleName = await resolveBundleName(w.config, target.bundleName, {
+      file: outFilePath,
+    });
+    if (bundleName == null) {
+      const message = `Bundle name is require for this operation. (from "${w.dir}" workspace)`;
+      options.logger?.error(message);
+      throw new ApiError(message);
+    }
+
+    const version = await resolveVersion(w.config, target.version);
+    if (version == null) {
+      const message = `Version is require for this operation. (from "${w.dir}" workspace)`;
+      options.logger?.error(message);
+      throw new ApiError(message);
+    }
+
+    const shouldInclude =
+      options.include != null
+        ? await isInMatches(bundleName, version, options.include, true)
+        : true;
+    if (!shouldInclude) {
+      options.logger?.debug(`Local bundle not included: ${bundleName}`);
+      continue;
+    }
+    const shouldExclude =
+      options.exclude != null
+        ? await isInMatches(bundleName, version, options.exclude, false)
+        : false;
+    if (shouldExclude) {
+      options.logger?.debug(`Local bundle excluded: ${bundleName}`);
+      continue;
+    }
+
+    const shouldPack = target.packBeforeInstall ?? true;
+    if (shouldPack) {
+      const srcDir = w.config.pack?.srcDir ?? './dist';
+      const overwrite = w.config.pack?.overwrite ?? true;
+
+      const packResult = await pack({
+        srcDir,
+        outFile,
+        outDir,
+        overwrite,
+        write: true,
+        cwd: w.config.root,
+        logLevel: options.logLevel,
+        logger: options.logger,
+      });
+      bundle = packResult.bundle;
+    } else {
+      bundle = await readBundle(outFilePath);
+    }
+
+    const stat = await fs.stat(outFilePath);
+    const loaded: LoadedBundle = {
+      name: bundleName,
+      version,
+      data: writeBundleIntoBuffer(bundle),
+      // HTTP `Last-Modified` header format (RFC 7231 IMF-fixdate), e.g. "Wed, 21 Oct 2015 07:28:00 GMT".
+      lastModified: stat.mtime.toUTCString(),
+    };
+
+    if (target.integrity !== false) {
+      const opts =
+        target.integrity == null || typeof target.integrity === 'boolean' ? {} : target.integrity;
+      loaded.integrity = await makeIntegrity(opts, loaded.data);
+    }
+
+    if (target.signature != null) {
+      if (loaded.integrity == null) {
+        const message = `Cannot make signature without integrity. Make sure integrity options is enabled.`;
+        options.logger?.error(message);
+        throw new ApiError(message);
+      }
+      loaded.signature = await signSignature(
+        target.signature,
+        Buffer.from(loaded.integrity, 'utf8')
+      );
+    }
+
+    yield [loaded];
+  }
+}
+
+interface ResolvedWorkspace {
+  absoluteDir: string;
+  dir: string;
+  config: ResolvedConfig;
+}
+
+async function resolveLocalWorkspaces(
+  cwd: string,
+  workspaces: string[],
+  debug?: boolean
+): Promise<ResolvedWorkspace[]> {
+  const patterns = workspaces.map(x => {
+    if (x.endsWith('package.json')) {
+      return x;
+    }
+    return x.endsWith('/') ? `${x}package.json` : `${x}/package.json`;
+  });
+
+  // We only want to resolve directories which includes "package.json".
+  const packageFiles = await glob(patterns, {
+    absolute: true,
+    cwd,
+    onlyFiles: true,
+    debug,
+  });
+  const resolved: ResolvedWorkspace[] = await Promise.all(
+    packageFiles.map(async packageFile => {
+      const absoluteDir = path.dirname(packageFile);
+      const config = await resolveConfig({
+        root: absoluteDir,
+      });
+      return { absoluteDir, dir: path.relative(cwd, absoluteDir), config };
+    })
+  );
+
+  return resolved;
+}
+
+async function* loadRemoteBundles(
+  target: BuiltinRemoteTargetConfig,
+  options: {
+    onDownload?: RemoteOptions['onDownload'];
+    channel?: string;
+    include?: BuiltinBundleMatches[];
+    exclude?: BuiltinBundleMatches[];
+    logLevel?: LogLevel;
+    logger?: Logger;
+  }
+): AsyncGenerator<LoadedBundle[]> {
+  const remoteEndpoint = target.endpoint;
+  if (remoteEndpoint == null) {
+    const message = 'Remote endpoint is required.';
+    options.logger?.error(message);
+    throw new ApiError(message);
+  }
+
+  let remote = new Remote(remoteEndpoint, {
+    http: target.download?.http,
+  });
+  const channel = options.channel;
+  const allRemoteBundles = await remote.listBundles(channel);
+  const remoteBundles = await filterAsync(allRemoteBundles, async remoteBundle => {
+    const shouldInclude =
+      options.include != null
+        ? await isInMatches(remoteBundle.name, remoteBundle.version, options.include, true)
+        : true;
+    if (!shouldInclude) {
+      options.logger?.debug(`Remote bundle not included: ${remoteBundle.name}`);
+      return false;
+    }
+
+    const shouldExclude =
+      options.exclude != null
+        ? await isInMatches(remoteBundle.name, remoteBundle.version, options.exclude, false)
+        : false;
+    if (shouldExclude) {
+      options.logger?.debug(`Remote bundle excluded: ${remoteBundle.name}`);
+      return false;
+    }
+    return true;
+  });
+
+  if (remoteBundles.length === 0) {
+    options.logger?.warn('No remote bundles to install.');
+    return;
+  }
+
+  options.logger?.info(channel != null ? `Remote bundles (${channel}):` : 'Remote bundles:');
+  for (const remoteBundle of remoteBundles) {
+    options.logger?.info(`  ${c.info(remoteBundle.name)}: ${c.bold(c.info(remoteBundle.version))}`);
+  }
+
+  remote = new Remote(remoteEndpoint, {
+    http: target.download?.http,
+    onDownload: options.onDownload,
+  });
+
+  const concurrency = Math.max(target.download?.concurrency ?? defaultDownloadConcurrency(), 1);
+
+  for (const chunks of chunk(remoteBundles, concurrency)) {
+    const downloaded = await Promise.all(
+      chunks.map(async remoteBundle => {
+        const [info, _, data] = await remote.download(remoteBundle.name, channel);
+        const loaded: LoadedBundle = {
+          ...info,
+          data,
+        };
+        return loaded;
+      })
+    );
+    yield downloaded;
+  }
+}
+
+function defaultDownloadConcurrency() {
   const cpus = os.availableParallelism?.() ?? os.cpus().length - 1;
   return Math.max(1, Math.min(cpus, 8));
 }
@@ -194,8 +469,9 @@ function findBundleNameFromEndpoint(endpoint: string): string | undefined {
 }
 
 async function isInMatches(
-  info: ListRemoteBundleInfo,
-  matches: RemoteBundleMatches[],
+  bundleName: string,
+  version: string,
+  matches: BuiltinBundleMatches[],
   onEmpty: boolean
 ): Promise<boolean> {
   const filteredMatches = matches.filter(x => (Array.isArray(x) ? x.length > 0 : true));
@@ -204,19 +480,19 @@ async function isInMatches(
   }
   for (const match of filteredMatches) {
     if (typeof match === 'function') {
-      if (await match(info)) {
+      if (await match({ name: bundleName, version })) {
         return true;
       }
     }
     const predicates = coerceArray(match);
     for (const predicate of predicates) {
       if (typeof predicate === 'string') {
-        if (pm.isMatch(info.name, predicate)) {
+        if (pm.isMatch(bundleName, predicate)) {
           return true;
         }
       }
       if (isRegExp(predicate)) {
-        if (predicate.test(info.name)) {
+        if (predicate.test(bundleName)) {
           return true;
         }
       }

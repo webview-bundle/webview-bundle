@@ -1,3 +1,4 @@
+import type { BundleNameResolver, VersionResolver } from '../common.js';
 import type { BaseRemoteDeployer } from './deployer.js';
 import type { IntegrityMakeConfig } from './integrity.js';
 import type { SignatureSignConfig } from './signature.js';
@@ -7,15 +8,20 @@ export interface RemoteConfig {
   /**
    * Endpoint to remote server.
    */
-  endpoint: string;
+  endpoint?: string;
   /**
    * Name of the bundle to be used in remote.
    */
-  bundleName?: string | (() => string | Promise<string>);
+  bundleName?: BundleNameResolver;
   /**
-   * Name of the bundle to be used in remote.
+   * Version of the bundle to be used in remote.
    */
-  version?: string | (() => string | Promise<string>);
+  version?: VersionResolver;
+  /**
+   * Whether to pack the bundle before uploading.
+   * @default true
+   */
+  packBeforeUpload?: boolean;
   uploader?: BaseRemoteUploader;
   deployer?: BaseRemoteDeployer;
   integrity?: boolean | IntegrityMakeConfig;

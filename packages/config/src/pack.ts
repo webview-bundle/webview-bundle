@@ -13,18 +13,20 @@ export interface PackConfig {
    *
    * All files under this directory will be included in the Webview Bundle.
    * Use "ignore" to exclude files you don't want to pack.
+   *
+   * @default "./dist"
    */
   srcDir?: string;
   /**
    * Directory that out-file should be created.
-   * @default ".wvb"
+   * @default "./.wvb"
    */
   outDir?: string;
   /**
    * Outfile name to create Webview Bundle archive.
    * If not provided, default to name field in "package.json" with normalized.
    */
-  outFile?: string;
+  outFileName?: string;
   /**
    * Overwrite out-file if file is already exists
    * @default true
@@ -35,7 +37,7 @@ export interface PackConfig {
    */
   ignore?: IgnoreConfig;
   /**
-   * Headers to set for each files in the Webview Bundle.
+   * Headers to set for each file in the Webview Bundle.
    *
    * @example
    * {
