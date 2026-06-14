@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
-  bundleFileSize,
+  getBundleFileSize,
   readAllDeployments,
   readBundleMetadata,
   readBundleStream,
@@ -69,7 +69,7 @@ export function webviewBundleRemote({ baseDir, allowOtherVersions }: WebviewBund
       c.header('webview-bundle-signature', metadata.signature);
     }
 
-    const size = await bundleFileSize({ baseDir: c.get('baseDir'), bundle, version });
+    const size = await getBundleFileSize({ baseDir: c.get('baseDir'), bundle, version });
     c.header('content-length', String(size));
 
     if (c.req.method.toUpperCase() === 'HEAD') {
