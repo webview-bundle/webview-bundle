@@ -77,6 +77,11 @@ This option is only used when the target is "remote".
         this.logger.error('Remote endpoint is required for remote target.');
         return 1;
       }
+
+      if (this.downloadConcurrency != null) {
+        target.download ??= {};
+        target.download.concurrency = this.downloadConcurrency;
+      }
     }
 
     const dir = this.out ?? config.builtin?.outDir ?? path.join('.wvb', 'builtin', 'bundles');
