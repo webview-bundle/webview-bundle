@@ -12,6 +12,7 @@ import {
   resolveVersion,
 } from '../config.js';
 import { c } from '../console.js';
+import { withWvbExtension } from '../fs.js';
 import { buildURL } from '../utils/url.js';
 import { BaseCommand } from './base.js';
 
@@ -104,22 +105,23 @@ This option can be used when the deploy options is enabled.`,
       return 1;
     }
 
+    const file = this.resolveFile(config);
+    if (file == null) {
+      this.logger.error(
+        'Webview Bundle file is not specified. Set "pack.outFileName" in the config file ' +
+          'or pass "--file,-F" as a CLI argument.'
+      );
+      return 1;
+    }
+
     const packBeforeUpload = this.pack ?? config.remote?.packBeforeUpload ?? true;
     if (packBeforeUpload) {
       const srcDir = config.pack?.srcDir ?? './dist';
-      const outFile = resolveOutFileName(config);
-      if (outFile == null) {
-        this.logger.error(
-          'Out file is not specified. Set "pack.outFile" in the config file or pass "--pack-outfile,--pack-out-file" as a CLI argument.'
-        );
-        return 1;
-      }
-
       const outDir = resolveOutDir(config);
       const overwrite = config.pack?.overwrite ?? true;
       await pack({
         srcDir,
-        outFile,
+        outFile: file,
         outDir,
         overwrite,
         write: true,
@@ -129,19 +131,12 @@ This option can be used when the deploy options is enabled.`,
       });
     }
 
-    const file = this.resolveFile(config);
-    if (file == null) {
-      this.logger.error(
-        'Webview Bundle file is not specified. Set "outFile" in the config file ' +
-          'or pass "--file,-F" as a CLI argument.'
-      );
-      return 1;
-    }
     const version = this.version ?? (await resolveVersion(config, config.remote?.version));
     if (version == null) {
       this.logger.error('Cannot get version of this Webview Bundle.');
       return 1;
     }
+
     const bundleName =
       this.bundleName ??
       (await resolveBundleName(config, config.remote?.bundleName, { file })) ??
@@ -178,14 +173,14 @@ This option can be used when the deploy options is enabled.`,
 
   private resolveFile(config: ResolvedConfig): string | undefined {
     if (this.file != null) {
-      return this.file;
+      return withWvbExtension(this.file);
     }
     const defaultFile = resolveOutFileName(config);
     if (defaultFile != null) {
       if (path.isAbsolute(defaultFile)) {
-        return defaultFile;
+        return withWvbExtension(defaultFile);
       }
-      return path.join(resolveOutDir(config), defaultFile);
+      return withWvbExtension(path.join(resolveOutDir(config), defaultFile));
     }
     return undefined;
   }
