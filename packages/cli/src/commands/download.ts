@@ -114,7 +114,7 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       : null;
     const remote = new Remote(endpoint, {
       onDownload: data => {
-        if (progress?.isActive !== true) {
+        if (progress?.isActive !== true && data.totalBytes != null) {
           progress?.start(data.totalBytes, data.downloadedBytes);
         } else {
           progress?.update(data.downloadedBytes);
