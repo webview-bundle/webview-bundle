@@ -77,7 +77,7 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
   const progressBars = new Map<string, SingleBar>();
   remote = new Remote(remoteEndpoint, {
     onDownload: ({ downloadedBytes, totalBytes, endpoint }) => {
-      if (progress == null) {
+      if (progress == null || totalBytes == null) {
         return;
       }
       const bundleName = findBundleNameFromEndpoint(endpoint);

@@ -102,7 +102,7 @@ impl Remote {
 
   pub fn on_download<F>(mut self, on_download: F) -> Self
   where
-    F: Fn(u64, u64, String) + Send + Sync + 'static,
+    F: Fn(u64, Option<u64>, String) + Send + Sync + 'static,
   {
     self.builder = self.builder.on_download(on_download);
     self

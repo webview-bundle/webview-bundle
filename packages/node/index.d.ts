@@ -1381,7 +1381,7 @@ export interface RemoteBundleInfo {
  */
 export interface RemoteOnDownloadData {
   downloadedBytes: number
-  totalBytes: number
+  totalBytes?: number
   endpoint: string
 }
 
