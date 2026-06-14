@@ -17,3 +17,8 @@ wvb       = { workspace = true, features = ["source", "protocol", "protocol-loca
 
 [build-dependencies]
 tauri-plugin = { workspace = true, features = ["build"] }
+
+# Resolver-only pin (never compiled): brotli 8.0.3 (pulled via tauri) needs alloc-no-stdlib 2.x,
+# but alloc-stdlib 0.2.3 widened its requirement to allow the incompatible alloc-no-stdlib 3.0.0,
+[target.'cfg(any())'.dependencies]
+alloc-no-stdlib = "=2.0.4"
