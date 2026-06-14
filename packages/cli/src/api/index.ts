@@ -2,7 +2,7 @@ export type { BuiltinParams } from './builtin.js';
 export { builtin } from './builtin.js';
 export type { ExtractParams } from './extract.js';
 export { extract } from './extract.js';
-export type { PackParams } from './pack.js';
+export type { PackParams, PackResult } from './pack.js';
 export { pack } from './pack.js';
 export type { LocalRemoteInstance, LocalRemoteParams } from './remote/local.js';
 export { localRemote } from './remote/local.js';
