@@ -7,6 +7,9 @@ const config: UserConfig = defineConfig({
   target: 'node18',
   dts: true,
   clean: true,
+  deps: {
+    onlyBundle: false,
+  },
 });
 
 export { config as default };

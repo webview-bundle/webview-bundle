@@ -3,7 +3,7 @@ import { Command, Option } from 'clipanion';
 import { isNotNil } from 'es-toolkit';
 import { isBoolean } from 'typanion';
 import { pack } from '../api/pack.js';
-import { resolveConfig, resolveOutDir, resolveOutFile } from '../config.js';
+import { resolveConfig, resolveOutDir, resolveOutFileName } from '../config.js';
 import { BaseCommand } from './base.js';
 
 export class PackCommand extends BaseCommand {
@@ -23,13 +23,13 @@ export class PackCommand extends BaseCommand {
   readonly outFile = Option.String('--outfile,--out-file,-O', {
     description: `Outfile name to create Webview Bundle archive.
 If not provided, default to name field in "package.json" with normalized.
-If extension not set, will automatically add extension (\`.wvb\`)`,
+If extension is not set, will automatically append ".wvb" extension.`,
   });
   readonly outDir = Option.String('--outdir,--out-dir', {
-    description: "Output directory for Webview Bundle archive. If not provided, default to '.wvb'",
+    description: 'Output directory for Webview Bundle archive. [Default: "./.wvb"]',
   });
   readonly ignores = Option.Array('--ignore', {
-    description: 'Ignore patterns.',
+    description: 'Ignore patterns. Glob supported.',
   });
   readonly headers = Option.Array('--header,-H', {
     description: `Headers to set for each file.
@@ -60,14 +60,8 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       root: this.cwd,
       configFile: this.configFile,
     });
-    const srcDir = this.srcDir ?? config.pack?.srcDir;
-    if (srcDir == null) {
-      this.logger.error(
-        'Source directory is not specified. Set "pack.srcDir" in the config file or pass [SRC_DIR] as a CLI argument.'
-      );
-      return 1;
-    }
-    const outFile = this.outFile ?? resolveOutFile(config);
+    const srcDir = this.srcDir ?? config.pack?.srcDir ?? './dist';
+    const outFile = this.outFile ?? resolveOutFileName(config);
     if (outFile == null) {
       this.logger.error(
         'Out file is not specified. Set "pack.outFile" in the config file or pass "--outfile,--out-file,-O" as a CLI argument.'

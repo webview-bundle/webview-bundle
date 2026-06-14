@@ -1,6 +1,7 @@
 export type { BundleMetadataFile } from './bundles.js';
 export {
   BundleMetadataFileSchema,
+  getBundleFileSize,
   readBundleMetadata,
   readBundleStream,
   writeBundle,

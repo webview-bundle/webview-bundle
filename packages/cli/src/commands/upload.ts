@@ -1,16 +1,18 @@
 import path from 'node:path';
 import { Command, Option } from 'clipanion';
 import { isBoolean } from 'typanion';
+import { pack } from '../api/pack.js';
 import { remoteUpload } from '../api/upload.js';
 import {
   type ResolvedConfig,
   resolveBundleName,
   resolveConfig,
   resolveOutDir,
-  resolveOutFile,
+  resolveOutFileName,
   resolveVersion,
 } from '../config.js';
 import { c } from '../console.js';
+import { withWvbExtension } from '../fs.js';
 import { buildURL } from '../utils/url.js';
 import { BaseCommand } from './base.js';
 
@@ -62,6 +64,11 @@ The upload process includes:
     description: `Release channel to manage and distribute different stability versions. (e.g. "beta", "alpha")
 This option can be used when the deploy options is enabled.`,
   });
+  readonly pack = Option.String('--pack,-P', {
+    tolerateBoolean: true,
+    validator: isBoolean(),
+    description: 'Pack the bundle before upload. [Default: true]',
+  });
   readonly skipIntegrity = Option.String('--skip-integrity', false, {
     tolerateBoolean: true,
     validator: isBoolean(),
@@ -97,21 +104,43 @@ This option can be used when the deploy options is enabled.`,
       );
       return 1;
     }
+
     const file = this.resolveFile(config);
     if (file == null) {
       this.logger.error(
-        'Webview Bundle file is not specified. Set "outFile" in the config file ' +
+        'Webview Bundle file is not specified. Set "pack.outFileName" in the config file ' +
           'or pass "--file,-F" as a CLI argument.'
       );
       return 1;
     }
-    const version = this.version ?? (await resolveVersion(config));
+
+    const packBeforeUpload = this.pack ?? config.remote?.packBeforeUpload ?? true;
+    if (packBeforeUpload) {
+      const srcDir = config.pack?.srcDir ?? './dist';
+      const outDir = resolveOutDir(config);
+      const overwrite = config.pack?.overwrite ?? true;
+      await pack({
+        srcDir,
+        outFile: file,
+        outDir,
+        overwrite,
+        write: true,
+        cwd: config.root,
+        logLevel: this.logLevel,
+        logger: this.logger,
+      });
+    }
+
+    const version = this.version ?? (await resolveVersion(config, config.remote?.version));
     if (version == null) {
       this.logger.error('Cannot get version of this Webview Bundle.');
       return 1;
     }
+
     const bundleName =
-      this.bundleName ?? (await resolveBundleName(config)) ?? path.basename(file, '.wvb');
+      this.bundleName ??
+      (await resolveBundleName(config, config.remote?.bundleName, { file })) ??
+      path.basename(file, '.wvb');
 
     await remoteUpload({
       file,
@@ -144,14 +173,14 @@ This option can be used when the deploy options is enabled.`,
 
   private resolveFile(config: ResolvedConfig): string | undefined {
     if (this.file != null) {
-      return this.file;
+      return withWvbExtension(this.file);
     }
-    const defaultFile = resolveOutFile(config);
+    const defaultFile = resolveOutFileName(config);
     if (defaultFile != null) {
       if (path.isAbsolute(defaultFile)) {
-        return defaultFile;
+        return withWvbExtension(defaultFile);
       }
-      return path.join(resolveOutDir(config), defaultFile);
+      return withWvbExtension(path.join(resolveOutDir(config), defaultFile));
     }
     return undefined;
   }

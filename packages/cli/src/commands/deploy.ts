@@ -51,12 +51,13 @@ If no channel is specified, the bundle is deployed to the default channel.
       root: this.cwd,
       configFile: this.configFile,
     });
-    const bundleName = this.bundleName ?? (await resolveBundleName(config));
+    const bundleName =
+      this.bundleName ?? (await resolveBundleName(config, config.remote?.bundleName));
     if (bundleName == null) {
       this.logger.error('"bundleName" is required for remote operations.');
       return 1;
     }
-    const version = this.version ?? (await resolveVersion(config));
+    const version = this.version ?? (await resolveVersion(config, config.remote?.version));
     if (version == null) {
       this.logger.error('Cannot get version of this Webview Bundle.');
       return 1;

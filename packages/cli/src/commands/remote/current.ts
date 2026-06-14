@@ -67,7 +67,8 @@ Use \`remote download\` if you need the actual bundle file.
       this.logger.error('"endpoint" is required for remote operations.');
       return 1;
     }
-    const bundleName = this.bundleName ?? (await resolveBundleName(config));
+    const bundleName =
+      this.bundleName ?? (await resolveBundleName(config, config.remote?.bundleName));
     if (bundleName == null) {
       this.logger.error('"bundleName" is required for remote operations.');
       return 1;

@@ -11,25 +11,26 @@ export class BuiltinCommand extends BaseCommand {
 
   static paths = [['builtin']];
   static usage = Command.Usage({
-    description: 'Install builtin webview bundles from remote.',
+    description: 'Install builtin webview bundles from remote or local files.',
     examples: [['A basic usage', '$0 builtin']],
   });
 
   readonly out = Option.String('--out,-O', {
-    description: 'Output directory path. [Default: ".wvb/builtin/bundles"]',
+    description: 'Output directory path. [Default: "./.wvb/builtin/bundles"]',
   });
   readonly endpoint = Option.String('--endpoint,-E', {
-    description: 'Endpoint of remote server.',
+    description: `Remote endpoint of remote server.
+This option is only used when the target is "remote".`,
   });
   readonly channel = Option.String('--channel', {
-    description:
-      'Release channel to manage and distribute different stability versions. (e.g. "beta", "alpha")',
+    description: `Release channel to manage and distribute different stability versions. (e.g. "beta", "alpha")
+This option is only used when the target is "remote".`,
   });
   readonly include = Option.Array('--include', {
-    description: 'Patterns to which bundles should be included from remote bundles.',
+    description: 'Patterns to which bundles should be included from target bundles.',
   });
   readonly exclude = Option.Array('--exclude', {
-    description: 'Patterns to which bundles should be excluded from remote bundles.',
+    description: 'Patterns to which bundles should be excluded from target bundles.',
   });
   readonly write = Option.String('--write', true, {
     tolerateBoolean: true,
@@ -43,14 +44,17 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
     validator: isBoolean(),
     description: 'Clean up builtin directory before the operation. [Default: true]',
   });
-  readonly concurrency = Option.String('--concurrency', {
+  readonly downloadConcurrency = Option.String('--concurrency', {
     validator: cascade(isNumber(), [isInteger()]),
-    description: 'Concurrency of the download bundles.',
+    description: `Concurrency of the download bundles.
+This option is only used when the target is "remote".`,
   });
   readonly progress = Option.String('--progress', true, {
     tolerateBoolean: true,
     validator: isBoolean(),
-    description: 'Show download progress bar. [Default: true]',
+    description: `Show download progress bar.
+This option is only used when the target is "remote".
+[Default: true]`,
   });
   readonly configFile = Option.String('--config,-C', {
     description: 'Path to the config file.',
@@ -64,18 +68,29 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       root: this.cwd,
       configFile: this.configFile,
     });
-    const endpoint = this.endpoint ?? config.remote?.endpoint;
-    if (endpoint == null) {
-      this.logger.error('"endpoint" is required for remote operations.');
-      return 1;
+    const target = config.builtin?.target ?? { type: 'remote' };
+
+    if (target.type === 'remote') {
+      target.endpoint ??= this.endpoint ?? config.remote?.endpoint;
+
+      if (target.endpoint == null) {
+        this.logger.error('Remote endpoint is required for remote target.');
+        return 1;
+      }
+
+      if (this.downloadConcurrency != null) {
+        target.download ??= {};
+        target.download.concurrency = this.downloadConcurrency;
+      }
     }
-    const dir =
-      this.out ?? config.builtin?.outDir ?? path.join(config.root ?? '.wvb', 'builtin', 'bundles');
+
+    const dir = this.out ?? config.builtin?.outDir ?? path.join('.wvb', 'builtin', 'bundles');
     const include = [this.include, config.builtin?.include].filter(isNotNil);
     const exclude = [this.exclude, config.builtin?.exclude].filter(isNotNil);
     const clean = this.clean ?? config.builtin?.clean ?? true;
+
     await builtin({
-      remoteEndpoint: endpoint,
+      target,
       dir,
       include,
       exclude,
@@ -83,8 +98,8 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       clean,
       write: this.write,
       cwd: config.root,
+      logLevel: this.logLevel,
       logger: this.logger,
-      downloadConcurrency: this.concurrency,
       progress: this.progress,
     });
   }

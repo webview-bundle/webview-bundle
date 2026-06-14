@@ -2,13 +2,18 @@ import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Config } from '@wvb/config';
+import type {
+  BundleInfoResolverParams,
+  BundleNameResolver,
+  Config,
+  PackageJson,
+  VersionResolver,
+} from '@wvb/config';
 import { DEFAULT_CONFIG_FILES } from './constants.js';
 import {
   findNearestPackageJson,
   findNearestPackageJsonFilePath,
   isEsmFile,
-  type PackageJson,
   pathExists,
 } from './fs.js';
 import { isNodeBuiltin } from './module.js';
@@ -171,7 +176,7 @@ export interface ResolvedConfig
       configFile: string | undefined;
       configFileDependencies: string[] | undefined;
       inlineConfig: InlineConfig;
-      packageJson: PackageJson | null;
+      packageJson: PackageJson | undefined;
     }
   > {}
 
@@ -200,38 +205,62 @@ export async function resolveConfig(inlineConfig: InlineConfig): Promise<Resolve
   return resolved;
 }
 
-export function resolveOutFile(config: ResolvedConfig): string | undefined {
-  if (config.pack?.outFile != null) {
-    return config.pack.outFile;
+export function resolveOutFileName(config: ResolvedConfig): string | undefined {
+  if (config.pack?.outFileName != null) {
+    return config.pack.outFileName;
   }
   const pkgName = config.packageJson?.name;
   if (pkgName != null) {
-    const name = pkgName.includes('/') ? pkgName.split('/')[1]! : pkgName;
-    return name;
+    return getDefaultBundleName(pkgName);
   }
   return undefined;
 }
 
-export function resolveOutDir(config: ResolvedConfig): string {
-  return config.pack?.outDir ?? '.wvb';
+function getDefaultBundleName(pkgName: string): string {
+  const name = pkgName.includes('/') ? pkgName.split('/')[1]! : pkgName;
+  return name;
 }
 
-export async function resolveVersion(config: ResolvedConfig): Promise<string | undefined> {
-  if (typeof config.remote?.version === 'function') {
-    return await config.remote.version();
+export function resolveOutDir(config: ResolvedConfig): string {
+  return config.pack?.outDir ?? './.wvb';
+}
+
+export async function resolveVersion(
+  config: ResolvedConfig,
+  version: VersionResolver | undefined,
+  params?: Partial<BundleInfoResolverParams>
+): Promise<string | undefined> {
+  if (typeof version === 'function') {
+    return version({
+      packageJson: config.packageJson,
+      dir: config.root,
+      ...params,
+    });
   }
-  if (typeof config.remote?.version === 'string') {
-    return config.remote.version;
+  if (typeof version === 'string') {
+    return version;
   }
   return config.packageJson?.version;
 }
 
-export async function resolveBundleName(config: ResolvedConfig): Promise<string | undefined> {
-  if (typeof config.remote?.bundleName === 'function') {
-    return await config.remote.bundleName();
+export async function resolveBundleName(
+  config: ResolvedConfig,
+  bundleName: BundleNameResolver | undefined,
+  params?: Partial<BundleInfoResolverParams>
+): Promise<string | undefined> {
+  if (typeof bundleName === 'function') {
+    return bundleName({
+      packageJson: config.packageJson,
+      dir: config.root,
+      ...params,
+    });
   }
-  if (typeof config.remote?.bundleName === 'string') {
-    return config.remote.bundleName;
+  if (typeof bundleName === 'string') {
+    return bundleName;
+  }
+  const pkgName = config.packageJson?.name;
+  if (pkgName != null) {
+    return getDefaultBundleName(pkgName);
   }
   return undefined;
 }

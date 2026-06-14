@@ -111,8 +111,7 @@ export async function configureLogger(options?: ConfigureLoggerOptions) {
       console: getConsoleSink({
         formatter(record: LogRecord): readonly unknown[] {
           const { category, message, level, timestamp } = record;
-          const levelMsg = levelColor(record.level, `[${levelAbbreviations[level]}]`);
-          let prefixMsg = levelMsg;
+          let prefixMsg = levelColor(record.level, `[${levelAbbreviations[level]}]`);
           if (verbose) {
             const timestampMsg = levelColor(record.level, `[${formatTimestamp(timestamp)}]`);
             prefixMsg = `${timestampMsg}${prefixMsg}`;

@@ -36,7 +36,7 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
     version,
     uploader,
     force,
-    integrity: integrityConfig,
+    integrity: integrityConfig = true,
     signature: signatureConfig,
     logger,
     cwd = process.cwd(),
@@ -69,8 +69,9 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
   const size = buf.byteLength;
 
   let integrity: string | undefined;
-  if (integrityConfig != null && integrityConfig !== false) {
-    integrity = await makeIntegrity(integrityConfig === true ? {} : integrityConfig, buf);
+  if (integrityConfig !== false) {
+    const opts = typeof integrityConfig === 'boolean' ? {} : integrityConfig;
+    integrity = await makeIntegrity(opts, buf);
     logger?.info(`Integrity: ${integrity}`);
   } else {
     logger?.info('Skip integrity making.');
@@ -80,7 +81,7 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
   if (signatureConfig != null) {
     if (integrity == null) {
       const message =
-        'Cannot make signature without integrity. Make sure integrity making option is enabled.';
+        'Cannot make signature without integrity. Make sure integrity option is enabled.';
       logger?.error(message);
       throw new ApiError(message);
     }

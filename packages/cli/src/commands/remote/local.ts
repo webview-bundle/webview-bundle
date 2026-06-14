@@ -1,6 +1,6 @@
 import { Command, Option } from 'clipanion';
 import { cascade, isBoolean, isInExclusiveRange, isInteger, isNumber } from 'typanion';
-import { localRemote } from '../../api/remote/local.js';
+import { localRemote } from '../../api/index.js';
 import { isColorEnabled } from '../../console.js';
 import { BaseCommand } from '../base.js';
 

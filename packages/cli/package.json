@@ -47,12 +47,19 @@
     "build-js": "tsdown -c tsdown.config.ts",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "@wvb/remote-local-provider": "workspace:^"
+  },
+  "peerDependenciesMeta": {
+    "@wvb/remote-local-provider": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "@hono/node-server": "^1.19.13",
     "@logtape/logtape": "1.3.5",
     "@wvb/config": "workspace:^",
     "@wvb/node": "workspace:^",
-    "@wvb/remote-local-provider": "workspace:^",
     "ci-info": "^4.2.0",
     "cli-progress": "^3.12.0",
     "clipanion": "4.0.0-rc.4",
@@ -69,6 +76,7 @@
     "@types/cli-progress": "^3",
     "@types/node": "catalog:",
     "@types/picomatch": "^4",
+    "@wvb/remote-local-provider": "workspace:^",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
