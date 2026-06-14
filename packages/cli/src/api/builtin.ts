@@ -187,7 +187,7 @@ function buildProgress() {
     totalBytes,
     endpoint,
   }) => {
-    if (progress == null) {
+    if (progress == null || totalBytes == null) {
       return;
     }
     const bundleName = findBundleNameFromEndpoint(endpoint);

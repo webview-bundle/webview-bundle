@@ -477,6 +477,9 @@ fn is_valid_path_component(value: &str) -> bool {
     && value
       .chars()
       .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    // Windows strips a trailing `.`, which would collapse distinct names (e.g. "app." and "app")
+    // onto the same file. Reject it so resolved filepaths stay unambiguous across platforms.
+    && !value.ends_with('.')
     && !is_windows_reserved_name(value)
 }
 
@@ -544,6 +547,9 @@ mod tests {
       "prn",
       "nul.txt",
       "con.foo.bar",
+      // Trailing dot — Windows strips it, collapsing distinct names onto the same file.
+      "app.",
+      "1.0.0.",
     ] {
       assert!(!is_valid_path_component(bad), "{bad:?} should be invalid");
     }

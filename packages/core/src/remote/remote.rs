@@ -45,7 +45,7 @@ pub struct RemoteError {
   pub message: Option<String>,
 }
 
-type OnDownload = dyn Fn(u64, u64, String) + Send + Sync + 'static;
+type OnDownload = dyn Fn(u64, Option<u64>, String) + Send + Sync + 'static;
 
 /// Configuration for remote operations.
 #[derive(Default, Clone)]
@@ -84,7 +84,7 @@ impl RemoteBuilder {
   /// Set download progress callback.
   pub fn on_download<F>(mut self, on_download: F) -> Self
   where
-    F: Fn(u64, u64, String) + Send + Sync + 'static,
+    F: Fn(u64, Option<u64>, String) + Send + Sync + 'static,
   {
     self.config.on_download = Some(Arc::new(on_download));
     self
@@ -250,10 +250,13 @@ impl Remote {
       return Err(self.parse_err(resp).await);
     }
     let info = self.parse_info(&resp)?;
-    let total_size = resp.content_length().unwrap();
+    let total_size = resp.content_length();
     let mut stream = resp.bytes_stream();
     let mut downloaded_bytes: u64 = 0;
-    let mut data = Vec::with_capacity(total_size as usize);
+    let mut data = match total_size {
+      Some(size) => Vec::with_capacity(size as usize),
+      None => Vec::new(),
+    };
     while let Some(chunk_result) = stream.next().await {
       let chunk = chunk_result?;
       data.append(&mut chunk.to_vec());

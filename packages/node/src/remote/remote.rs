@@ -38,7 +38,7 @@ pub struct RemoteOptions {
 #[napi(object)]
 pub struct RemoteOnDownloadData {
   pub downloaded_bytes: u32,
-  pub total_bytes: u32,
+  pub total_bytes: Option<u32>,
   pub endpoint: String,
 }
 
@@ -171,7 +171,7 @@ impl Remote {
           let on_download_fn = Arc::clone(&on_download);
           let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
             downloaded_bytes: downloaded_bytes as u32,
-            total_bytes: total_bytes as u32,
+            total_bytes: total_bytes.map(|t| t as u32),
             endpoint,
           });
         });
