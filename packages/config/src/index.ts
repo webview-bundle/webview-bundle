@@ -1,4 +1,17 @@
-export type { BuiltinConfig, RemoteBundleMatches } from './builtin.js';
+export type { PackageJson } from 'type-fest';
+export type {
+  BuiltinBundleMatches,
+  BuiltinConfig,
+  BuiltinDownloadConfig,
+  BuiltinLocalTargetConfig,
+  BuiltinRemoteTargetConfig,
+  BuiltinTarget,
+} from './builtin.js';
+export type {
+  BundleInfoResolverParams,
+  BundleNameResolver,
+  VersionResolver,
+} from './common.js';
 export type {
   Config,
   ConfigInput,

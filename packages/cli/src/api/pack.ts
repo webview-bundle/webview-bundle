@@ -8,7 +8,7 @@ import pm from 'picomatch';
 import { glob } from 'tinyglobby';
 import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
-import { pathExists, toAbsolutePath, withWVBExtension } from '../fs.js';
+import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import { isLogLevelAtLeast, type Logger, type LogLevel } from '../log.js';
 import { ApiError } from './error.js';
 
@@ -25,10 +25,15 @@ export interface PackParams {
   logger?: Logger;
 }
 
+export interface PackResult {
+  outFilePath: string;
+  bundle: Bundle;
+}
+
 /**
  * Create Webview Bundle archive.
  */
-export async function pack(params: PackParams): Promise<Bundle> {
+export async function pack(params: PackParams): Promise<PackResult> {
   const {
     srcDir: srcDirInput,
     outFile: outFileInput,
@@ -77,14 +82,14 @@ export async function pack(params: PackParams): Promise<Bundle> {
   }
 
   const outDir = toAbsolutePath(outDirInput, cwd);
-  const outFilePath = withWVBExtension(
+  const outFilePath = withWvbExtension(
     path.isAbsolute(outFileInput) ? outFileInput : path.join(outDir, outFileInput)
   );
   const displayOutFile = path.relative(cwd, outFilePath);
 
   const bundle = builder.build();
   if (!write) {
-    return bundle;
+    return { outFilePath, bundle };
   }
   if (!overwrite) {
     if (await pathExists(outFilePath)) {
@@ -98,7 +103,7 @@ export async function pack(params: PackParams): Promise<Bundle> {
   logger?.info(
     `Output: ${c.bold(c.success(displayOutFile))} ${c.bytes(formatByteLength(Number(size)))}`
   );
-  return bundle;
+  return { outFilePath, bundle };
 }
 
 async function isFileIgnored(file: string, ignoreInputs: IgnoreConfig[]): Promise<boolean> {

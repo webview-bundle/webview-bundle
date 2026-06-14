@@ -1,7 +1,7 @@
 import { Command, Option } from 'clipanion';
 import { cascade, isBoolean, isInExclusiveRange, isInteger, isNumber } from 'typanion';
 import { serve } from '../api/serve.js';
-import { resolveConfig, resolveOutFile } from '../config.js';
+import { resolveConfig, resolveOutFileName } from '../config.js';
 import { isColorEnabled } from '../console.js';
 import { BaseCommand } from './base.js';
 
@@ -48,7 +48,7 @@ export class ServeCommand extends BaseCommand {
       root: this.cwd,
       configFile: this.configFile,
     });
-    const file = this.file ?? resolveOutFile(config);
+    const file = this.file ?? resolveOutFileName(config);
     if (file == null) {
       this.logger.error(
         'Webview Bundle file is not specified. Set "serve.file" in the config file ' +
