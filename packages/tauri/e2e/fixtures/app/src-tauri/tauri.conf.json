@@ -10,7 +10,7 @@
         "title": "wvb-tauri-e2e",
         "width": 1024,
         "height": 768,
-        "url": "bundle://next.wvb"
+        "url": "bundle://hacker-news.wvb"
       }
     ],
     "security": {

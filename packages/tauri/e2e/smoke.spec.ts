@@ -4,8 +4,10 @@ import net from 'node:net';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { Builder, By, until, type WebDriver } from 'selenium-webdriver';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { createSeleniumDriver } from '@wvb-playground/testing/selenium';
+import { testCases } from '@wvb-playground/webview-hacker-news/testing';
+import { Builder, type WebDriver } from 'selenium-webdriver';
+import { afterAll, beforeAll, describe, test } from 'vitest';
 
 async function waitForPort(port: number, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -28,16 +30,21 @@ async function waitForPort(port: number, timeoutMs: number): Promise<void> {
 
 // NOTE: tauri-driver only supports Linux and Windows — this suite cannot run on macOS.
 // It expects `tauri-driver` (cargo install tauri-driver) and, on Linux, `WebKitWebDriver`
-// (webkit2gtk) to be on PATH, and the app binary to be built (see the `e2e` script).
+// (webkit2gtk) to be on PATH. The fixture app binary is built automatically by `global-setup.ts`
+// (`cargo build --release`) before the suite runs.
 function isDriverSupported(): boolean {
   return process.platform === 'linux' || process.platform === 'win32';
 }
 
-describe('bundle protocol', { skip: !isDriverSupported() }, () => {
+// The fixture app registers the `bundle://` protocol against the committed builtin bundles
+// (see fixtures/app/bundles) and opens a window at `bundle://hacker-news.wvb`. Each shared,
+// platform-agnostic case from `@wvb-playground/webview-hacker-news/testing` then drives that window
+// through a Selenium-backed `WebviewDriver` (over `tauri-driver`), asserting the Hacker News demo
+// behaves the same served through the bundle protocol as on every other platform.
+describe('smoke', { skip: !isDriverSupported() }, () => {
   const dirname = path.dirname(fileURLToPath(import.meta.url));
   const appDir = path.join(dirname, 'fixtures', 'app');
   const bundlesDir = path.join(appDir, 'bundles');
-  const indexUrl = 'bundle://next.wvb';
 
   const binaryName = process.platform === 'win32' ? 'wvb-tauri-e2e-app.exe' : 'wvb-tauri-e2e-app';
   const binaryPath = path.join(appDir, 'src-tauri', 'target', 'release', binaryName);
@@ -48,7 +55,7 @@ describe('bundle protocol', { skip: !isDriverSupported() }, () => {
   beforeAll(async () => {
     if (!existsSync(binaryPath)) {
       throw new Error(
-        `Tauri app binary not found: ${binaryPath}\nBuild it first with \`yarn e2e\` (or \`yarn e2e-build\`).`
+        `Tauri app binary not found: ${binaryPath}\nIt is normally built by global-setup.ts; run \`cargo build --release\` in fixtures/app/src-tauri to build it manually.`
       );
     }
 
@@ -83,31 +90,16 @@ describe('bundle protocol', { skip: !isDriverSupported() }, () => {
     }
   });
 
-  test('serves the Next.js SSG bundle through the bundle:// protocol', async () => {
-    if (driver == null) {
-      throw new Error('WebDriver session was not created');
-    }
-
-    const heading = await driver.wait(until.elementLocated(By.css('h1')), 30_000);
-    await driver.wait(until.elementTextContains(heading, 'Pagination with SSG'), 30_000);
-    expect(await heading.getText()).toContain('Pagination with SSG');
-    expect(await driver.getTitle()).toContain('Pagination with SSG');
-  }, 60_000);
-
-  test('navigates between bundle pages via in-app links', async () => {
-    if (driver == null) {
-      throw new Error('WebDriver session was not created');
-    }
-
-    await driver.get(indexUrl);
-    await driver.wait(until.elementLocated(By.css('a[href="/category"]')), 30_000);
-
-    await (await driver.findElement(By.css('a[href="/category"]'))).click();
-    await driver.wait(until.urlContains('/category'), 30_000);
-    await driver.wait(until.elementLocated(By.css('a[href="/category/2/"]')), 30_000);
-
-    await (await driver.findElement(By.css('a[href="/category/2/"]'))).click();
-    await driver.wait(until.urlContains('/category/2'), 30_000);
-    await driver.wait(until.elementLocated(By.css('a[href="/category/1/"]')), 30_000);
-  }, 60_000);
+  for (const testCase of testCases) {
+    test(testCase.name, async () => {
+      if (driver == null) {
+        throw new Error('WebDriver session was not created');
+      }
+      const webviewDriver = createSeleniumDriver(driver, {
+        baseURL: 'bundle://hacker-news.wvb',
+        defaultTimeoutMs: 30_000,
+      });
+      await testCase.run(webviewDriver);
+    }, 60_000);
+  }
 });
