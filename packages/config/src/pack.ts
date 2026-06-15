@@ -18,15 +18,15 @@ export interface PackConfig {
    */
   srcDir?: string;
   /**
-   * Directory that out-file should be created.
-   * @default "./.wvb"
+   * Output path for the Webview Bundle archive.
+   *
+   * Resolved relative to the config root (or used as-is when absolute).
+   * The ".wvb" extension is appended automatically when omitted.
+   *
+   * If not provided, defaults to ".wvb/<name>", where `<name>` is derived from
+   * the "name" field in "package.json" (scope stripped).
    */
-  outDir?: string;
-  /**
-   * Outfile name to create Webview Bundle archive.
-   * If not provided, default to name field in "package.json" with normalized.
-   */
-  outFileName?: string;
+  outFile?: string;
   /**
    * Overwrite out-file if file is already exists
    * @default true

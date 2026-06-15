@@ -7,8 +7,7 @@ import {
   type ResolvedConfig,
   resolveBundleName,
   resolveConfig,
-  resolveOutDir,
-  resolveOutFileName,
+  resolveOutFile,
   resolveVersion,
 } from '../config.js';
 import { c } from '../console.js';
@@ -108,7 +107,7 @@ This option can be used when the deploy options is enabled.`,
     const file = this.resolveFile(config);
     if (file == null) {
       this.logger.error(
-        'Webview Bundle file is not specified. Set "pack.outFileName" in the config file ' +
+        'Webview Bundle file is not specified. Set "pack.outFile" in the config file ' +
           'or pass "--file,-F" as a CLI argument.'
       );
       return 1;
@@ -117,12 +116,10 @@ This option can be used when the deploy options is enabled.`,
     const packBeforeUpload = this.pack ?? config.remote?.packBeforeUpload ?? true;
     if (packBeforeUpload) {
       const srcDir = config.pack?.srcDir ?? './dist';
-      const outDir = resolveOutDir(config);
       const overwrite = config.pack?.overwrite ?? true;
       await pack({
         srcDir,
         outFile: file,
-        outDir,
         overwrite,
         write: true,
         cwd: config.root,
@@ -175,13 +172,7 @@ This option can be used when the deploy options is enabled.`,
     if (this.file != null) {
       return withWvbExtension(this.file);
     }
-    const defaultFile = resolveOutFileName(config);
-    if (defaultFile != null) {
-      if (path.isAbsolute(defaultFile)) {
-        return withWvbExtension(defaultFile);
-      }
-      return withWvbExtension(path.join(resolveOutDir(config), defaultFile));
-    }
-    return undefined;
+    const outFile = resolveOutFile(config);
+    return outFile != null ? withWvbExtension(outFile) : undefined;
   }
 }

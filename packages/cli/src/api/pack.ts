@@ -14,7 +14,10 @@ import { ApiError } from './error.js';
 
 export interface PackParams {
   srcDir: string;
-  outDir: string;
+  /**
+   * Output path for the archive, relative to `cwd` (or absolute).
+   * The ".wvb" extension is appended automatically when omitted.
+   */
   outFile: string;
   ignores?: IgnoreConfig[];
   headers?: HeadersConfig[];
@@ -37,7 +40,6 @@ export async function pack(params: PackParams): Promise<PackResult> {
   const {
     srcDir: srcDirInput,
     outFile: outFileInput,
-    outDir: outDirInput,
     ignores,
     headers,
     write = true,
@@ -81,10 +83,7 @@ export async function pack(params: PackParams): Promise<PackResult> {
     builder.insertEntry(withSlash(file), data, undefined, headers);
   }
 
-  const outDir = toAbsolutePath(outDirInput, cwd);
-  const outFilePath = withWvbExtension(
-    path.isAbsolute(outFileInput) ? outFileInput : path.join(outDir, outFileInput)
-  );
+  const outFilePath = withWvbExtension(toAbsolutePath(outFileInput, cwd));
   const displayOutFile = path.relative(cwd, outFilePath);
 
   const bundle = builder.build();
