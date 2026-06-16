@@ -52,8 +52,8 @@
   "devDependencies": {
     "@playwright/test": "1.60.0",
     "@types/node": "catalog:",
-    "@wvb-playground/testing": "^0.0.0",
-    "@wvb-playground/webview-hacker-news": "^0.0.0",
+    "@wvb-playground/testing": "0.0.1",
+    "@wvb-playground/webview-hacker-news": "0.0.0",
     "electron": "^42.2.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",
