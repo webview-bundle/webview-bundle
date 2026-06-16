@@ -205,13 +205,21 @@ export async function resolveConfig(inlineConfig: InlineConfig): Promise<Resolve
   return resolved;
 }
 
-export function resolveOutFileName(config: ResolvedConfig): string | undefined {
-  if (config.pack?.outFileName != null) {
-    return config.pack.outFileName;
+/**
+ * Resolve the output path for the packed Webview Bundle.
+ *
+ * Returns the configured `pack.outFile` as-is, otherwise falls back to
+ * ".wvb/<name>" derived from "package.json". The path is relative to the config
+ * root (unless absolute) and has no ".wvb" extension forced here — callers apply
+ * `withWvbExtension`/`toAbsolutePath` as needed.
+ */
+export function resolveOutFile(config: ResolvedConfig): string | undefined {
+  if (config.pack?.outFile != null) {
+    return config.pack.outFile;
   }
   const pkgName = config.packageJson?.name;
   if (pkgName != null) {
-    return getDefaultBundleName(pkgName);
+    return path.join('.wvb', getDefaultBundleName(pkgName));
   }
   return undefined;
 }
@@ -219,10 +227,6 @@ export function resolveOutFileName(config: ResolvedConfig): string | undefined {
 function getDefaultBundleName(pkgName: string): string {
   const name = pkgName.includes('/') ? pkgName.split('/')[1]! : pkgName;
   return name;
-}
-
-export function resolveOutDir(config: ResolvedConfig): string {
-  return config.pack?.outDir ?? './.wvb';
 }
 
 export async function resolveVersion(

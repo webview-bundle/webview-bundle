@@ -3,7 +3,7 @@ import { Command, Option } from 'clipanion';
 import { isNotNil } from 'es-toolkit';
 import { isBoolean } from 'typanion';
 import { pack } from '../api/pack.js';
-import { resolveConfig, resolveOutDir, resolveOutFileName } from '../config.js';
+import { resolveConfig, resolveOutFile } from '../config.js';
 import { BaseCommand } from './base.js';
 
 export class PackCommand extends BaseCommand {
@@ -13,7 +13,7 @@ export class PackCommand extends BaseCommand {
     description: 'Pack webview bundle archive.',
     examples: [
       ['A basic usage', '$0 pack ./dist'],
-      ['Specify outfile path', '$0 pack ./dist --outfile ./dist.wvb'],
+      ['Specify outfile path', '$0 pack ./dist --outfile ./out/app.wvb'],
       ['Ignore files with patterns', `$0 pack ./dist --ignore='*.txt' --ignore='node_modules/**'`],
       ['Set headers for files', `$0 pack ./dist --header='*.html' 'cache-control' 'max-age=3600'`],
     ],
@@ -21,12 +21,9 @@ export class PackCommand extends BaseCommand {
 
   readonly srcDir = Option.String({ name: 'SRC_DIR', required: false });
   readonly outFile = Option.String('--outfile,--out-file,-O', {
-    description: `Outfile name to create Webview Bundle archive.
-If not provided, default to name field in "package.json" with normalized.
+    description: `Output path for the Webview Bundle archive (relative to cwd, or absolute).
+If not provided, defaults to ".wvb/<name>" where <name> comes from the "name" field in "package.json".
 If extension is not set, will automatically append ".wvb" extension.`,
-  });
-  readonly outDir = Option.String('--outdir,--out-dir', {
-    description: 'Output directory for Webview Bundle archive. [Default: "./.wvb"]',
   });
   readonly ignores = Option.Array('--ignore', {
     description: 'Ignore patterns. Glob supported.',
@@ -61,19 +58,17 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
       configFile: this.configFile,
     });
     const srcDir = this.srcDir ?? config.pack?.srcDir ?? './dist';
-    const outFile = this.outFile ?? resolveOutFileName(config);
+    const outFile = this.outFile ?? resolveOutFile(config);
     if (outFile == null) {
       this.logger.error(
         'Out file is not specified. Set "pack.outFile" in the config file or pass "--outfile,--out-file,-O" as a CLI argument.'
       );
       return 1;
     }
-    const outDir = this.outDir ?? resolveOutDir(config);
     const overwrite = this.overwrite ?? config.pack?.overwrite ?? true;
     await pack({
       srcDir,
       outFile,
-      outDir,
       ignores: [this.ignores, config.pack?.ignore].filter(isNotNil),
       headers: [
         config.pack?.headers,

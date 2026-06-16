@@ -26,8 +26,7 @@ import {
   type ResolvedConfig,
   resolveBundleName,
   resolveConfig,
-  resolveOutDir,
-  resolveOutFileName,
+  resolveOutFile,
   resolveVersion,
 } from '../config.js';
 import { c } from '../console.js';
@@ -247,18 +246,15 @@ async function* loadLocalBundles(
   for (const w of resolvedWorkspaces) {
     let bundle: Bundle;
 
-    const outFile = resolveOutFileName(w.config);
-    const outDir = resolveOutDir(w.config);
+    const outFile = resolveOutFile(w.config);
 
     if (outFile == null) {
-      const message = `Out file is not specified. Set "pack.outFileName" in the config file. (from "${w.dir}" workspace)`;
+      const message = `Out file is not specified. Set "pack.outFile" in the config file. (from "${w.dir}" workspace)`;
       options.logger?.error(message);
       throw new ApiError(message);
     }
 
-    const outFilePath = withWvbExtension(
-      path.isAbsolute(outFile) ? outFile : path.join(w.config.root, outDir, outFile)
-    );
+    const outFilePath = withWvbExtension(toAbsolutePath(outFile, w.config.root));
 
     const bundleName = await resolveBundleName(w.config, target.bundleName, {
       file: outFilePath,
@@ -301,7 +297,6 @@ async function* loadLocalBundles(
       const packResult = await pack({
         srcDir,
         outFile,
-        outDir,
         overwrite,
         // Honor the caller's `write` flag so `--no-write` is a true simulation (pack still builds the
         // bundle in memory, it just doesn't touch disk).
