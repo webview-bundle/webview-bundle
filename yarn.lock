@@ -3762,13 +3762,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@protobufjs/inquire@npm:^1.1.2":
-  version: 1.1.2
-  resolution: "@protobufjs/inquire@npm:1.1.2"
-  checksum: 10c0/af69597818a14cac6a00a74cd5b3fb85aa96658b9dbbae73e6d907cb154ebf470953a8c537b3e6095a43de565ec4e6c5b40227c72f4a7d762d34fbec7ac179e7
-  languageName: node
-  linkType: hard
-
 "@protobufjs/path@npm:^1.1.2":
   version: 1.1.2
   resolution: "@protobufjs/path@npm:1.1.2"
@@ -5409,7 +5402,7 @@ __metadata:
     cli-progress: "npm:^3.12.0"
     clipanion: "npm:4.0.0-rc.4"
     es-toolkit: "npm:^1.43.0"
-    hono: "npm:^4.12.21"
+    hono: "npm:^4.12.25"
     kleur: "npm:^4.1.5"
     picomatch: "npm:^4.0.4"
     rolldown: "npm:1.0.0-beta.51"
@@ -5571,7 +5564,7 @@ __metadata:
     "@wvb/node-win32-ia32-msvc": "workspace:^"
     "@wvb/node-win32-x64-msvc": "workspace:^"
     get-port: "npm:^7.1.0"
-    hono: "npm:^4.12.21"
+    hono: "npm:^4.12.25"
     tinyglobby: "npm:^0.2.14"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -5631,7 +5624,7 @@ __metadata:
     "@types/aws-lambda": "npm:^8.10.159"
     "@types/node": "catalog:"
     aws-lambda: "npm:^1.0.7"
-    hono: "npm:^4.12.21"
+    hono: "npm:^4.12.25"
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -5704,7 +5697,7 @@ __metadata:
   dependencies:
     "@types/node": "catalog:"
     "@wvb/remote-local": "workspace:^"
-    hono: "npm:^4.12.21"
+    hono: "npm:^4.12.25"
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
@@ -8567,10 +8560,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"hono@npm:^4.12.21":
-  version: 4.12.23
-  resolution: "hono@npm:4.12.23"
-  checksum: 10c0/58945bb3aeb16d710b4a6c2809ba02b86b7269f6a3a67e126fc81cee5e9ae8ad2d9aa553db03c4f1a104ec03e423072e33932cb23eb3bbc48774acc72fc9c346
+"hono@npm:^4.12.25":
+  version: 4.12.25
+  resolution: "hono@npm:4.12.25"
+  checksum: 10c0/9216d647fe2f39b17855b0e74913688b837e3fa9519d367c7beeec399265b36608a820928cc33ab926eee58fe2daf7e33296235b52e56dbfac0fbcd51a5e818e
   languageName: node
   linkType: hard
 
@@ -10724,8 +10717,8 @@ __metadata:
   linkType: hard
 
 "protobufjs@npm:^7.3.0, protobufjs@npm:^7.5.3":
-  version: 7.6.1
-  resolution: "protobufjs@npm:7.6.1"
+  version: 7.6.4
+  resolution: "protobufjs@npm:7.6.4"
   dependencies:
     "@protobufjs/aspromise": "npm:^1.1.2"
     "@protobufjs/base64": "npm:^1.1.2"
@@ -10733,13 +10726,12 @@ __metadata:
     "@protobufjs/eventemitter": "npm:^1.1.1"
     "@protobufjs/fetch": "npm:^1.1.1"
     "@protobufjs/float": "npm:^1.0.2"
-    "@protobufjs/inquire": "npm:^1.1.2"
     "@protobufjs/path": "npm:^1.1.2"
     "@protobufjs/pool": "npm:^1.1.0"
     "@protobufjs/utf8": "npm:^1.1.1"
     "@types/node": "npm:>=13.7.0"
     long: "npm:^5.3.2"
-  checksum: 10c0/364c6914facac19ace915e353f71c5d5996bfa8177a3a68c09bd2513a3ecf780538aca06cb3439237f50489db2fae321c4a4db60fd7f9ec65315b7ad66bea029
+  checksum: 10c0/6403eaa9c5a72cc6450c11f38fefafdde243fd806e7ac606ac8d591bc3fdaec45ae764febf83181a2d9aac51aca624e0f46dec368ceea191f7e85e2d6ccaaf93
   languageName: node
   linkType: hard
 
@@ -12077,15 +12069,15 @@ __metadata:
   linkType: hard
 
 "tar@npm:^7.4.3, tar@npm:^7.5.4":
-  version: 7.5.15
-  resolution: "tar@npm:7.5.15"
+  version: 7.5.16
+  resolution: "tar@npm:7.5.16"
   dependencies:
     "@isaacs/fs-minipass": "npm:^4.0.0"
     chownr: "npm:^3.0.0"
     minipass: "npm:^7.1.2"
     minizlib: "npm:^3.1.0"
     yallist: "npm:^5.0.0"
-  checksum: 10c0/8f039edb1d12fdd7df6c6f9877d125afe9f3da3f5f9317df326fdd090d48793d6998cede1506a1471f3e3a250db270a89dace28005eb5e99c5a9132d704ac956
+  checksum: 10c0/4f37f3c4bd2ca2755fd736a5df1d573c1a868ec1b1e893346aeafa95ac510f9e2fd1469420bd866cc7904799e5bd4ac62b5d4f03fe27747d6e1e373b44505c5c
   languageName: node
   linkType: hard
 
