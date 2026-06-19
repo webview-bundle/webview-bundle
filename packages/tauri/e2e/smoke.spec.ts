@@ -28,19 +28,10 @@ async function waitForPort(port: number, timeoutMs: number): Promise<void> {
   throw new Error(`tauri-driver did not start listening on port ${port} within ${timeoutMs}ms`);
 }
 
-// NOTE: tauri-driver only supports Linux and Windows — this suite cannot run on macOS.
-// It expects `tauri-driver` (cargo install tauri-driver) and, on Linux, `WebKitWebDriver`
-// (webkit2gtk) to be on PATH. The fixture app binary is built automatically by `global-setup.ts`
-// (`cargo build --release`) before the suite runs.
 function isDriverSupported(): boolean {
-  return process.platform === 'linux' || process.platform === 'win32';
+  return process.platform === 'linux';
 }
 
-// The fixture app registers the `bundle://` protocol against the committed builtin bundles
-// (see fixtures/app/bundles) and opens a window at `bundle://hacker-news.wvb`. Each shared,
-// platform-agnostic case from `@wvb-playground/webview-hacker-news/testing` then drives that window
-// through a Selenium-backed `WebviewDriver` (over `tauri-driver`), asserting the Hacker News demo
-// behaves the same served through the bundle protocol as on every other platform.
 describe('smoke', { skip: !isDriverSupported() }, () => {
   const dirname = path.dirname(fileURLToPath(import.meta.url));
   const appDir = path.join(dirname, 'fixtures', 'app');

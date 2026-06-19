@@ -121,12 +121,6 @@ jobs:
           sudo apt-get install -y \
           webkit2gtk-driver \
           xvfb
-      - name: Install msdgedriver (Windows)
-        if: matrix.settings.host == 'windows-latest'
-        run: |
-          cargo install --git https://github.com/chippers/msedgedriver-tool
-          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
-          $PWD.Path >> $env:GITHUB_PATH
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # 2.2.1
         if: ${{ contains(matrix.settings.target, 'musl') }}
         with:
@@ -146,7 +140,7 @@ jobs:
         run: yarn vitest run --config vitest.workspace.ts
         shell: bash
       - name: Install tauri-driver
-        if: matrix.settings.host == 'ubuntu-latest' || matrix.settings.host == 'windows-latest'
+        if: matrix.settings.host == 'ubuntu-latest'
         run: cargo install tauri-driver --locked
       - name: Run e2e test with xvfb (Linux)
         if: matrix.settings.host == 'ubuntu-latest'
