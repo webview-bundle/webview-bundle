@@ -18,6 +18,12 @@ wvb       = { workspace = true, features = ["source", "protocol", "protocol-loca
 [build-dependencies]
 tauri-plugin = { workspace = true, features = ["build"] }
 
+# Android ships builtin bundles as APK `asset://` resources that std::fs cannot
+# read, so they are extracted via the fs plugin (see src/android.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+serde_json      = { workspace = true }
+tauri-plugin-fs = "2"
+
 # Resolver-only pins (never compiled): tauri pulls brotli 8.0.3, which caps alloc-no-stdlib at 2.x.
 # But two of brotli's deps shipped releases that jumped to the incompatible alloc-no-stdlib 3.0.0
 [target.'cfg(any())'.dependencies]

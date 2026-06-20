@@ -6,17 +6,16 @@ use tauri::{
 
 pub use config::{Config, Http, Protocol, Remote, Source};
 
-#[cfg(desktop)]
-mod desktop;
-
+#[cfg(target_os = "android")]
+mod android;
 mod commands;
 mod config;
 mod error;
+mod state;
 
 pub use error::{Error, Result};
 
-#[cfg(desktop)]
-use desktop::WebviewBundle;
+use state::WebviewBundle;
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the tauri APIs.
 pub trait WebviewBundleExtra<R: Runtime> {
@@ -33,13 +32,18 @@ impl<R: Runtime, T: Manager<R>> WebviewBundleExtra<R> for T {
 }
 
 /// Initializes the plugin.
+///
+/// On **Android**, apps that ship builtin bundles must also register
+/// `tauri_plugin_fs::init()`: builtin bundles live in the APK as `asset://`
+/// resources, and the plugin reads them through the fs plugin to extract them to
+/// a readable directory on startup. Desktop, iOS, and remote-only apps are
+/// unaffected.
 pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
   let config = Arc::new(config);
   let c = config.clone();
 
   let mut builder = Builder::<R>::new("wvb-tauri").setup(move |app, _api| {
-    #[cfg(desktop)]
-    let webview_bundle = desktop::init(app, c)?;
+    let webview_bundle = state::init(app, c)?;
     app.manage(webview_bundle);
     Ok(())
   });

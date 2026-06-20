@@ -63,6 +63,14 @@ impl<R: Runtime> Source<R> {
     self
   }
 
+  /// Resolves the builtin bundle directory.
+  ///
+  /// On desktop and iOS the default ([`BaseDirectory::Resource`]) is a real
+  /// filesystem path the core can read directly. On **Android** bundled
+  /// resources live inside the APK as `asset://` paths that `std::fs` cannot
+  /// read, so apps shipping builtin bundles must extract them at startup and
+  /// point here via [`Source::builtin_dir_fn`]. Apps that only use remote
+  /// (downloaded) bundles are unaffected.
   pub(crate) fn resolve_builtin_dir(&self, app: &AppHandle<R>) -> crate::Result<PathBuf> {
     let dir = match self.builtin_dir {
       Some(ref builtin_dir) => builtin_dir

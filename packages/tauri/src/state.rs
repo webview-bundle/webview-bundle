@@ -26,9 +26,14 @@ pub struct WebviewBundle<R: Runtime> {
 
 impl<R: Runtime> WebviewBundle<R> {
   pub(crate) fn init(app: AppHandle<R>, config: Arc<Config<R>>) -> crate::Result<Self> {
+    let builtin_dir = config.source.resolve_builtin_dir(&app)?;
+    // On Android the resolved dir is an APK `asset://` path the core cannot read
+    // with std::fs, so extract the bundles to a real directory first.
+    #[cfg(target_os = "android")]
+    let builtin_dir = crate::android::extract_builtin_bundles(&app, &builtin_dir)?;
     let source = Arc::new(
       BundleSource::builder()
-        .builtin_dir(config.source.resolve_builtin_dir(&app)?.as_path())
+        .builtin_dir(builtin_dir.as_path())
         .remote_dir(config.source.resolve_remote_dir(&app)?.as_path())
         .build(),
     );
