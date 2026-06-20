@@ -23,15 +23,15 @@
     "CHANGELOG.md"
   ],
   "type": "module",
-  "main": "./dist/index.mjs",
-  "types": "./dist/index.d.mts",
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
+      "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
     "./testing": {
-      "import": "./dist/testing/index.mjs",
+      "import": "./dist/testing/index.js",
       "require": "./dist/testing/index.cjs"
     },
     "./package.json": "./package.json"

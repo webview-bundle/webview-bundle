@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { CallbackBag } from './callback.js';
 import { unknownPlatform } from './error.js';
+import { INVOKE_MOCK_KEY, type InvokeMockFn } from './invoke-mock.js';
 import { type AndroidWindow, type ElectronWindow, type IosWindow, platform } from './platform.js';
 import { snakeCase } from './utils.js';
 import { getWindow } from './window.js';
@@ -10,6 +11,11 @@ export interface InvokeParams {
 }
 
 export function invoke<T = unknown>(name: string, params?: InvokeParams): Promise<T> {
+  const mock = getWindow<Record<string, InvokeMockFn | undefined>>()[INVOKE_MOCK_KEY];
+  if (mock != null) {
+    return mock(name, params) as Promise<T>;
+  }
+
   switch (platform.type) {
     case 'electron':
       return getWindow<ElectronWindow>().wvbElectron.invoke<T>(name, params);

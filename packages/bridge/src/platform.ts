@@ -1,4 +1,5 @@
 import { isTauri } from '@tauri-apps/api/core';
+import { PLATFORM_MOCK_KEY } from './platform-mock.js';
 import { getWindow } from './window.js';
 
 export type PlatformType = 'electron' | 'tauri' | 'android' | 'ios';
@@ -37,32 +38,40 @@ function isIos(): boolean {
   return getWindow<IosWindow>()?.webkit?.messageHandlers?.wvbIos != null;
 }
 
+function resolveType(): PlatformType | undefined {
+  const mocked = getWindow<Record<string, PlatformType | undefined>>()[PLATFORM_MOCK_KEY];
+  if (mocked != null) {
+    return mocked;
+  }
+  if (isElectron()) {
+    return 'electron';
+  }
+  if (isTauri()) {
+    return 'tauri';
+  }
+  if (isAndroid()) {
+    return 'android';
+  }
+  if (isIos()) {
+    return 'ios';
+  }
+  return undefined;
+}
+
 export const platform = {
   get type(): PlatformType | undefined {
-    if (isElectron()) {
-      return 'electron';
-    }
-    if (isTauri()) {
-      return 'tauri';
-    }
-    if (isAndroid()) {
-      return 'android';
-    }
-    if (isIos()) {
-      return 'ios';
-    }
-    return undefined;
+    return resolveType();
   },
   get isElectron(): boolean {
-    return isElectron();
+    return resolveType() === 'electron';
   },
   get isTauri(): boolean {
-    return isTauri();
+    return resolveType() === 'tauri';
   },
   get isAndroid(): boolean {
-    return isAndroid();
+    return resolveType() === 'android';
   },
   get isIos(): boolean {
-    return isIos();
+    return resolveType() === 'ios';
   },
 };
