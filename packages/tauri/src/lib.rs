@@ -50,30 +50,33 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
 
   for protocol_config in &config.protocols {
     let scheme = protocol_config.scheme().to_string();
+    #[cfg(target_os = "android")]
+    let is_bundle = matches!(protocol_config, Protocol::Bundle(_));
     builder = builder.register_asynchronous_uri_scheme_protocol(
       protocol_config.scheme(),
       move |ctx: UriSchemeContext<R>, req, res| {
-        let protocol = ctx
-          .app_handle()
-          .webview_bundle()
-          .get_protocol(&scheme)
-          .unwrap_or_else(|| panic!("protocol not found: {scheme}"))
-          .clone();
+        let app = ctx.app_handle().clone();
+        let scheme = scheme.clone();
         tauri::async_runtime::spawn(async move {
+          let wvb = app.webview_bundle();
+          // Android serves builtin bundles from extracted assets, so copy the
+          // requested bundle out (if not already) before the protocol reads it.
+          #[cfg(target_os = "android")]
+          if is_bundle {
+            if let Some(name) = req.uri().host().and_then(|host| host.split('.').next()) {
+              if let Err(e) = wvb.ensure_builtin_bundle(name) {
+                res.respond(protocol_error_response(&e));
+                return;
+              }
+            }
+          }
+          let protocol = wvb
+            .get_protocol(&scheme)
+            .unwrap_or_else(|| panic!("protocol not found: {scheme}"))
+            .clone();
           match protocol.handle(req).await {
             Ok(resp) => res.respond(resp),
-            Err(e) => {
-              let resp = http::Response::builder()
-                .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                .header(http::header::CONTENT_TYPE, "text/plain")
-                .body(
-                  format!("webview bundle protocol error: {e}")
-                    .as_bytes()
-                    .to_vec(),
-                )
-                .unwrap();
-              res.respond(resp);
-            }
+            Err(e) => res.respond(protocol_error_response(&e)),
           }
         });
       },
@@ -106,4 +109,17 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
       commands::updater_install,
     ])
     .build()
+}
+
+/// A `500` plain-text response for a failed protocol request.
+fn protocol_error_response(error: &dyn std::fmt::Display) -> http::Response<Vec<u8>> {
+  http::Response::builder()
+    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+    .header(http::header::CONTENT_TYPE, "text/plain")
+    .body(
+      format!("webview bundle protocol error: {error}")
+        .as_bytes()
+        .to_vec(),
+    )
+    .unwrap()
 }

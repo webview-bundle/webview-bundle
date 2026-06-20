@@ -22,15 +22,21 @@ pub struct WebviewBundle<R: Runtime> {
   remote: Option<Arc<Remote>>,
   updater: Option<Arc<Updater>>,
   protocols: HashMap<String, Arc<dyn protocol::Protocol>>,
+  #[cfg(target_os = "android")]
+  builtin_extractor: crate::android::BuiltinExtractor,
 }
 
 impl<R: Runtime> WebviewBundle<R> {
   pub(crate) fn init(app: AppHandle<R>, config: Arc<Config<R>>) -> crate::Result<Self> {
     let builtin_dir = config.source.resolve_builtin_dir(&app)?;
     // On Android the resolved dir is an APK `asset://` path the core cannot read
-    // with std::fs, so extract the bundles to a real directory first.
+    // with std::fs. The extractor copies the (tiny) manifest now and serves from a
+    // real directory; each bundle's `.wvb` files are extracted lazily on first use.
     #[cfg(target_os = "android")]
-    let builtin_dir = crate::android::extract_builtin_bundles(&app, &builtin_dir)?;
+    let (builtin_dir, builtin_extractor) = {
+      let extractor = crate::android::BuiltinExtractor::new(&app, builtin_dir)?;
+      (extractor.dest_dir().to_path_buf(), extractor)
+    };
     let source = Arc::new(
       BundleSource::builder()
         .builtin_dir(builtin_dir.as_path())
@@ -61,6 +67,8 @@ impl<R: Runtime> WebviewBundle<R> {
       remote,
       updater,
       protocols,
+      #[cfg(target_os = "android")]
+      builtin_extractor,
     })
   }
 
@@ -78,5 +86,12 @@ impl<R: Runtime> WebviewBundle<R> {
 
   pub(crate) fn get_protocol(&self, scheme: &str) -> Option<&Arc<dyn protocol::Protocol>> {
     self.protocols.get(scheme)
+  }
+
+  /// Extracts the requested builtin bundle's `.wvb` files before the protocol
+  /// serves it (Android only; see [`crate::android::BuiltinExtractor`]).
+  #[cfg(target_os = "android")]
+  pub(crate) fn ensure_builtin_bundle(&self, bundle_name: &str) -> crate::Result<()> {
+    self.builtin_extractor.ensure(&self._app, bundle_name)
   }
 }
