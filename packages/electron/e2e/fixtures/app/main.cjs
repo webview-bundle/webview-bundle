@@ -1,9 +1,3 @@
-// Minimal Electron main process for the e2e fixture app.
-//
-// It mirrors examples/electron-forge-vite: register the `app://` bundle protocol against a
-// builtin bundle directory, then open a window pointed at the bundle. The bundle served here is
-// the packed Next.js SSG output (see e2e/prepare-bundle.ts), so the e2e can assert that real
-// web content is delivered through the bundle protocol into a live BrowserWindow.
 const os = require('node:os');
 const path = require('node:path');
 const { app, BrowserWindow } = require('electron');
@@ -26,7 +20,7 @@ app.whenReady().then(async () => {
     show: false,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
-  await window.loadURL('app://next.wvb');
+  await window.loadURL('app://hacker-news.wvb');
 });
 
 app.on('window-all-closed', () => app.quit());

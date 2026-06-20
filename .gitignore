@@ -28,3 +28,4 @@ xtask.$schema.json
 .DS_Store*
 /Package.swift
 /.swiftpm
+.wvb/
