@@ -34,7 +34,12 @@ export function invoke<T = unknown>(name: string, params?: InvokeParams): Promis
           reject(error);
           bag.clean();
         });
-        bridge.postMessage(name, params, success, error);
+        try {
+          bridge.postMessage(name, params, success, error);
+        } catch (error) {
+          bag.clean();
+          reject(error);
+        }
       });
     }
     default:
