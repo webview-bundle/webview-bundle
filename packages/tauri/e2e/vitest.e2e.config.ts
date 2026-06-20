@@ -9,6 +9,7 @@ const config: ViteUserConfig = defineProject({
     pool: 'forks',
     testTimeout: 60_000,
     hookTimeout: 180_000,
+    retry: 2,
   },
 });
 

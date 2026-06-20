@@ -3,7 +3,7 @@ use wvb_tauri::{Config, Protocol, Source};
 
 /// Resolves the builtin bundle directory for the e2e run.
 ///
-/// The e2e harness packs the Next.js fixture into a directory and points the app at it via the
+/// The e2e harness points the app at the committed builtin bundles directory via the
 /// `WVB_E2E_BUNDLES_DIR` environment variable. As a fallback (e.g. a bundled app) it looks for a
 /// `bundles` directory next to the executable.
 fn resolve_bundles_dir<R: tauri::Runtime>(

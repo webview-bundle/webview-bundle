@@ -5386,6 +5386,56 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@wvb-playground/testing@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@wvb-playground/testing@npm:0.0.1"
+  peerDependencies:
+    playwright-core: ^1.40.0
+    selenium-webdriver: ^4.0.0
+    webdriverio: ^8.0.0 || ^9.0.0
+  peerDependenciesMeta:
+    playwright-core:
+      optional: true
+    selenium-webdriver:
+      optional: true
+    webdriverio:
+      optional: true
+  checksum: 10c0/348f5199a5eea52b0af30c069d3d8687fb44abd3e420f856219d1911904b61715b1eb3d074c89d9fbc3826514ec72a8dcd6f15205574b77137c74137d9085759
+  languageName: node
+  linkType: hard
+
+"@wvb-playground/testing@npm:^0.0.0":
+  version: 0.0.0
+  resolution: "@wvb-playground/testing@npm:0.0.0"
+  peerDependencies:
+    playwright-core: ^1.40.0
+    selenium-webdriver: ^4.0.0
+    webdriverio: ^8.0.0 || ^9.0.0
+  peerDependenciesMeta:
+    playwright-core:
+      optional: true
+    selenium-webdriver:
+      optional: true
+    webdriverio:
+      optional: true
+  checksum: 10c0/aff3809a52ced27cdba6a05dc7e60375ee72b6581d95e1bac684f25f94c275f0bcd68f0d8edab10f281427b1c3605758562c3b6b15d95bb0ae0454136982f2ab
+  languageName: node
+  linkType: hard
+
+"@wvb-playground/webview-hacker-news@npm:0.0.0":
+  version: 0.0.0
+  resolution: "@wvb-playground/webview-hacker-news@npm:0.0.0"
+  dependencies:
+    "@wvb-playground/testing": "npm:^0.0.0"
+  peerDependencies:
+    vitest: ^2.0.0 || ^3.0.0 || ^4.0.0
+  peerDependenciesMeta:
+    vitest:
+      optional: true
+  checksum: 10c0/722a88b4c43c1a9e7b274bebef3aa6126683aa1300d6e04186de65f090943f3512546b8ca17f08f5a5ae8f586560ede615f87cfc319112c9f23074f8b5c2f6be
+  languageName: node
+  linkType: hard
+
 "@wvb/bridge@workspace:packages/bridge":
   version: 0.0.0-use.local
   resolution: "@wvb/bridge@workspace:packages/bridge"
@@ -5454,6 +5504,8 @@ __metadata:
   dependencies:
     "@playwright/test": "npm:1.60.0"
     "@types/node": "catalog:"
+    "@wvb-playground/testing": "npm:0.0.1"
+    "@wvb-playground/webview-hacker-news": "npm:0.0.0"
     "@wvb/node": "workspace:^"
     electron: "npm:^42.2.0"
     tsdown: "catalog:"
@@ -5737,6 +5789,8 @@ __metadata:
     "@tauri-apps/api": "npm:^2"
     "@types/node": "catalog:"
     "@types/selenium-webdriver": "npm:4.35.6"
+    "@wvb-playground/testing": "npm:0.0.1"
+    "@wvb-playground/webview-hacker-news": "npm:0.0.0"
     selenium-webdriver: "npm:4.44.0"
     tsdown: "catalog:"
     typescript: "catalog:"
@@ -12489,23 +12543,16 @@ __metadata:
   linkType: hard
 
 "undici@npm:^6.21.3":
-  version: 6.26.0
-  resolution: "undici@npm:6.26.0"
-  checksum: 10c0/cf2b4caf58c33d6582970991290cc7a6486d6e738845f25dcdd16952d708ec844815c6d30362919764fcaf30f719891289341f1ada496f003ce2700310453a47
+  version: 6.27.0
+  resolution: "undici@npm:6.27.0"
+  checksum: 10c0/f88c3dae3957dbf9d93cb481440aced317bd3c4941b5914fea5efba516d51138988cdb5c76006f0bb1337e41d56c3443351055d492e73af2428521c37ba2a76f
   languageName: node
   linkType: hard
 
-"undici@npm:^7.19.0":
+"undici@npm:^7.19.0, undici@npm:^7.24.4":
   version: 7.27.2
   resolution: "undici@npm:7.27.2"
   checksum: 10c0/714632147c80eb8eda8a52df51b481d346df5e035ccc1d87eb3bbcb8f92ec25d7cbbe81abdeae5db4e37a93e490c8d2fa2359ecdca4b2c5c6c513dcd2626ad47
-  languageName: node
-  linkType: hard
-
-"undici@npm:^7.24.4":
-  version: 7.25.0
-  resolution: "undici@npm:7.25.0"
-  checksum: 10c0/02a0b45dc14eb91bc488948750232450fe52f27a6b08086d6ac6736bb47908d600fe3a96d346f12eab24729c782e5c2f693bc8e8eca6696d4e4c09b1ed4cb4ec
   languageName: node
   linkType: hard
 
