@@ -58,6 +58,14 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
         let app = ctx.app_handle().clone();
         let scheme = scheme.clone();
         tauri::async_runtime::spawn(async move {
+          // Logs the URI the handler actually receives — useful for confirming the
+          // per-platform custom-protocol URL shape (e.g. on mobile).
+          tracing::debug!(
+            scheme = %scheme,
+            method = %req.method(),
+            uri = %req.uri(),
+            "webview-bundle protocol request"
+          );
           let wvb = app.webview_bundle();
           // Android serves builtin bundles from extracted assets, so copy the
           // requested bundle out (if not already) before the protocol reads it.

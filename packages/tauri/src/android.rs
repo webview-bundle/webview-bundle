@@ -53,11 +53,18 @@ impl BuiltinExtractor {
 
     let manifest: Manifest = serde_json::from_slice(&manifest_bytes)
       .map_err(|e| crate::Error::FailToResolveDirectory(format!("parse builtin manifest: {e}")))?;
-    let versions = manifest
+    let versions: HashMap<String, Vec<String>> = manifest
       .entries
       .into_iter()
       .map(|(name, entry)| (name, entry.versions.into_keys().collect()))
       .collect();
+
+    tracing::info!(
+      dest = %dest_dir.display(),
+      bundles = versions.len(),
+      up_to_date,
+      "wvb android builtin extractor ready"
+    );
 
     Ok(Self {
       resource_dir,
@@ -90,7 +97,16 @@ impl BuiltinExtractor {
       && versions
         .iter()
         .all(|v| bundle_dest.join(format!("{bundle_name}_{v}.wvb")).exists());
-    if !already_on_disk {
+    if already_on_disk {
+      tracing::debug!(
+        bundle = bundle_name,
+        "wvb android builtin already extracted, skipping copy"
+      );
+    } else {
+      tracing::info!(
+        bundle = bundle_name,
+        "wvb extracting android builtin bundle"
+      );
       let fs = app.fs();
       std::fs::create_dir_all(&bundle_dest)?;
       for version in versions {
