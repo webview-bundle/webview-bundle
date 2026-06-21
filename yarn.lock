@@ -5436,6 +5436,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@wvb/bridge@workspace:packages/bridge":
+  version: 0.0.0-use.local
+  resolution: "@wvb/bridge@workspace:packages/bridge"
+  dependencies:
+    "@tauri-apps/api": "npm:^2"
+    tsdown: "catalog:"
+    type-fest: "npm:^4.40.1"
+    typescript: "catalog:"
+    vitest: "catalog:"
+  languageName: unknown
+  linkType: soft
+
 "@wvb/cli@workspace:packages/cli":
   version: 0.0.0-use.local
   resolution: "@wvb/cli@workspace:packages/cli"
