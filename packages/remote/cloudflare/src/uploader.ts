@@ -18,6 +18,7 @@ class CloudflareRemoteUploaderImpl implements BaseRemoteUploader {
       ...config,
       s3ClientConfig: {
         ...config.s3ClientConfig,
+        region: config.s3ClientConfig?.region ?? 'auto',
         endpoint:
           config.s3ClientConfig?.endpoint ?? `https://${accountId}.r2.cloudflarestorage.com`,
       },
