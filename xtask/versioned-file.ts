@@ -238,7 +238,9 @@ class PackageJson implements PackageManager {
       args.push(`--tag=${prerelease.id}`);
     } else if (distTag != null) {
       // Maintenance lines publish under a line tag so `latest` never moves backward.
-      args.push(`--tag=${distTag}`);
+      args.push(`--tag=${distTag}`, '--staged');
+    } else {
+      args.push('--staged');
     }
     return [
       {
