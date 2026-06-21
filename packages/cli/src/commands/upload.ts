@@ -54,10 +54,10 @@ The upload process includes:
     validator: isBoolean(),
     description: 'Overwrite if the same version already exists on remote.',
   });
-  readonly deploy = Option.String('--deploy', true, {
+  readonly deploy = Option.String('--deploy', false, {
     tolerateBoolean: true,
     validator: isBoolean(),
-    description: 'Deploy the bundle to the remote endpoint after upload.',
+    description: 'Deploy the bundle to the remote endpoint after upload. [Default: false]',
   });
   readonly channel = Option.String('--channel', {
     description: `Release channel to manage and distribute different stability versions. (e.g. "beta", "alpha")
