@@ -22,8 +22,9 @@ making it available to clients via the configured deployer.
 If no channel is specified, the bundle is deployed to the default channel.
     `,
     examples: [
-      ['Basic usage', '$0 remote deploy myapp'],
-      ['Deploy a specific version', '$0 remote deploy myapp 1.2.0'],
+      ['Basic usage', '$0 remote deploy'],
+      ['Deploy a specific bundle', '$0 remote deploy myapp'],
+      ['Deploy a specific bundle with version', '$0 remote deploy myapp 1.2.0'],
       ['Deploy to a specific channel', '$0 remote deploy myapp 1.2.0 --channel beta'],
     ],
   });
@@ -32,8 +33,8 @@ If no channel is specified, the bundle is deployed to the default channel.
     name: 'BUNDLE',
     required: false,
   });
-  readonly version = Option.String({
-    name: 'VERSION',
+  readonly version = Option.String('--version,-V', {
+    description: 'Version of the bundle to deploy.',
   });
   readonly channel = Option.String('--channel', {
     description:
