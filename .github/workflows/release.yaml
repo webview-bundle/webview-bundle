@@ -160,7 +160,7 @@ jobs:
             i686-linux-android
           cargo install cargo-ndk
       - name: Build ffi android
-        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android
+        run: yarn workspace wvb-ffi run build-ffi-android
       - name: Merge artifacts
         run: node ./xtask/cli.ts artifacts merge
         shell: bash
@@ -197,7 +197,7 @@ jobs:
         with:
           install_args: "tuist"
       - name: Build ffi apple
-        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-apple
+        run: yarn workspace wvb-ffi run build-ffi-apple
       - name: Merge artifacts
         run: node ./xtask/cli.ts artifacts merge
         shell: bash
