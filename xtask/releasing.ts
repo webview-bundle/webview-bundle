@@ -86,9 +86,13 @@ function versionAtTree(repo: Repository, tree: Tree, file: VersionedFile): strin
 
 /**
  * Packages whose version was changed by the `HEAD` commit, compared to its first parent — i.e. the
- * packages bumped by a merged `prepare-release` commit. A package counts if any of its manifests
- * has a version different from the parent (or did not exist there). This is how `release` decides
- * what to publish, so an ordinary merge (no version change) publishes nothing.
+ * packages bumped by a merged `prepare-release` commit. A package counts only if one of its
+ * manifests existed in the parent with a *different* version: a manifest that is absent from the
+ * parent is a brand-new package (or a newly added manifest), not a bump, so the commit that first
+ * introduces a package does not publish it. Such a package is released through the normal
+ * `prepare-release` flow, whose merge commit bumps the (now-existing) manifest off its initial
+ * version. This is how `release` decides what to publish, so an ordinary merge (no version change)
+ * publishes nothing.
  */
 export function packagesBumpedInHead(repo: Repository, packages: Package[]): Package[] {
   const head = repo.head().target();
@@ -97,7 +101,8 @@ export function packagesBumpedInHead(repo: Repository, packages: Package[]): Pac
   }
   let parentTree: Tree | null = null;
   try {
-    // `<oid>^` is the first parent; throws for the root commit (then every package is "new").
+    // `<oid>^` is the first parent; throws for the root commit (then there is no prior version for
+    // any manifest, so nothing is treated as a bump).
     parentTree = repo.getCommit(repo.revparseSingle(`${head}^`)).tree();
   } catch {
     parentTree = null;
@@ -105,7 +110,9 @@ export function packagesBumpedInHead(repo: Repository, packages: Package[]): Pac
   return packages.filter(pkg =>
     pkg.versionedFiles.some(file => {
       const previous = parentTree != null ? versionAtTree(repo, parentTree, file) : null;
-      return previous !== file.version.toString();
+      // A manifest absent from the parent (`previous == null`) is new, not bumped — skip it so new
+      // packages aren't published on the commit that adds them.
+      return previous != null && previous !== file.version.toString();
     })
   );
 }
