@@ -57,7 +57,7 @@ The upload process includes:
   readonly deploy = Option.String('--deploy', false, {
     tolerateBoolean: true,
     validator: isBoolean(),
-    description: 'Deploy the bundle to the remote endpoint after upload.',
+    description: 'Deploy the bundle to the remote endpoint after upload. [Default: false]',
   });
   readonly channel = Option.String('--channel', {
     description: `Release channel to manage and distribute different stability versions. (e.g. "beta", "alpha")
