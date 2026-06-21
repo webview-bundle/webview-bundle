@@ -24,8 +24,8 @@ If no channel is specified, the bundle is deployed to the default channel.
     examples: [
       ['Basic usage', '$0 remote deploy'],
       ['Deploy a specific bundle', '$0 remote deploy myapp'],
-      ['Deploy a specific bundle with version', '$0 remote deploy myapp 1.2.0'],
-      ['Deploy to a specific channel', '$0 remote deploy myapp 1.2.0 --channel beta'],
+      ['Deploy a specific bundle with version', '$0 remote deploy myapp --version=1.2.0'],
+      ['Deploy to a specific channel', '$0 remote deploy myapp --version=1.2.0 --channel=beta'],
     ],
   });
 
