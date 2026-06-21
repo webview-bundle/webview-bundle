@@ -53,6 +53,10 @@ describe('smoke', { skip: !isDriverSupported() }, () => {
     // Point the app at the committed bundle fixture (e2e/fixtures/app/bundles). The env var must be
     // set before tauri-driver spawns so the launched app inherits it.
     process.env.WVB_E2E_BUNDLES_DIR = bundlesDir;
+    process.env.WEBKIT_DISABLE_DMABUF_RENDERER = '1';
+    process.env.WEBKIT_DISABLE_COMPOSITING_MODE = '1';
+    process.env.LIBGL_ALWAYS_SOFTWARE = '1';
+    process.env.NO_AT_BRIDGE = '1';
 
     tauriDriver = spawn('tauri-driver', [], { stdio: [null, 'inherit', 'inherit'] });
     await waitForPort(4444, 30_000); // wait until tauri-driver is accepting connections

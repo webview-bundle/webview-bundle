@@ -95,9 +95,9 @@ jobs:
               yarn workspaces foreach -Apt --include='@wvb/*' run build
     runs-on: ${{ matrix.settings.host }}
     env:
-      DEBUG: 'napi:*'
-      MACOSX_DEPLOYMENT_TARGET: '10.13'
-      CARGO_INCREMENTAL: '1'
+      DEBUG: "napi:*"
+      MACOSX_DEPLOYMENT_TARGET: "10.13"
+      CARGO_INCREMENTAL: "1"
       # Fix for ring crate cross-compilation on aarch64
       # See: https://github.com/briansmith/ring/issues/1789
       CFLAGS_aarch64_unknown_linux_gnu: ${{ matrix.settings.target == 'aarch64-unknown-linux-gnu' && '-D__ARM_ARCH=8' || '' }}
@@ -144,7 +144,7 @@ jobs:
         run: cargo install tauri-driver --locked
       - name: Run e2e test with xvfb (Linux)
         if: matrix.settings.host == 'ubuntu-latest'
-        run: xvfb-run yarn vitest run --config vitest.e2e.workspace.ts
+        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" yarn vitest run --config vitest.e2e.workspace.ts
       - name: Run e2e test
         if: matrix.settings.host != 'ubuntu-latest'
         run: yarn vitest run --config vitest.e2e.workspace.ts
