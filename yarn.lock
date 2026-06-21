@@ -5516,26 +5516,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@wvb/ffi@workspace:packages/ffi":
-  version: 0.0.0-use.local
-  resolution: "@wvb/ffi@workspace:packages/ffi"
-  dependencies:
-    "@ltd/j-toml": "npm:^1.38.0"
-    "@types/yazl": "npm:^3"
-    appium: "npm:3.5.0"
-    clipanion: "npm:4.0.0-rc.4"
-    es-toolkit: "npm:^1.43.0"
-    execa: "npm:^9"
-    tinyglobby: "npm:^0.2.14"
-    typanion: "npm:^3.14.0"
-    typescript: "catalog:"
-    vitest: "catalog:"
-    webdriverio: "npm:9.27.2"
-    yazl: "npm:^3.3.1"
-    zod: "npm:^4.0.5"
-  languageName: unknown
-  linkType: soft
-
 "@wvb/node-android-arm-eabi@workspace:^, @wvb/node-android-arm-eabi@workspace:packages/node/npm/android-arm-eabi":
   version: 0.0.0-use.local
   resolution: "@wvb/node-android-arm-eabi@workspace:packages/node/npm/android-arm-eabi"
@@ -5779,24 +5759,6 @@ __metadata:
     typescript: "catalog:"
     vitest: "catalog:"
     zod: "npm:^4.0.5"
-  languageName: unknown
-  linkType: soft
-
-"@wvb/tauri@workspace:packages/tauri":
-  version: 0.0.0-use.local
-  resolution: "@wvb/tauri@workspace:packages/tauri"
-  dependencies:
-    "@tauri-apps/api": "npm:^2"
-    "@types/node": "catalog:"
-    "@types/selenium-webdriver": "npm:4.35.6"
-    "@wvb-playground/testing": "npm:0.0.1"
-    "@wvb-playground/webview-hacker-news": "npm:0.0.0"
-    selenium-webdriver: "npm:4.44.0"
-    tsdown: "catalog:"
-    typescript: "catalog:"
-    vitest: "catalog:"
-  peerDependencies:
-    "@tauri-apps/api": ^2
   languageName: unknown
   linkType: soft
 
@@ -13167,6 +13129,40 @@ __metadata:
   checksum: 10c0/ef4a243476283fc49bc7550966c4af4aa0eef56273837211e700de3b664e08604a760cdddcb5ba43c049140e74ccfec5b0ee0bb439e08c2adf9138902fdde5f9
   languageName: node
   linkType: hard
+
+"wvb-ffi@workspace:packages/ffi":
+  version: 0.0.0-use.local
+  resolution: "wvb-ffi@workspace:packages/ffi"
+  dependencies:
+    "@ltd/j-toml": "npm:^1.38.0"
+    "@types/yazl": "npm:^3"
+    appium: "npm:3.5.0"
+    clipanion: "npm:4.0.0-rc.4"
+    es-toolkit: "npm:^1.43.0"
+    execa: "npm:^9"
+    tinyglobby: "npm:^0.2.14"
+    typanion: "npm:^3.14.0"
+    typescript: "catalog:"
+    vitest: "catalog:"
+    webdriverio: "npm:9.27.2"
+    yazl: "npm:^3.3.1"
+    zod: "npm:^4.0.5"
+  languageName: unknown
+  linkType: soft
+
+"wvb-tauri@workspace:packages/tauri":
+  version: 0.0.0-use.local
+  resolution: "wvb-tauri@workspace:packages/tauri"
+  dependencies:
+    "@types/node": "catalog:"
+    "@types/selenium-webdriver": "npm:4.35.6"
+    "@wvb-playground/testing": "npm:0.0.1"
+    "@wvb-playground/webview-hacker-news": "npm:0.0.0"
+    selenium-webdriver: "npm:4.44.0"
+    typescript: "catalog:"
+    vitest: "catalog:"
+  languageName: unknown
+  linkType: soft
 
 "xml-naming@npm:^0.1.0":
   version: 0.1.0

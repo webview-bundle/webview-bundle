@@ -1,4 +1,3 @@
-export type { IpcChannel } from './ipc-spec.js';
 export type { Protocol, ProtocolHandler, ProtocolOptions } from './protocol.js';
 export { bundleProtocol, localProtocol } from './protocol.js';
 export type { RemoteOptions } from './remote.js';

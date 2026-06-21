@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'vitest';
+import { BridgeError } from '../error.js';
 import { platform } from '../platform.js';
 import { remote } from '../remote.js';
 import { source } from '../source.js';
@@ -22,6 +23,15 @@ test('supports async handlers', async () => {
 
 test('rejects when no handler is registered', async () => {
   await expect(updater.listRemotes()).rejects.toThrow();
+});
+
+test('normalizes a rejected invoke into a BridgeError, preserving the code', async () => {
+  mockInvoke('source.loadVersion', () => {
+    throw BridgeError.of('remote_not_initialized');
+  });
+  const error = await source.loadVersion('app').catch(e => e);
+  expect(error).toBeInstanceOf(BridgeError);
+  expect(error.code).toBe('remote_not_initialized');
 });
 
 test('clearInvokeMocks resets the ambient store', async () => {

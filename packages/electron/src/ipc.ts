@@ -1,91 +1,131 @@
 import type { Remote, Updater } from '@wvb/node';
 import { ipcMain } from 'electron';
-import { IpcChannels, type IpcHandlerSpecsByScope } from './ipc-spec.js';
+import {
+  type BridgeErrorData,
+  INVOKE_CHANNEL,
+  type InvokeName,
+  type InvokeOk,
+  type InvokeParams,
+  type InvokeResult,
+} from './invoke-spec.js';
 import type { WebviewBundle } from './webview-bundle.js';
 
+const ErrorCode = {
+  RemoteNotInitialized: 'remote_not_initialized',
+  UpdaterNotInitialized: 'updater_not_initialized',
+  HandlerNotFound: 'handler_not_found',
+} as const;
+
+class BridgeError extends Error {
+  override readonly name = 'BridgeError';
+
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+type InvokeHandler<K extends InvokeName> = (
+  wvb: WebviewBundle,
+  params: InvokeParams<K>
+) => Promise<InvokeOk<K>>;
+
+type InvokeHandlers = {
+  [K in InvokeName]: InvokeHandler<K>;
+};
+
+function requireRemote(wvb: WebviewBundle): Remote {
+  if (wvb.remote == null) {
+    throw new BridgeError(ErrorCode.RemoteNotInitialized, 'remote is not initialized.');
+  }
+  return wvb.remote;
+}
+
+function requireUpdater(wvb: WebviewBundle): Updater {
+  if (wvb.updater == null) {
+    throw new BridgeError(ErrorCode.UpdaterNotInitialized, 'updater is not initialized.');
+  }
+  return wvb.updater;
+}
+
+function toBridgeErrorData(error: unknown): BridgeErrorData {
+  if (error instanceof BridgeError) {
+    return { code: error.code, message: error.message };
+  }
+  if (error instanceof Error) {
+    return { message: error.message };
+  }
+  return { message: typeof error === 'string' ? error : 'unknown error' };
+}
+
+const handlers: InvokeHandlers = {
+  // source
+  sourceListBundles: async wvb => wvb.source.listBundles(),
+  sourceLoadVersion: async (wvb, { bundleName }) => wvb.source.loadVersion(bundleName),
+  sourceUpdateVersion: async (wvb, { bundleName, version }) =>
+    wvb.source.updateRemoteVersion(bundleName, version),
+  sourceResolveFilepath: async (wvb, { bundleName }) => wvb.source.resolveFilepath(bundleName),
+  sourceGetBuiltinBundleFilepath: async (wvb, { bundleName, version }) =>
+    wvb.source.getBuiltinBundleFilepath(bundleName, version),
+  sourceGetRemoteBundleFilepath: async (wvb, { bundleName, version }) =>
+    wvb.source.getRemoteBundleFilepath(bundleName, version),
+  sourceLoadBuiltinMetadata: async (wvb, { bundleName, version }) =>
+    wvb.source.loadBuiltinMetadata(bundleName, version),
+  sourceLoadRemoteMetadata: async (wvb, { bundleName, version }) =>
+    wvb.source.loadRemoteMetadata(bundleName, version),
+  sourceUnloadDescriptor: async (wvb, { bundleName }) => wvb.source.unloadDescriptor(bundleName),
+  sourceRemoveRemoteBundle: async (wvb, { bundleName, version }) =>
+    wvb.source.removeRemoteBundle(bundleName, version),
+  sourceRemoteRetainedVersions: async (wvb, { bundleName }) =>
+    wvb.source.remoteRetainedVersions(bundleName),
+  sourcePruneRemoteBundles: async (wvb, { bundleName }) =>
+    wvb.source.pruneRemoteBundles(bundleName),
+  // remote
+  remoteListBundles: async (wvb, { channel }) => requireRemote(wvb).listBundles(channel),
+  remoteGetInfo: async (wvb, { bundleName, channel }) =>
+    requireRemote(wvb).getInfo(bundleName, channel),
+  remoteDownload: async (wvb, { bundleName, channel }) => {
+    const [info] = await requireRemote(wvb).download(bundleName, channel);
+    return info;
+  },
+  remoteDownloadVersion: async (wvb, { bundleName, version }) => {
+    const [info] = await requireRemote(wvb).downloadVersion(bundleName, version);
+    return info;
+  },
+  // updater
+  updaterListRemotes: async wvb => requireUpdater(wvb).listRemotes(),
+  updaterGetUpdate: async (wvb, { bundleName }) => requireUpdater(wvb).getUpdate(bundleName),
+  updaterDownload: async (wvb, { bundleName, version }) =>
+    requireUpdater(wvb).download(bundleName, version),
+  updaterInstall: async (wvb, { bundleName, version }) => {
+    await requireUpdater(wvb).install(bundleName, version);
+  },
+};
+
 export function registerIpc(wvb: WebviewBundle): void {
-  registerSourceIpc(wvb);
-  registerRemoteIpc(wvb);
-  registerUpdaterIpc(wvb);
-}
-
-function registerSourceIpc(wvb: WebviewBundle): void {
-  const handlers = {
-    [IpcChannels.Source.ListBundles]: async () => wvb.source.listBundles(),
-    [IpcChannels.Source.LoadVersion]: async (_, bundleName) => wvb.source.loadVersion(bundleName),
-    [IpcChannels.Source.UpdateVersion]: async (_, bundleName, version) =>
-      wvb.source.updateRemoteVersion(bundleName, version),
-    [IpcChannels.Source.ResolveFilepath]: async (_, bundleName) =>
-      wvb.source.resolveFilepath(bundleName),
-    [IpcChannels.Source.GetBuiltinBundleFilepath]: async (_, bundleName, version) =>
-      wvb.source.getBuiltinBundleFilepath(bundleName, version),
-    [IpcChannels.Source.GetRemoteBundleFilepath]: async (_, bundleName, version) =>
-      wvb.source.getRemoteBundleFilepath(bundleName, version),
-    [IpcChannels.Source.LoadBuiltinMetadata]: async (_, bundleName, version) =>
-      wvb.source.loadBuiltinMetadata(bundleName, version),
-    [IpcChannels.Source.LoadRemoteMetadata]: async (_, bundleName, version) =>
-      wvb.source.loadRemoteMetadata(bundleName, version),
-    [IpcChannels.Source.UnloadDescriptor]: async (_, bundleName) =>
-      wvb.source.unloadDescriptor(bundleName),
-    [IpcChannels.Source.RemoveRemoteBundle]: async (_, bundleName, version) =>
-      wvb.source.removeRemoteBundle(bundleName, version),
-    [IpcChannels.Source.RemoteRetainedVersions]: async (_, bundleName) =>
-      wvb.source.remoteRetainedVersions(bundleName),
-    [IpcChannels.Source.PruneRemoteBundles]: async (_, bundleName) =>
-      wvb.source.pruneRemoteBundles(bundleName),
-  } satisfies IpcHandlerSpecsByScope<'source'>;
-
-  for (const [channel, handler] of Object.entries(handlers)) {
-    ipcMain.handle(channel, handler);
-  }
-}
-
-function registerRemoteIpc(wvb: WebviewBundle): void {
-  function remote(): Remote {
-    if (wvb.remote == null) {
-      throw new Error('remote is not initialized.');
+  ipcMain.handle(
+    INVOKE_CHANNEL,
+    async (_event, name: string, params: unknown): Promise<InvokeResult> => {
+      const handler = handlers[name as InvokeName] as
+        | ((wvb: WebviewBundle, params: unknown) => Promise<unknown>)
+        | undefined;
+      if (handler == null) {
+        return {
+          ok: false,
+          error: {
+            code: ErrorCode.HandlerNotFound,
+            message: `no invoke handler registered for "${name}"`,
+          },
+        };
+      }
+      try {
+        const value = await handler(wvb, params ?? {});
+        return { ok: true, value };
+      } catch (error) {
+        return { ok: false, error: toBridgeErrorData(error) };
+      }
     }
-    return wvb.remote;
-  }
-  const handlers = {
-    [IpcChannels.Remote.ListBundles]: async (_, channel) => remote().listBundles(channel),
-    [IpcChannels.Remote.GetInfo]: async (_, bundleName, channel) =>
-      remote().getInfo(bundleName, channel),
-    [IpcChannels.Remote.Download]: async (_, bundleName, channel) => {
-      const [info] = await remote().download(bundleName, channel);
-      return info;
-    },
-    [IpcChannels.Remote.DownloadVersion]: async (_, bundleName, version) => {
-      const [info] = await remote().downloadVersion(bundleName, version);
-      return info;
-    },
-  } satisfies IpcHandlerSpecsByScope<'remote'>;
-
-  for (const [channel, handler] of Object.entries(handlers)) {
-    ipcMain.handle(channel, handler);
-  }
-}
-
-function registerUpdaterIpc(wvb: WebviewBundle): void {
-  function updater(): Updater {
-    if (wvb.updater == null) {
-      throw new Error('updater is not initialized.');
-    }
-    return wvb.updater;
-  }
-  const handlers = {
-    [IpcChannels.Updater.ListRemotes]: async () => updater().listRemotes(),
-    [IpcChannels.Updater.GetUpdate]: async (_, remoteName) => updater().getUpdate(remoteName),
-    [IpcChannels.Updater.Download]: async (_, remoteName, version) => {
-      const info = await updater().download(remoteName, version);
-      return info;
-    },
-    [IpcChannels.Updater.Install]: async (_, remoteName, version) => {
-      await updater().install(remoteName, version);
-    },
-  } satisfies IpcHandlerSpecsByScope<'updater'>;
-
-  for (const [channel, handler] of Object.entries(handlers)) {
-    ipcMain.handle(channel, handler);
-  }
+  );
 }

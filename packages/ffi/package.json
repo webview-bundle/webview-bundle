@@ -1,6 +1,5 @@
 {
-  "name": "@wvb/ffi",
-  "version": "0.0.0",
+  "name": "wvb-ffi",
   "private": true,
   "type": "module",
   "scripts": {
