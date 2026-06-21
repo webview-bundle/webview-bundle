@@ -42,16 +42,18 @@ export class VersionedFile {
       }
     );
     const versionedFiles = await Promise.all(files.map(x => VersionedFile.load(x)));
-    return versionedFiles;
+    return versionedFiles.filter((x): x is VersionedFile => x != null);
   }
 
-  static async load(filepath: string): Promise<VersionedFile> {
+  static async load(filepath: string): Promise<VersionedFile | null> {
     const absolutePath = path.join(ROOT_DIR, filepath);
     const filename = path.basename(absolutePath);
     const content = await fs.readFile(absolutePath, 'utf8');
     switch (filename) {
-      case 'package.json':
-        return new VersionedFile('package.json', new PackageJson(filepath, content));
+      case 'package.json': {
+        const pkg = PackageJson.create(filepath, content);
+        return pkg == null ? null : new VersionedFile('package.json', pkg);
+      }
       case 'Cargo.toml':
         return new VersionedFile('Cargo.toml', new Cargo(filepath, content));
       default:
@@ -177,15 +179,19 @@ class PackageJson implements PackageManager {
   private readonly _path: string;
   private readonly raw: string;
 
-  constructor(path: string, raw: string) {
+  static create(path: string, raw: string): PackageJson | null {
     const parsed: PackageJsonType = JSON.parse(raw);
+    if (parsed.version == null) {
+      return null;
+    }
     if (parsed.name == null) {
       throw new Error('"name" field is required in package.json');
     }
-    if (parsed.version == null) {
-      throw new Error('"version" field is required in package.json');
-    }
-    this.json = parsed;
+    return new PackageJson(path, parsed, raw);
+  }
+
+  private constructor(path: string, json: PackageJsonType, raw: string) {
+    this.json = json;
     this._path = path;
     this.raw = raw;
   }
