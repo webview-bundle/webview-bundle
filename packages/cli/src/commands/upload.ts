@@ -54,7 +54,7 @@ The upload process includes:
     validator: isBoolean(),
     description: 'Overwrite if the same version already exists on remote.',
   });
-  readonly deploy = Option.String('--deploy', true, {
+  readonly deploy = Option.String('--deploy', false, {
     tolerateBoolean: true,
     validator: isBoolean(),
     description: 'Deploy the bundle to the remote endpoint after upload.',
