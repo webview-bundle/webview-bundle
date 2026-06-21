@@ -21,6 +21,10 @@ picks up the new version. Contributors are not required to follow any commit con
    Tagging marks a package released, so a partial failure is recoverable — re-running republishes
    only the still-untagged packages.
 
+> [!NOTE]
+> npm package will be [staged](https://docs.npmjs.com/staged-publishing) published when releasing to a stable channel.
+> Author must approve staged packages via [npmjs.com](https://npmjs.com).
+
 ### Pre-Releasing
 
 On every other base-branch commit, CI runs `just xtask prerelease`. It computes the affected
