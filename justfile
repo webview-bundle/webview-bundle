@@ -40,11 +40,11 @@ test-e2e:
 
 # Test FFI
 test-ffi: build-ffi
-    yarn workspace @wvb/ffi run test-ffi
+    yarn workspace wvb-ffi run test-ffi
 
 # Test FFI-E2E
 test-ffi-e2e:
-    yarn workspace @wvb/ffi run e2e-ffi
+    yarn workspace wvb-ffi run e2e-ffi
 
 # Format all files
 format: format-rs format-js format-toml

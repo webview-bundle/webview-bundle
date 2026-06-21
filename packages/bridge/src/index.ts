@@ -1,3 +1,5 @@
+export type { BridgeErrorData } from './error.js';
+export { BridgeError, BridgeErrorCode, isBridgeError, isBridgeErrorData } from './error.js';
 export type { InvokeParams } from './invoke.js';
 export { invoke } from './invoke.js';
 export type { PlatformType } from './platform.js';

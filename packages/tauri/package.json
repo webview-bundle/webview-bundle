@@ -1,64 +1,16 @@
 {
-  "name": "@wvb/tauri",
-  "version": "0.1.0",
-  "description": "Webview Bundle API for Tauri",
-  "homepage": "https://github.com/webview-bundle/webview-bundle",
-  "bugs": {
-    "url": "https://github.com/webview-bundle/webview-bundle/issues"
-  },
-  "license": "MIT",
-  "author": {
-    "name": "Seokju Na",
-    "email": "seokju.me@gmail.com",
-    "url": "https://github.com/seokju-na"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/webview-bundle/webview-bundle",
-    "directory": "packages/tauri"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "CHANGELOG.md"
-  ],
+  "name": "wvb-tauri",
+  "private": true,
   "type": "module",
-  "sideEffects": false,
-  "exports": {
-    "./api": {
-      "import": "./dist/api/index.js",
-      "require": "./dist/api/index.cjs"
-    },
-    "./api/remote": {
-      "import": "./dist/api/remote/index.js",
-      "require": "./dist/api/remote/index.cjs"
-    },
-    "./api/source": {
-      "import": "./dist/api/source/index.js",
-      "require": "./dist/api/source/index.cjs"
-    },
-    "./api/updater": {
-      "import": "./dist/api/updater/index.js",
-      "require": "./dist/api/updater/index.cjs"
-    },
-    "./package.json": "./package.json"
-  },
   "scripts": {
-    "prepack": "yarn build",
-    "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
-    "@tauri-apps/api": "^2"
-  },
   "devDependencies": {
-    "@tauri-apps/api": "^2",
     "@types/node": "catalog:",
     "@types/selenium-webdriver": "4.35.6",
     "@wvb-playground/testing": "0.0.1",
     "@wvb-playground/webview-hacker-news": "0.0.0",
     "selenium-webdriver": "4.44.0",
-    "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

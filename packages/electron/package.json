@@ -35,16 +35,15 @@
       "import": "./dist/preload/index.mjs",
       "require": "./dist/preload/index.cjs"
     },
-    "./renderer": {
-      "import": "./dist/renderer/index.mjs",
-      "require": "./dist/renderer/index.cjs"
-    },
     "./package.json": "./package.json"
   },
   "scripts": {
     "prepack": "yarn build",
     "build": "tsdown",
     "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "electron": ">= 15"
   },
   "dependencies": {
     "@wvb/node": "workspace:^"
@@ -58,8 +57,5 @@
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "peerDependencies": {
-    "electron": ">= 15"
   }
 }
