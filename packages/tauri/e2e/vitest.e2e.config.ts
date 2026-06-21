@@ -2,7 +2,7 @@ import { defineProject, type ViteUserConfig } from 'vitest/config';
 
 const config: ViteUserConfig = defineProject({
   test: {
-    name: '@wvb/tauri/e2e',
+    name: 'wvb-tauri/e2e',
     include: ['**/*.spec.ts'],
     globalSetup: ['./global-setup.ts'],
     fileParallelism: false,

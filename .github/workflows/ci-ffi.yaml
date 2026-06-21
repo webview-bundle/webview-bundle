@@ -81,7 +81,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
-          script: yarn workspace @wvb/ffi run e2e-ffi-android
+          script: yarn workspace wvb-ffi run e2e-ffi-android
   ffi-test-apple:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.ffi == 'true'
@@ -115,4 +115,4 @@ jobs:
           key: ${{ runner.os }}-appium-apple-${{ hashFiles('packages/ffi/package.json') }}
           restore-keys: ${{ runner.os }}-appium-apple-
       - name: Run e2e test
-        run: yarn workspace @wvb/ffi run e2e-ffi-apple
+        run: yarn workspace wvb-ffi run e2e-ffi-apple

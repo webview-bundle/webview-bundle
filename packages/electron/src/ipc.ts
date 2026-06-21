@@ -104,11 +104,13 @@ const handlers: InvokeHandlers = {
   },
 };
 
+const handlerNames = new Set<string>(Object.keys(handlers));
+
 export function registerIpc(wvb: WebviewBundle): void {
   ipcMain.handle(
     INVOKE_CHANNEL,
     async (_event, name: string, params: unknown): Promise<InvokeResult> => {
-      const handler = handlers[name as InvokeName] as
+      const handler = (handlerNames.has(name) ? handlers[name as InvokeName] : undefined) as
         | ((wvb: WebviewBundle, params: unknown) => Promise<unknown>)
         | undefined;
       if (handler == null) {
