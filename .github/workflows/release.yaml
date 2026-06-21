@@ -247,7 +247,6 @@ jobs:
         run: node ./xtask/cli.ts release --github-token=${{ github.token }}
         shell: bash
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   prerelease:
@@ -280,5 +279,4 @@ jobs:
         run: node ./xtask/cli.ts prerelease --id=${{ inputs.id }} --github-token=${{ github.token }}
         shell: bash
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
