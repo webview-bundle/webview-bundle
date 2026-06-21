@@ -46,9 +46,8 @@ impl TempDir {
 
   fn next_dir_for_today() -> PathBuf {
     let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-    let today = now
-      .format(&format_description::parse("[year][month][day]").unwrap())
-      .unwrap();
+    let format = format_description::parse_borrowed::<3>("[year][month][day]").unwrap();
+    let today = now.format(&format).unwrap();
     let date_dir = base_dir().join(&today);
     fs::create_dir_all(&date_dir).unwrap();
     let mut n: u32 = 0;
