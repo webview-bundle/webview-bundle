@@ -4,6 +4,8 @@ import { type CloudflareRemoteDeployerConfig, cloudflareRemoteDeployer } from '.
 import { type CloudflareRemoteUploaderConfig, cloudflareRemoteUploader } from './uploader.js';
 import type { CloudflareClientConfigLike } from './utils.js';
 
+export { BundleAlreadyUploadedError, isBundleAlreadyUploadedError } from '@wvb/remote-aws';
+
 export interface CloudflareRemoteConfig
   extends CloudflareClientConfigLike,
     Pick<AwsRemoteConfig, 'aws'> {

@@ -1,6 +1,13 @@
+import type { S3Client } from '@aws-sdk/client-s3';
 import type { Configuration as UploadConfig } from '@aws-sdk/lib-storage';
 import type { BaseRemoteUploader, RemoteUploadParams } from '@wvb/config/remote';
-import { type AwsS3ClientConfigLike, filterS3Metadata, getS3Client } from './utils.js';
+import { BundleAlreadyUploadedError } from './errors.js';
+import {
+  type AwsS3ClientConfigLike,
+  filterS3Metadata,
+  getS3Client,
+  isNotFoundError,
+} from './utils.js';
 
 export interface AwsS3RemoteUploaderConfig extends AwsS3ClientConfigLike {
   bucket: string;
@@ -28,8 +35,12 @@ class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
       contentDisposition,
       metadata: customMetadata = {},
     } = this.config;
-    const { bundle, bundleName, version, integrity, signature } = params;
+    const { bundle, bundleName, version, force, integrity, signature } = params;
     const s3 = await getS3Client(this.config);
+    const key = buildKey(this.config, params);
+    if (!force) {
+      await ensureObjectAbsent(s3, bucket, key, bundleName, version);
+    }
     const metadata: Record<string, string | null | undefined> = {
       ...customMetadata,
       'webview-bundle-name': bundleName,
@@ -46,7 +57,7 @@ class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
       client: s3,
       params: {
         Bucket: bucket,
-        Key: buildKey(this.config, params),
+        Key: key,
         Body: bundle,
         ContentType: contentType,
         CacheControl: cacheControl,
@@ -64,6 +75,25 @@ class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
 
 export function awsS3RemoteUploader(config: AwsS3RemoteUploaderConfig): BaseRemoteUploader {
   return new AwsS3RemoteUploaderImpl(config);
+}
+
+async function ensureObjectAbsent(
+  s3: S3Client,
+  bucket: string,
+  key: string,
+  bundleName: string,
+  version: string
+): Promise<void> {
+  const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+  } catch (e) {
+    if (isNotFoundError(e)) {
+      return;
+    }
+    throw e;
+  }
+  throw new BundleAlreadyUploadedError(bundleName, version);
 }
 
 function buildKey(config: AwsS3RemoteUploaderConfig, params: RemoteUploadParams): string {

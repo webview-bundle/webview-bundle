@@ -6,6 +6,7 @@ import type { AwsClientDefaults } from './utils.js';
 
 export type { AwsRemoteDeployerConfig } from './deployer.js';
 export { awsRemoteDeployer } from './deployer.js';
+export { BundleAlreadyUploadedError, isBundleAlreadyUploadedError } from './errors.js';
 export type { AwsKmsSignatureSignerConfig } from './signature.js';
 export { awsKmsSignatureSigner } from './signature.js';
 export type { AwsS3RemoteUploaderConfig } from './uploader.js';
