@@ -47,6 +47,8 @@ export class Changelog {
               return `[\`${name}\`](https://www.npmjs.com/package/${name}/v/${version})`;
             case 'Cargo.toml':
               return `[\`${name}\`](https://crates.io/crates/${name}/${version})`;
+            case 'deno.json':
+              return `[\`${name}\`](https://jsr.io/${name}@${version})`;
           }
         })
         .join(', ');

@@ -1,0 +1,12 @@
+{
+  "name": "@wvb/deno",
+  "version": "0.0.0",
+  "exports": {
+    ".": "./mod.ts",
+    "./install": "./lib/install.ts"
+  },
+  "tasks": {
+    "check": "deno check mod.ts lib/install.ts",
+    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "workspace": ["./deno", "./deno-desktop"],
+  "imports": {
+    "@denosaurs/plug": "jsr:@denosaurs/plug@^1",
+    "@std/assert": "jsr:@std/assert@^1.0.0",
+    "@std/path": "jsr:@std/path@^1.0.0"
+  }
+}
