@@ -5448,7 +5448,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@wvb/cli@workspace:packages/cli":
+"@wvb/cli@workspace:^, @wvb/cli@workspace:packages/cli":
   version: 0.0.0-use.local
   resolution: "@wvb/cli@workspace:packages/cli"
   dependencies:
@@ -5495,6 +5495,24 @@ __metadata:
     type-fest: "npm:^4.40.1"
     typescript: "catalog:"
     vitest: "catalog:"
+  languageName: unknown
+  linkType: soft
+
+"@wvb/electron-builder@workspace:packages/electron-builder":
+  version: 0.0.0-use.local
+  resolution: "@wvb/electron-builder@workspace:packages/electron-builder"
+  dependencies:
+    "@types/node": "catalog:"
+    "@wvb/cli": "workspace:^"
+    "@wvb/config": "workspace:^"
+    tsdown: "catalog:"
+    typescript: "catalog:"
+    vitest: "catalog:"
+  peerDependencies:
+    electron-builder: ">= 24"
+  peerDependenciesMeta:
+    electron-builder:
+      optional: true
   languageName: unknown
   linkType: soft
 

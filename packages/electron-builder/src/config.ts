@@ -11,7 +11,11 @@ export interface AfterPackContext {
   appOutDir: string;
   /** e.g. `'darwin'`, `'mas'`, `'win32'`, `'linux'`. */
   electronPlatformName: string;
+  /** Target CPU arch (electron-builder's `Arch` enum value) — used to stage per target. */
+  arch: number;
   packager: {
+    /** The electron-builder project directory (where the config / package.json live). */
+    projectDir: string;
     appInfo: {
       /** The product file name (the `.app` bundle base name on macOS). */
       productFilename: string;

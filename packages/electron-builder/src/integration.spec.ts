@@ -24,7 +24,8 @@ function darwinContext(overrides: Partial<AfterPackContext> = {}): AfterPackCont
   return {
     appOutDir: '/out/mac',
     electronPlatformName: 'darwin',
-    packager: { appInfo: { productFilename: 'My App' } },
+    arch: 1,
+    packager: { projectDir: '/project', appInfo: { productFilename: 'My App' } },
     ...overrides,
   };
 }
@@ -53,14 +54,16 @@ describe('resolveResourcesPath', () => {
       resolveResourcesPath({
         appOutDir: '/out/win',
         electronPlatformName: 'win32',
-        packager: { appInfo: { productFilename: 'My App' } },
+        arch: 1,
+        packager: { projectDir: '/project', appInfo: { productFilename: 'My App' } },
       })
     ).toBe(path.join('/out/win', 'resources'));
     expect(
       resolveResourcesPath({
         appOutDir: '/out/linux',
         electronPlatformName: 'linux',
-        packager: { appInfo: { productFilename: 'My App' } },
+        arch: 1,
+        packager: { projectDir: '/project', appInfo: { productFilename: 'My App' } },
       })
     ).toBe(path.join('/out/linux', 'resources'));
   });
@@ -71,7 +74,8 @@ describe('webViewBundleAfterPack', () => {
     await webViewBundleAfterPack()(darwinContext());
 
     expect(h.builtin).toHaveBeenCalledTimes(1);
-    const stageDir = path.resolve('/project', '.wvb', 'builtin', 'bundles');
+    // Staging is per (platform, arch): `<root>/<outDir>/<platform>-<arch>`.
+    const stageDir = path.resolve('/project', '.wvb', 'builtin', 'bundles', 'darwin-1');
     const destDir = path.join('/out/mac', 'My App.app', 'Contents', 'Resources', 'bundles');
     expect(h.rm).toHaveBeenCalledWith(destDir, { recursive: true, force: true });
     expect(h.cp).toHaveBeenCalledWith(stageDir, destDir, { recursive: true });

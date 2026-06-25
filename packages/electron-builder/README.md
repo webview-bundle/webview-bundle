@@ -4,10 +4,10 @@
 
 It installs your **builtin** Webview Bundles into the packaged app at build time — downloading them
 from your remote and/or packing them from local workspaces (as configured in `wvb.config.ts`) — and
-places them in the app's `Resources/bundles` directory, exactly where [`@wvb/electron`](../electron)
+places them in the app's `Resources/bundles` directory, exactly where [`@wvb/electron`](https://github.com/webview-bundle/webview-bundle/tree/main/packages/electron)
 reads them at runtime.
 
-This is the electron-builder counterpart to [`@wvb/electron-forge`](../electron-forge). Because
+This is the electron-builder counterpart to [`@wvb/electron-forge`](https://github.com/webview-bundle/webview-bundle/tree/main/packages/electron-forge). Because
 electron-builder has no plugin system, the integration is delivered as a Higher-order Config (HoC)
 that wraps your electron-builder configuration — the same pattern used by tools like
 `@sentry/nextjs`.

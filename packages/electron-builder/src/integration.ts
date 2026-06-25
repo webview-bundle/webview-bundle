@@ -9,6 +9,19 @@ const DEFAULT_BUILTIN_OUT_DIR = path.join('.wvb', 'builtin', 'bundles');
 const DEFAULT_BUNDLES_DIR = 'bundles';
 
 /**
+ * Guard against path traversal before destructive fs ops: `bundlesDir` must be a relative path
+ * inside the resources directory (no absolute paths, no `..` segments).
+ */
+function safeBundlesDir(bundlesDir: string): string {
+  if (path.isAbsolute(bundlesDir) || bundlesDir.split(/[/\\]/).includes('..')) {
+    throw new Error(
+      `bundlesDir must be a relative path without ".." segments (got "${bundlesDir}").`
+    );
+  }
+  return bundlesDir;
+}
+
+/**
  * Resolve the packaged app's `Resources` directory from an electron-builder `afterPack` context.
  * This is where `@wvb/electron` reads builtin bundles from at runtime (`<resourcesPath>/bundles`).
  *
@@ -45,8 +58,8 @@ export function resolveResourcesPath(context: AfterPackContext): string {
  * app). It is not invoked for `electron .` dev runs, so dev stays bundle-free.
  *
  * Note: there is no cross-target download cache, so a multi-target build (e.g. `-mwl`) installs the
- * bundles once per target. Each install cleans its own staging directory, so targets never
- * interfere.
+ * bundles once per target. Each target stages into its own `<outDir>/<platform>-<arch>` directory,
+ * so even parallel targets never clobber a shared staging dir.
  */
 export function webViewBundleAfterPack(
   options: WebViewBundleOptions = {}
@@ -56,7 +69,8 @@ export function webViewBundleAfterPack(
 
     const resolved = await resolveConfig({
       ...inline,
-      root: inline.root ?? process.cwd(),
+      // Resolve config from the electron-builder project dir, not the (possibly unrelated) cwd.
+      root: inline.root ?? context.packager.projectDir ?? process.cwd(),
       configFile: configFile === true ? undefined : configFile,
     });
 
@@ -83,7 +97,11 @@ export function webViewBundleAfterPack(
           ? { ...target, endpoint: target.endpoint ?? resolved.remote?.endpoint }
           : target;
 
-    const dir = outDir ?? DEFAULT_BUILTIN_OUT_DIR;
+    // Stage per (platform, arch) so a multi-target build never shares — and clobbers — one dir.
+    const dir = path.join(
+      outDir ?? DEFAULT_BUILTIN_OUT_DIR,
+      `${context.electronPlatformName}-${context.arch}`
+    );
     const manifest = await builtin({
       target: installTarget,
       dir,
@@ -108,7 +126,10 @@ export function webViewBundleAfterPack(
     // (`manifest.json` + `<name>/<name>_<version>.wvb`). Copy that tree into the packaged app's
     // resources so the runtime reads `<resourcesPath>/<bundlesDir>`.
     const stageDir = path.resolve(resolved.root, dir);
-    const destDir = path.join(resolveResourcesPath(context), bundlesDir ?? DEFAULT_BUNDLES_DIR);
+    const destDir = path.join(
+      resolveResourcesPath(context),
+      safeBundlesDir(bundlesDir ?? DEFAULT_BUNDLES_DIR)
+    );
 
     await fs.rm(destDir, { recursive: true, force: true });
     await fs.cp(stageDir, destDir, { recursive: true });
@@ -172,6 +193,3 @@ export function withWebViewBundle<C extends object>(
 
   return { ...config, afterPack } as C;
 }
-
-export const withWvb: <C extends object>(config: C, options?: WebViewBundleOptions) => C =
-  withWebViewBundle;
