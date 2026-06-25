@@ -36,8 +36,10 @@ export async function checkAndroidNoCompress(moduleDir: string): Promise<Android
     } catch {
       continue;
     }
-    // Look for `noCompress` and a quoted "wvb" — quoted form avoids matching the `dev.wvb` namespace.
-    if (/noCompress/.test(text) && /["']wvb["']/.test(text)) {
+    // Require a quoted "wvb" close to `noCompress` (same statement) rather than anywhere in the file,
+    // so an unrelated `noCompress` for another extension + a stray "wvb" elsewhere isn't a match.
+    // The quoted form also avoids matching the `dev.wvb` namespace.
+    if (/noCompress\b[\s\S]{0,60}["']wvb["']/.test(text)) {
       return 'ok';
     }
   }

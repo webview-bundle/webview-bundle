@@ -105,8 +105,14 @@ above "Copy Bundle Resources"; the app bundle path is then read directly (no ext
       return 1;
     }
 
-    if (this.android != null && !(await pathExists(this.android))) {
-      this.logger.error(`Android module directory not found: ${this.android}`);
+    // Resolve preset paths against --cwd (default process.cwd()) so relative --android/--ios paths
+    // are honored regardless of where the CLI is invoked.
+    const cwd = this.cwd ?? process.cwd();
+    const androidDir = this.android != null ? path.resolve(cwd, this.android) : null;
+    const iosDir = this.ios != null ? path.resolve(cwd, this.ios) : null;
+
+    if (androidDir != null && !(await pathExists(androidDir))) {
+      this.logger.error(`Android module directory not found: ${androidDir}`);
       return 1;
     }
 
@@ -149,10 +155,10 @@ above "Copy Bundle Resources"; the app bundle path is then read directly (no ext
     let defaultDir: string;
     if (tauriProject != null) {
       defaultDir = path.join(tauriProject.dir, TAURI_BUNDLES_DIR);
-    } else if (this.android != null) {
-      defaultDir = path.resolve(this.android, ANDROID_BUILTIN_OUT);
-    } else if (this.ios != null) {
-      defaultDir = path.resolve(this.ios);
+    } else if (androidDir != null) {
+      defaultDir = path.resolve(androidDir, ANDROID_BUILTIN_OUT);
+    } else if (iosDir != null) {
+      defaultDir = iosDir;
     } else {
       defaultDir = config.builtin?.outDir ?? path.join('.wvb', 'builtin', 'bundles');
     }
@@ -186,10 +192,16 @@ above "Copy Bundle Resources"; the app bundle path is then read directly (no ext
               `Add to ${tauriProject.configFile}:\n` +
               `  "bundle": { "resources": ["${TAURI_BUNDLES_DIR}/**/*.wvb", "${TAURI_BUNDLES_DIR}/manifest.json"] }`
           );
+        } else if (status === 'skipped') {
+          // TOML / JSON5 configs aren't parsed here — don't silently imply everything's fine.
+          this.logger.info(
+            `Could not auto-verify "bundle.resources" in ${tauriProject.configFile} (TOML/JSON5 not parsed). ` +
+              `Make sure it ships "${TAURI_BUNDLES_DIR}" so the staged bundles are bundled.`
+          );
         }
-      } else if (this.android != null) {
+      } else if (androidDir != null) {
         // Already-compressed .wvb shouldn't be re-compressed in the APK.
-        const status = await checkAndroidNoCompress(path.resolve(this.android));
+        const status = await checkAndroidNoCompress(androidDir);
         if (status === 'missing') {
           this.logger.warn(
             "'.wvb' assets may be re-compressed in the APK. Add to your module's build.gradle(.kts):\n" +

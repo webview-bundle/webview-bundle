@@ -46,8 +46,10 @@ androidComponents {
     val gen = tasks.register<Exec>("generate${variant.name}WvbAssets") {
       commandLine("wvb", "builtin", "--android", project.projectDir.absolutePath)
     }
-    tasks.named("merge${variant.name.replaceFirstChar { it.uppercase() }}Assets")
-      .configure { dependsOn(gen) }
+    // `merge<Variant>Assets` isn't registered yet inside onVariants, so `tasks.named(...)` would
+    // throw — match lazily with configureEach instead.
+    val mergeAssets = "merge${variant.name.replaceFirstChar { it.uppercase() }}Assets"
+    tasks.matching { it.name == mergeAssets }.configureEach { dependsOn(gen) }
   }
 }
 ```

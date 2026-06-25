@@ -84,10 +84,15 @@ export async function checkBundleResources(
     return 'missing';
   }
 
+  // Object-form `resources` is a `{ source: destination }` map — the bundles dir may appear as
+  // either the source (key) or the destination (value), so check both.
   const entries = Array.isArray(resources)
     ? resources
-    : typeof resources === 'object'
-      ? Object.keys(resources as Record<string, unknown>)
+    : typeof resources === 'object' && resources != null
+      ? [
+          ...Object.keys(resources as Record<string, unknown>),
+          ...Object.values(resources as Record<string, unknown>),
+        ]
       : [];
   // Match on a path segment (not a substring) so `bundles/**/*.wvb` and `bundles/` match while
   // `mybundles/x` does not.
