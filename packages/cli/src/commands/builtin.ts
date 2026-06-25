@@ -32,6 +32,7 @@ export class BuiltinCommand extends BaseCommand {
       ['A basic usage', '$0 builtin'],
       ['Install into a Tauri app (wire into `beforeBundleCommand`)', '$0 builtin --tauri'],
       ['Install into the auto-detected Android app module', '$0 builtin --android'],
+      ['…or an explicit Android module', '$0 builtin --android=./android/app'],
       ['Install into the auto-detected iOS project', '$0 builtin --ios'],
     ],
   });
@@ -92,23 +93,17 @@ Wire this into \`beforeBundleCommand\` (and \`beforeDevCommand\` for dev).`,
     description: `Path to the Tauri project directory (the one with tauri.conf.json). Auto-detected when omitted.
 Only used together with "--tauri".`,
   });
-  readonly android = Option.Boolean('--android', false, {
-    description: `Android preset. Auto-detect the application module (the one with "src/main/assets") and default the
-output to "<module>/${ANDROID_BUILTIN_OUT}" so the bundles are merged into the APK/AAB assets.
-At runtime, extract them to a filesystem dir (e.g. filesDir) — assets are not filesystem paths.`,
+  readonly android = Option.String('--android', {
+    tolerateBoolean: true,
+    description: `Android preset. Pass "--android" to auto-detect the application module (the one with "src/main/assets"),
+or "--android=<module>" to point at it explicitly. Defaults the output to "<module>/${ANDROID_BUILTIN_OUT}" so the
+bundles are merged into the APK/AAB assets. At runtime, extract them to a filesystem dir (assets are not filesystem paths).`,
   });
-  readonly androidDir = Option.String('--android-dir', {
-    description: `Path to the Android application module (the one with "src/main/assets"). Auto-detected when omitted.
-Only used together with "--android".`,
-  });
-  readonly ios = Option.Boolean('--ios', false, {
-    description: `iOS preset. Auto-detect the Xcode/Tuist project and default the output to "<project>/${IOS_BUILTIN_OUT}".
-Add that directory to your Xcode target as a FOLDER REFERENCE (not a group), regenerated from a Run Script
-phase above "Copy Bundle Resources"; the app bundle path is then read directly (no extraction needed).`,
-  });
-  readonly iosDir = Option.String('--ios-dir', {
-    description: `Path to the iOS project directory (the one with Project.swift / *.xcodeproj). Auto-detected when
-omitted. Only used together with "--ios".`,
+  readonly ios = Option.String('--ios', {
+    tolerateBoolean: true,
+    description: `iOS preset. Pass "--ios" to auto-detect the Xcode/Tuist project, or "--ios=<project>" to point at it
+explicitly. Defaults the output to "<project>/${IOS_BUILTIN_OUT}". Add that directory to your Xcode target as a FOLDER
+REFERENCE (not a group), regenerated from a Run Script phase above "Copy Bundle Resources".`,
   });
 
   async run() {
@@ -118,9 +113,12 @@ omitted. Only used together with "--ios".`,
       return 1;
     }
 
-    // Presets auto-detect their target project (relative to --cwd, default process.cwd()); an explicit
-    // "--*-dir" override is still validated, so a wrong path yields the same clear error.
+    // Presets auto-detect their target project (relative to --cwd, default process.cwd()). Each flag is
+    // boolean-or-string: bare (`--android`) auto-detects, `--android=<path>` points at it explicitly
+    // (still validated, so a wrong path yields the same clear error).
     const cwd = this.cwd ?? process.cwd();
+    const androidDir = typeof this.android === 'string' ? this.android : undefined;
+    const iosDir = typeof this.ios === 'string' ? this.ios : undefined;
 
     let tauriProject: TauriProject | null = null;
     if (this.tauri) {
@@ -136,11 +134,11 @@ omitted. Only used together with "--ios".`,
 
     let androidProject: AndroidProject | null = null;
     if (this.android) {
-      androidProject = await resolveAndroidProject(cwd, this.androidDir);
+      androidProject = await resolveAndroidProject(cwd, androidDir);
       if (androidProject == null) {
         this.logger.error(
           'Could not locate an Android application module (no com.android.application module with ' +
-            'src/main/assets found). Pass "--android-dir <path>".'
+            'src/main/assets found). Pass "--android=<path>".'
         );
         return 1;
       }
@@ -149,11 +147,11 @@ omitted. Only used together with "--ios".`,
 
     let iosProject: IosProject | null = null;
     if (this.ios) {
-      iosProject = await resolveIosProject(cwd, this.iosDir);
+      iosProject = await resolveIosProject(cwd, iosDir);
       if (iosProject == null) {
         this.logger.error(
           'Could not locate an iOS project (no Project.swift, *.xcworkspace, or *.xcodeproj found). ' +
-            'Pass "--ios-dir <path>".'
+            'Pass "--ios=<path>".'
         );
         return 1;
       }
