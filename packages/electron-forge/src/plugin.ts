@@ -15,6 +15,19 @@ import type { WebViewBundlePluginConfig } from './config.js';
 const DEFAULT_BUILTIN_OUT_DIR = path.join('.wvb', 'builtin', 'bundles');
 const DEFAULT_BUNDLES_DIR = 'bundles';
 
+/**
+ * Guard against path traversal before destructive fs ops: `bundlesDir` must be a relative path
+ * inside the resources directory (no absolute paths, no `..` segments).
+ */
+function safeBundlesDir(bundlesDir: string): string {
+  if (path.isAbsolute(bundlesDir) || bundlesDir.split(/[/\\]/).includes('..')) {
+    throw new Error(
+      `bundlesDir must be a relative path without ".." segments (got "${bundlesDir}").`
+    );
+  }
+  return bundlesDir;
+}
+
 export class WebViewBundlePlugin extends PluginBase<WebViewBundlePluginConfig> {
   override readonly name = 'WebViewBundlePlugin';
 
@@ -97,7 +110,11 @@ export class WebViewBundlePlugin extends PluginBase<WebViewBundlePluginConfig> {
     // resources. In `packageAfterCopy`, `buildPath` is the copied app dir (`<resources>/app`), so the
     // resources dir is its parent and the runtime reads `<resources>/bundles`.
     const stageDir = path.resolve(resolved.root, dir);
-    const destDir = path.resolve(buildPath, '..', bundlesDir ?? DEFAULT_BUNDLES_DIR);
+    const destDir = path.resolve(
+      buildPath,
+      '..',
+      safeBundlesDir(bundlesDir ?? DEFAULT_BUNDLES_DIR)
+    );
 
     await fs.rm(destDir, { recursive: true, force: true });
     await fs.cp(stageDir, destDir, { recursive: true });
