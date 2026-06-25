@@ -70,7 +70,12 @@ export async function install(options: InstallOptions = {}): Promise<string> {
 
 function flag(name: string): string | undefined {
   const i = Deno.args.indexOf(`--${name}`);
-  return i >= 0 ? Deno.args[i + 1] : undefined;
+  if (i < 0) {
+    return undefined;
+  }
+  // Don't consume the next token if it's another flag (i.e. this flag's value is missing).
+  const value = Deno.args[i + 1];
+  return value != null && !value.startsWith('--') ? value : undefined;
 }
 
 async function main(): Promise<void> {

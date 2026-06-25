@@ -24,8 +24,11 @@ export class BundleSource {
     }
   }
 
-  /** @internal Native handle, for passing to a protocol/updater. */
+  /** @internal Native handle, for passing to a protocol/updater. Throws if already freed. */
   get pointer(): Deno.PointerValue {
+    if (this.#ptr === null) {
+      throw new Error('wvb: BundleSource has been freed');
+    }
     return this.#ptr;
   }
 

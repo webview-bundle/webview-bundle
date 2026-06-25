@@ -39,6 +39,24 @@ function normalizeHeaders(headers: Headers): Record<string, string> {
   return map;
 }
 
+const HTTP_METHODS: ReadonlySet<string> = new Set([
+  'get',
+  'head',
+  'options',
+  'post',
+  'put',
+  'patch',
+  'delete',
+]);
+
+/** Lower-cased {@link HttpMethod}, or `null` for an unsupported method (callers return 405). */
+function toMethod(req: Request): HttpMethod | null {
+  const method = req.method.toLowerCase();
+  return HTTP_METHODS.has(method) ? (method as HttpMethod) : null;
+}
+
+const METHOD_NOT_ALLOWED = (): Response => new Response('Method Not Allowed', { status: 405 });
+
 export interface BundleProtocolConfig extends ProtocolOptions {}
 
 /** Serve a builtin bundle (named `scheme`) at the HTTP root. */
@@ -49,8 +67,11 @@ export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}
       const bundle = new BundleProtocol(source);
       return {
         handle: async (req: Request): Promise<Response> => {
+          const method = toMethod(req);
+          if (method == null) {
+            return METHOD_NOT_ALLOWED();
+          }
           const { pathname, search } = new URL(req.url);
-          const method = req.method.toLowerCase() as HttpMethod;
           const resp = await bundle.handle(
             method,
             `bundle://${scheme}${pathname}${search}`,
@@ -80,8 +101,11 @@ export function localProtocol(scheme: string, config: LocalProtocolConfig): Prot
       const local = new LocalProtocol(resolved);
       return {
         handle: async (req: Request): Promise<Response> => {
+          const method = toMethod(req);
+          if (method == null) {
+            return METHOD_NOT_ALLOWED();
+          }
           const { pathname, search } = new URL(req.url);
-          const method = req.method.toLowerCase() as HttpMethod;
           const resp = await local.handle(
             method,
             `app://${scheme}${pathname}${search}`,

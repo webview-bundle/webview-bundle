@@ -82,7 +82,8 @@ export function platformLibFileName(os: typeof Deno.build.os = Deno.build.os): s
 function resolveLibFile(libPath: string | URL): string {
   const p = libPath instanceof URL ? fromFileUrl(libPath) : libPath;
   // Already a dylib file → use as-is; a directory (or trailing slash) → append the platform filename.
-  if (/\.(dylib|so|dll)$/.test(p)) {
+  // Case-insensitive so explicit paths with uppercase extensions (e.g. `.DLL`) aren't mangled.
+  if (/\.(dylib|so|dll)$/i.test(p)) {
     return p;
   }
   return p.endsWith('/') || p.endsWith('\\')
@@ -112,17 +113,30 @@ export async function loadLibViaPlug(options: { url: string }): Promise<WvbLib> 
   if (lib != null) {
     return lib;
   }
-  const { dlopen } = await import('@denosaurs/plug');
-  lib = (await dlopen({ name: 'wvb_deno', url: options.url }, SYMBOLS)) as WvbLib;
-  return lib;
+  // Single-flight: concurrent callers share one in-flight load so the dylib is opened exactly once.
+  loadingPromise ??= (async () => {
+    const { dlopen } = await import('@denosaurs/plug');
+    lib = (await dlopen({ name: 'wvb_deno', url: options.url }, SYMBOLS)) as WvbLib;
+    return lib;
+  })();
+  return loadingPromise;
 }
+
+let loadingPromise: Promise<WvbLib> | null = null;
 
 /** The cached native library. Falls back to `WVB_DENO_LIB` if set; otherwise throws. */
 export function getLib(): WvbLib {
   if (lib != null) {
     return lib;
   }
-  const env = Deno.env.get('WVB_DENO_LIB');
+  // Reading env requires `--allow-env`; treat a denied/missing permission as "no override" rather
+  // than crashing with a PermissionDenied.
+  let env: string | undefined;
+  try {
+    env = Deno.env.get('WVB_DENO_LIB');
+  } catch {
+    env = undefined;
+  }
   if (env != null && env.length > 0) {
     return loadLib(env);
   }

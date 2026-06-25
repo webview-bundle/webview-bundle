@@ -46,17 +46,50 @@ function defaultBuiltinDir(): string {
  * `~/.local/share`). Override with the `WVB_APP_DATA_DIR` env var.
  */
 export function appDataDir(): string {
-  const override = Deno.env.get('WVB_APP_DATA_DIR');
+  // Reading env requires `--allow-env`; a denied/missing permission must not crash the app, so each
+  // read is guarded and we fall back to a cwd-local directory when env is unavailable.
+  const override = tryEnv('WVB_APP_DATA_DIR');
   if (override != null && override.length > 0) {
     return override;
   }
+  const home = tryEnv('HOME');
   switch (Deno.build.os) {
     case 'darwin':
-      return `${Deno.env.get('HOME')}/Library/Application Support`;
-    case 'windows':
-      return Deno.env.get('APPDATA') ?? `${Deno.env.get('USERPROFILE')}\\AppData\\Roaming`;
-    default:
-      return Deno.env.get('XDG_DATA_HOME') ?? `${Deno.env.get('HOME')}/.local/share`;
+      if (home != null) {
+        return `${home}/Library/Application Support`;
+      }
+      break;
+    case 'windows': {
+      const appData = tryEnv('APPDATA');
+      if (appData != null) {
+        return appData;
+      }
+      const userProfile = tryEnv('USERPROFILE');
+      if (userProfile != null) {
+        return `${userProfile}\\AppData\\Roaming`;
+      }
+      break;
+    }
+    default: {
+      const xdg = tryEnv('XDG_DATA_HOME');
+      if (xdg != null) {
+        return xdg;
+      }
+      if (home != null) {
+        return `${home}/.local/share`;
+      }
+      break;
+    }
+  }
+  return `${Deno.cwd()}/.wvb/app-data`;
+}
+
+function tryEnv(name: string): string | undefined {
+  try {
+    const value = Deno.env.get(name);
+    return value != null && value.length > 0 ? value : undefined;
+  } catch {
+    return undefined;
   }
 }
 

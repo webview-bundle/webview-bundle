@@ -60,8 +60,11 @@ export class Remote {
     }
   }
 
-  /** @internal Native handle, for passing to an Updater. */
+  /** @internal Native handle, for passing to an Updater. Throws if already freed. */
   get pointer(): Deno.PointerValue {
+    if (this.#ptr === null) {
+      throw new Error('wvb: Remote has been freed');
+    }
     return this.#ptr;
   }
 

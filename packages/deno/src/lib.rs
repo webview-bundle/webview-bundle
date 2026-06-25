@@ -154,8 +154,11 @@ fn handle_request(
   uri: &str,
   headers: &HashMap<String, String>,
 ) -> WvbResponse {
-  let method =
-    http::Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap_or(http::Method::GET);
+  // An unparseable method token is a bad request — don't silently coerce it to GET.
+  let method = match http::Method::from_bytes(method.to_ascii_uppercase().as_bytes()) {
+    Ok(method) => method,
+    Err(_) => return error_response(400, "invalid HTTP method"),
+  };
   let mut builder = http::Request::builder().method(method).uri(uri);
   for (name, value) in headers {
     builder = builder.header(name.as_str(), value.as_str());
@@ -495,8 +498,11 @@ pub unsafe extern "C" fn wvb_updater_new(
         if let Some(policy) = value.get("integrityPolicy").and_then(|x| x.as_str()) {
           let policy = match policy {
             "strict" => IntegrityPolicy::Strict,
+            "optional" => IntegrityPolicy::Optional,
             "none" => IntegrityPolicy::None,
-            _ => IntegrityPolicy::Optional,
+            // Unknown value (e.g. a typo) → fail closed with strict verification rather than
+            // silently weakening integrity checks.
+            _ => IntegrityPolicy::Strict,
           };
           config = config.integrity_policy(policy);
         }

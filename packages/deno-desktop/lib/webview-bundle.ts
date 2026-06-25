@@ -58,6 +58,11 @@ export class WebviewBundle {
   readonly #handler: Promise<(req: Request) => Promise<Response>>;
 
   constructor(config: WebviewBundleConfig) {
+    // Fail fast on invalid config before any side effects (loading the lib, creating dirs), rather
+    // than deferring the error to the first request.
+    if (config.protocols.length === 0) {
+      throw new Error('webviewBundle requires at least one protocol');
+    }
     this.#config = config;
     if (config.lib != null) {
       loadLib(config.lib);

@@ -2,11 +2,11 @@
 
 Serve [webview-bundle](https://github.com/webview-bundle/webview-bundle) `.wvb` bundles in a
 [**Deno desktop**](https://docs.deno.com/runtime/desktop/) app. The API mirrors
-[`@wvb/electron`](../electron) — `webviewBundle`, `bundleProtocol`, `localProtocol`, `bundleSource`,
+[`@wvb/electron`](https://github.com/webview-bundle/webview-bundle/tree/main/packages/electron) — `webviewBundle`, `bundleProtocol`, `localProtocol`, `bundleSource`,
 `remote` — adapted to Deno desktop's model: the webview points at a local `Deno.serve` endpoint (no
 custom protocol), so a `WebviewBundle` exposes a `fetch` handler instead of registering protocols.
 
-Built on the [`@wvb/deno`](../deno) FFI binding, which needs the native `wvb-deno` dynamic library.
+Built on the [`@wvb/deno`](https://github.com/webview-bundle/webview-bundle/tree/main/packages/deno) FFI binding, which needs the native `wvb-deno` dynamic library.
 
 ## Usage
 

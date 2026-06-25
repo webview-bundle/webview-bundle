@@ -2,11 +2,13 @@
 
 [webview-bundle](https://github.com/webview-bundle/webview-bundle) core API bound to the **Deno**
 runtime via [Deno FFI](https://docs.deno.com/runtime/fundamentals/ffi/) — the Deno peer of
-[`@wvb/node`](../node). Exposes `BundleSource`, `BundleProtocol`, `LocalProtocol`, `Remote`,
-`Updater` (+ `toResponse`), backed by the `wvb-deno` cdylib through `Deno.dlopen`.
+[`@wvb/node`](https://github.com/webview-bundle/webview-bundle/tree/main/packages/node). Exposes
+`BundleSource`, `BundleProtocol`, `LocalProtocol`, `Remote`, `Updater` (+ `toResponse`), backed by
+the `wvb-deno` cdylib through `Deno.dlopen`.
 
-For Deno **desktop** apps, use [`@wvb/deno-desktop`](../deno-desktop), which wraps this into a
-`Deno.serve` handler.
+For Deno **desktop** apps, use
+[`@wvb/deno-desktop`](https://github.com/webview-bundle/webview-bundle/tree/main/packages/deno-desktop),
+which wraps this into a `Deno.serve` handler.
 
 ## Loading the native library
 
@@ -19,7 +21,7 @@ import { loadLib, loadLibViaPlug } from '@wvb/deno';
 //    Pass a file or a directory (the platform filename is appended).
 loadLib(new URL('./vendor/wvb/', import.meta.url));
 
-// 2) local dev — set WVB_DENO_LIB=target/debug/libwvb_deno.dylib and call loadLib(env)/getLib().
+// 2) local dev — set WVB_DENO_LIB=target/debug/libwvb_deno.dylib; the binding auto-loads from it.
 
 // 3) deno run / library — download + cache from a release URL via @denosaurs/plug.
 await loadLibViaPlug({
@@ -37,7 +39,8 @@ first.
 
 ```sh
 deno run -A jsr:@wvb/deno/install --out vendor/wvb [--target <triple>]
-# → vendor/wvb/libwvb_deno.dylib ; then: deno desktop --allow-ffi --include vendor/wvb/... main.ts
+# → vendor/wvb/libwvb_deno.dylib ; then:
+deno desktop --allow-ffi --include vendor/wvb/libwvb_deno.dylib main.ts
 ```
 
 The dylib is hosted per-platform on GitHub Releases (JSR ships only the TS).
