@@ -10,11 +10,14 @@ layout every runtime reads. By default it stages into `./.wvb/builtin/bundles`; 
 below default the output to where each platform expects it.
 
 ```sh
-wvb builtin                       # stage into ./.wvb/builtin/bundles
-wvb builtin --tauri               # Tauri preset (see @wvb/tauri README)
-wvb builtin --android ./android/app
-wvb builtin --ios ./ios/MyApp/Generated/builtin
+wvb builtin            # stage into ./.wvb/builtin/bundles
+wvb builtin --tauri    # Tauri preset — auto-detects src-tauri (see @wvb/tauri README)
+wvb builtin --android  # Android preset — auto-detects the app module
+wvb builtin --ios      # iOS preset — auto-detects the Xcode/Tuist project
 ```
+
+Each preset auto-detects its project (like `--tauri`); pass `--android-dir` / `--ios-dir` / `--tauri-dir`
+to point at it explicitly, or `--out` to override the final staging directory.
 
 ### Mobile presets
 
@@ -30,10 +33,13 @@ The runtime contract is the same as desktop — a filesystem directory of `manif
 These presets cover the **build-time staging** half. The **runtime resolution** half (iOS
 `Bundle.main` path; Android asset extraction) lives in the native libraries.
 
-#### Android — `wvb builtin --android <module>`
+#### Android — `wvb builtin --android`
 
-Defaults the output to `<module>/src/main/assets/bundles/builtin`, so AGP merges the bundles into the
-APK/AAB assets. Wire it into the build before assets are merged, and keep `.wvb` uncompressed:
+Auto-detects the application module (the one with `src/main/assets`, via the `com.android.application`
+plugin) — across native, React Native, Capacitor, Flutter, and Tauri-mobile (`src-tauri/gen/android`)
+layouts — and defaults the output to `<module>/src/main/assets/bundles/builtin`, so AGP merges the
+bundles into the APK/AAB assets. Pass `--android-dir <module>` to point at it explicitly (e.g. for a
+multi-app project). Wire it into the build before assets are merged, and keep `.wvb` uncompressed:
 
 ```kotlin
 // <module>/build.gradle.kts
@@ -44,7 +50,7 @@ android {
 androidComponents {
   onVariants { variant ->
     val gen = tasks.register<Exec>("generate${variant.name}WvbAssets") {
-      commandLine("wvb", "builtin", "--android", project.projectDir.absolutePath)
+      commandLine("wvb", "builtin", "--android", "--android-dir", project.projectDir.absolutePath)
     }
     // `merge<Variant>Assets` isn't registered yet inside onVariants, so `tasks.named(...)` would
     // throw — match lazily with configureEach instead.
@@ -57,23 +63,30 @@ androidComponents {
 At runtime, extract `bundles/builtin` from assets to `filesDir` (version-gated, off the main thread)
 and pass that absolute path as the source's `builtin_dir`.
 
-#### iOS — `wvb builtin --ios <dir>`
+#### iOS — `wvb builtin --ios`
 
-Defaults the output to `<dir>`. Add `<dir>` to your Xcode target as a **folder reference**, and
-regenerate it from a **Run Script** build phase placed **above** "Copy Bundle Resources":
+Auto-detects the iOS project — Tuist `Project.swift` first (its generated `*.xcodeproj` is usually
+gitignored), else `*.xcworkspace` / `*.xcodeproj` — searching `ios/`, `apple/ios/`, and
+`src-tauri/gen/apple`, and defaults the output to `<project>/assets/bundles/builtin`. Pass
+`--ios-dir <project>` to point at it explicitly. Add the `assets` folder to your Xcode target as a
+**folder reference** (blue folder, not a group), regenerated from a **Run Script** build phase placed
+**above** "Copy Bundle Resources":
 
 ```sh
 # Run Script phase (above Copy Bundle Resources)
-"$PROJECT_DIR/node_modules/.bin/wvb" builtin --ios "$SRCROOT/MyApp/Generated/builtin"
+"$PROJECT_DIR/node_modules/.bin/wvb" builtin --ios --ios-dir "$SRCROOT"
 ```
 
-At runtime, point the source's `builtin_dir` at the folder via
-`Bundle.main.resourceURL` (no extraction needed — it's a real path).
+For a **Tuist** project, declare the folder reference in `Project.swift`
+(`resources: [.folderReference(path: "./assets")]`) and run `tuist generate`. At runtime, point the
+source's `builtin_dir` at `Bundle.main.resourceURL` + `assets/bundles/builtin` (no extraction needed —
+it's a real path).
 
 > Add the generated staging directory to `.gitignore` (it's build output).
 
 ### Options
 
 `wvb builtin --help` lists all flags. Notable ones: `--channel`, `--include`/`--exclude`,
-`--config`, `--out` (override the preset default), and the presets `--tauri` / `--tauri-dir`,
-`--android <module>`, `--ios <dir>` (mutually exclusive).
+`--config`, `--out` (override the preset default), and the mutually-exclusive presets
+`--tauri` / `--tauri-dir`, `--android` / `--android-dir`, `--ios` / `--ios-dir` (each auto-detects its
+project; the `*-dir` flag overrides).
