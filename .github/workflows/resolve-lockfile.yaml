@@ -8,7 +8,6 @@ permissions:
   contents: write
   pull-requests: write
 concurrency:
-  # One resolve per PR at a time; let an in-flight run finish rather than cancel a push mid-way.
   group: resolve-lockfile-${{ github.event.issue.number }}
   cancel-in-progress: false
 env:
