@@ -1,7 +1,7 @@
 {
-  "name": "@wvb/remote-aws-provider",
-  "version": "0.1.0",
-  "description": "Webview Bundle remote provider for AWS",
+  "name": "@wvb/electron-builder",
+  "version": "0.0.0",
+  "description": "electron-builder integration for webview bundle",
   "homepage": "https://github.com/webview-bundle/webview-bundle",
   "bugs": {
     "url": "https://github.com/webview-bundle/webview-bundle/issues"
@@ -15,7 +15,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/webview-bundle/webview-bundle",
-    "directory": "packages/remote/aws-provider"
+    "directory": "packages/electron-builder"
   },
   "files": [
     "dist",
@@ -23,20 +23,13 @@
     "CHANGELOG.md"
   ],
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "exports": {
     ".": {
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
-    },
-    "./origin-request": {
-      "import": "./dist/origin-request/index.mjs",
-      "require": "./dist/origin-request/index.cjs"
-    },
-    "./origin-response": {
-      "import": "./dist/origin-response/index.mjs",
-      "require": "./dist/origin-response/index.cjs"
     },
     "./package.json": "./package.json"
   },
@@ -45,15 +38,21 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "electron-builder": ">= 24"
+  },
+  "peerDependenciesMeta": {
+    "electron-builder": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3",
-    "@types/aws-lambda": "^8.10.159",
-    "hono": "^4.12.25"
+    "@wvb/cli": "workspace:^",
+    "@wvb/config": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsdown": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "typescript": "catalog:"
   }
 }

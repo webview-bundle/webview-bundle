@@ -81,7 +81,7 @@ export class WebviewBundlePlugin extends PluginBase<WebviewBundlePluginConfig> {
           : target;
 
     const dir = outDir ?? DEFAULT_BUILTIN_OUT_DIR;
-    const manifest = await builtin({
+    const { manifest } = await builtin({
       target: installTarget,
       dir,
       include: include != null ? [include] : undefined,
