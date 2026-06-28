@@ -1,5 +1,6 @@
 use crate::Bundle;
 use crate::signature::Verifier as SignatureVerifier;
+use base64ct::{Base64, Encoding};
 use p384::ecdsa::signature::Verifier;
 use p384::ecdsa::{Signature, VerifyingKey};
 use p384::pkcs8::DecodePublicKey;
@@ -29,8 +30,10 @@ impl EcdsaSecp384r1Verifier {
 
 impl SignatureVerifier for EcdsaSecp384r1Verifier {
   async fn verify(&self, _bundle: &Bundle, data: &[u8], signature: &str) -> crate::Result<bool> {
+    let signature_bytes =
+      Base64::decode_vec(signature).map_err(|_| crate::Error::InvalidSignature)?;
     let signature =
-      Signature::from_slice(signature.as_bytes()).map_err(|_| crate::Error::InvalidSignature)?;
+      Signature::from_slice(&signature_bytes).map_err(|_| crate::Error::InvalidSignature)?;
     Ok(self.key.verify(data, &signature).is_ok())
   }
 }
