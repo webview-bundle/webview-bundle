@@ -6,16 +6,14 @@ describe('makeIntegrity', () => {
   it('sha256 (default)', async () => {
     const data = Buffer.from('hello');
     const integrity = await makeIntegrity({}, data);
-    expect(integrity).toEqual(
-      'sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
-    );
+    expect(integrity).toEqual('sha256:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=');
   });
 
   it('sha384', async () => {
     const data = Buffer.from('hello');
     const integrity = await makeIntegrity({ algorithm: 'sha384' }, data);
     expect(integrity).toEqual(
-      'sha384:59e1748777448c69de6b800d7a33bbfb9ff1b463e44354c3553bcdb9c666fa90125a3c79f90397bdf5f6a13de828684f'
+      'sha384:WeF0h3dEjGnea4ANejO7+5/xtGPkQ1TDVTvNucZm+pASWjx5+QOXvfX2oT3oKGhP'
     );
   });
 
@@ -23,7 +21,7 @@ describe('makeIntegrity', () => {
     const data = Buffer.from('hello');
     const integrity = await makeIntegrity({ algorithm: 'sha512' }, data);
     expect(integrity).toEqual(
-      'sha512:9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2dff72519673ca72323c3d99ba5c11d7c7acc6e14b8c5da0c4663475c2e5c3adef46f73bcdec043'
+      'sha512:m3HSJL1i83hdltRq0+o9czGb+8KJDKra4t/3JRlnPKcjI8PZm6XBHXx6zG4UuMXaDEZjR1wuXDre9G9zvN7AQw=='
     );
   });
 

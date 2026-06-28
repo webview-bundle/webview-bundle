@@ -4,7 +4,13 @@ use tauri::{
   plugin::{Builder, TauriPlugin},
 };
 
-pub use config::{Config, Http, Protocol, Remote, Source};
+pub use config::{
+  Config, Http, IntegrityPolicy, Protocol, Remote, SignatureVerifier, Source, Updater,
+};
+pub use wvb::signature::{
+  EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
+  RsaPssVerifier,
+};
 
 #[cfg(desktop)]
 mod desktop;

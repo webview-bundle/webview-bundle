@@ -34,7 +34,7 @@ semver           = { workspace = true, optional = true }
 serde            = { workspace = true, optional = true }
 serde_json       = { workspace = true, optional = true }
 serde_repr       = { workspace = true, optional = true }
-sha3             = { workspace = true, optional = true }
+sha2             = { workspace = true, optional = true }
 thiserror        = { workspace = true }
 time             = { workspace = true, features = ["formatting", "local-offset", "large-dates"], optional = true }
 tokio            = { workspace = true, optional = true }
@@ -70,7 +70,7 @@ full = [
   "tracing",
   "testing",
 ]
-integrity = ["_serde", "sha3", "base64ct", "base64ct/alloc"]
+integrity = ["_serde", "sha2", "base64ct", "base64ct/alloc"]
 protocol = ["source", "dep:bytes", "dep:percent-encoding", "dep:http-range", "dep:getrandom"]
 protocol-local = ["protocol", "_reqwest", "reqwest/rustls-tls", "reqwest/macos-system-configuration", "reqwest/charset"]
 remote = [
