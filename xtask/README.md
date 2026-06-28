@@ -44,3 +44,31 @@ This is used in conjunction with the artifact action in GitHub Actions.
 ### Attw
 
 Run [attw](https://github.com/arethetypeswrong/arethetypeswrong.github.io) to check npm package is correct before the publishing.
+
+### Resolving lockfile conflicts
+
+When several PRs are open at once, rebasing onto the base branch routinely produces a `yarn.lock`
+conflict even though every `package.json` merges cleanly. `xtask resolve-lockfile --pr <number>`
+fixes that mechanically: it merges the base branch into the PR head, and **only if `yarn.lock` is
+the sole conflict**, takes the base branch's lockfile, runs `yarn install` to regenerate it against
+the merged `package.json` set, commits the merge, and pushes it back to the PR branch. Any other
+conflict aborts and asks for a human; the bot never merges the PR itself.
+
+The [`resolve-lockfile` workflow](../.github/workflows/resolve-lockfile.yaml) drives it: a maintainer
+opens a PR comment **starting with** `/merge-lockfile`. The workflow pre-filters on
+`author_association`, but the command then verifies the commenter's *actual* write access via the
+API (`author_association` alone includes read-only org members). Only same-repository branches are
+supported — forks are out of scope because the default token cannot push to a fork.
+
+Preconditions checked before acting: the commenter has write access, the PR is open, it is not from
+a fork, its head's status checks are green, and **it does not modify the Yarn toolchain**
+(`.yarnrc.yml` / `.yarn/releases` / `.yarn/plugins`) — the bot refuses those because `yarn install`
+would otherwise execute a PR-supplied Yarn binary or plugin under the bot token. `--skip-checks`
+overrides the status-check gate for local runs; `--dry-run` resolves without pushing.
+
+> [!IMPORTANT]
+> A push authenticated with the default `GITHUB_TOKEN` does **not** start new workflow runs, so CI
+> would not re-run on the merge commit. To make CI re-run (so the PR can be merged on fresh checks),
+> add a `LOCKFILE_BOT_TOKEN` secret — a fine-grained PAT (or a GitHub App installation token via
+> `actions/create-github-app-token`) with `contents: write` and `pull-requests: write`. The workflow
+> uses it when present and falls back to `GITHUB_TOKEN` otherwise.
