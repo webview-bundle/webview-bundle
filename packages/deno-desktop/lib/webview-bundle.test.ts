@@ -1,7 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import { fromFileUrl } from '@std/path';
 import { loadLib } from '@wvb/deno';
-import { bundleProtocol, webviewBundle } from '../mod.ts';
+import { bundleProtocol, webviewBundle } from './mod.ts';
 
 // Use the locally-built cdylib + the committed ffi builtin fixture (bundle "app" v1.0.0).
 const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';

@@ -42,9 +42,6 @@ export interface RemoteDownload {
 
 /**
  * HTTP client for a remote bundle server — list, get metadata, and download bundles.
- *
- * Note: unlike `@wvb/node` (which returns `[info, Bundle, Buffer]`), `download`/`downloadVersion`
- * return `{ info, data }` — the `Bundle` object arrives with the bundle-codec binding.
  */
 export class Remote {
   #ptr: Deno.PointerValue;
@@ -60,7 +57,6 @@ export class Remote {
     }
   }
 
-  /** @internal Native handle, for passing to an Updater. Throws if already freed. */
   get pointer(): Deno.PointerValue {
     if (this.#ptr === null) {
       throw new Error('wvb: Remote has been freed');

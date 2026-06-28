@@ -92,12 +92,7 @@ function resolveLibFile(libPath: string | URL): string {
 }
 
 /**
- * Load the native library from an explicit path and cache it (idempotent — first load wins).
- * `libPath` may be the dylib file itself or a directory containing the platform-named dylib.
- *
- * For a `deno desktop` / `deno compile` app, resolve the path from the *app's* `import.meta.url`
- * (e.g. `new URL('./vendor/wvb/', import.meta.url)`) so the `--include`d, runtime-unpacked file is
- * found. For local dev, point it at the cargo-built dylib (or set `WVB_DENO_LIB`).
+ * Load the native library from an explicit path and cache it
  */
 export function loadLib(libPath: string | URL): WvbLib {
   lib ??= Deno.dlopen(resolveLibFile(libPath), SYMBOLS);
@@ -141,8 +136,8 @@ export function getLib(): WvbLib {
     return loadLib(env);
   }
   throw new Error(
-    'wvb: native library not loaded. Call loadLib(path) (deno desktop / dev), ' +
-      'loadLibViaPlug({ url }) (deno run), or set WVB_DENO_LIB.'
+    'wvb: native library not loaded. Call loadLib(path), ' +
+      'loadLibViaPlug({ url }), or set WVB_DENO_LIB.'
   );
 }
 

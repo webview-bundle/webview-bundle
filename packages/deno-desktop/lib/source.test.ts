@@ -1,7 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import { fromFileUrl } from '@std/path';
 import { loadLib } from '@wvb/deno';
-import { appDataDir, bundleSource } from '../mod.ts';
+import { appDataDir, bundleSource } from './mod.ts';
 
 const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';
 const prefix = Deno.build.os === 'windows' ? '' : 'lib';

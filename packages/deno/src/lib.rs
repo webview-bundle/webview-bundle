@@ -1,9 +1,3 @@
-//! C-ABI surface over the webview-bundle core, for the `@wvb/deno` binding (consumed via
-//! `Deno.dlopen`). Like `@wvb/node` (napi) binds the core for Node, this binds it for Deno — except
-//! there is no codegen for Deno FFI, so the surface is hand-written as opaque handles + flat
-//! functions. Strings/bytes cross the boundary; async core methods run on an internal tokio runtime
-//! and should be called from `nonblocking` Deno symbols so they never stall the event loop.
-
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::{Arc, OnceLock};

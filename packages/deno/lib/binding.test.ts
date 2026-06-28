@@ -8,7 +8,7 @@ import {
   Remote,
   toResponse,
   Updater,
-} from '../mod.ts';
+} from './mod.ts';
 
 // Resolve the locally-built cdylib and the committed ffi builtin fixture (bundle "app" v1.0.0).
 const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';

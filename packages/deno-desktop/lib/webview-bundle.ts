@@ -1,8 +1,3 @@
-// WebviewBundle — the @wvb/deno-desktop entry, mirroring @wvb/electron's webview-bundle.ts.
-//
-// Deno desktop points its webview at a local `Deno.serve` endpoint (no custom protocol), so instead
-// of registering protocol handlers like Electron, this exposes a `fetch` handler you pass to
-// `Deno.serve`. The first protocol is served at the HTTP root (single origin).
 import { type BundleSource, loadLib, type Remote, Updater, type UpdaterOptions } from '@wvb/deno';
 import type { Protocol } from './protocol.ts';
 import { type RemoteOptions, remote } from './remote.ts';
