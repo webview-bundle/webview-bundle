@@ -186,7 +186,7 @@ This will adds a \`folderReference\` to Project.swift.`,
         this.write && iosProject != null
           ? {
               dir: iosProject.dir,
-              addProjectFolderReference: iosProject.kind === 'tuist',
+              addProjectFolderReference: true,
             }
           : undefined,
     });
