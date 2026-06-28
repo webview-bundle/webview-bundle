@@ -45,10 +45,20 @@ impl<R: Runtime> WebviewBundle<R> {
       protocols.insert(scheme, protocol);
     }
     let remote = config.build_remote()?.map(Arc::new);
-    let updater = remote
-      .clone()
-      .map(|x| Updater::new(source.clone(), x, None))
-      .map(Arc::new);
+    let updater = match remote.clone() {
+      Some(remote) => {
+        let updater_config = match config.updater {
+          Some(ref updater) => Some(updater.build_config()?),
+          None => None,
+        };
+        Some(Arc::new(Updater::new(
+          source.clone(),
+          remote,
+          updater_config,
+        )))
+      }
+      None => None,
+    };
     Ok(Self {
       _app: app,
       _config: config,
