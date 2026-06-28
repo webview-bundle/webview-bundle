@@ -5794,7 +5794,6 @@ __metadata:
     "@wvb/config": "workspace:^"
     tsdown: "catalog:"
     typescript: "catalog:"
-    vitest: "catalog:"
   languageName: unknown
   linkType: soft
 

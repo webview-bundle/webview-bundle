@@ -10,15 +10,11 @@ import type {
 import { resolveConfig } from '@wvb/cli';
 import { builtin } from '@wvb/cli/api';
 import type { BuiltinTarget } from '@wvb/config';
-import type { WebViewBundlePluginConfig } from './config.js';
+import type { WebviewBundlePluginConfig } from './config.js';
 
 const DEFAULT_BUILTIN_OUT_DIR = path.join('.wvb', 'builtin', 'bundles');
 const DEFAULT_BUNDLES_DIR = 'bundles';
 
-/**
- * Guard against path traversal before destructive fs ops: `bundlesDir` must be a relative path
- * inside the resources directory (no absolute paths, no `..` segments).
- */
 function safeBundlesDir(bundlesDir: string): string {
   if (path.isAbsolute(bundlesDir) || bundlesDir.split(/[/\\]/).includes('..')) {
     throw new Error(
@@ -28,10 +24,10 @@ function safeBundlesDir(bundlesDir: string): string {
   return bundlesDir;
 }
 
-export class WebViewBundlePlugin extends PluginBase<WebViewBundlePluginConfig> {
-  override readonly name = 'WebViewBundlePlugin';
+export class WebviewBundlePlugin extends PluginBase<WebviewBundlePluginConfig> {
+  override readonly name = 'WebviewBundlePlugin';
 
-  constructor(config: WebViewBundlePluginConfig = {}) {
+  constructor(config: WebviewBundlePluginConfig = {}) {
     super(config);
   }
 
@@ -66,7 +62,7 @@ export class WebViewBundlePlugin extends PluginBase<WebViewBundlePluginConfig> {
       if (throwWhenBuiltinIsEmpty) {
         throw new Error(
           'No "builtin" config was resolved. Add a `builtin` block to your webview-bundle config ' +
-            '(or pass it inline to WebViewBundlePlugin), or set `throwWhenBuiltinIsEmpty: false` to ' +
+            '(or pass it inline to WebviewBundlePlugin), or set `throwWhenBuiltinIsEmpty: false` to ' +
             'build without builtin bundles.'
         );
       }
@@ -105,10 +101,6 @@ export class WebViewBundlePlugin extends PluginBase<WebViewBundlePluginConfig> {
       );
     }
 
-    // `builtin()` stages bundles at `<root>/<dir>` with the exact on-disk layout the runtime expects
-    // (`manifest.json` + `<name>/<name>_<version>.wvb`). Copy that tree into the packaged app's
-    // resources. In `packageAfterCopy`, `buildPath` is the copied app dir (`<resources>/app`), so the
-    // resources dir is its parent and the runtime reads `<resources>/bundles`.
     const stageDir = path.resolve(resolved.root, dir);
     const destDir = path.resolve(
       buildPath,
@@ -120,3 +112,5 @@ export class WebViewBundlePlugin extends PluginBase<WebViewBundlePluginConfig> {
     await fs.cp(stageDir, destDir, { recursive: true });
   };
 }
+
+export const WvbPlugin: typeof WebviewBundlePlugin = WebviewBundlePlugin;

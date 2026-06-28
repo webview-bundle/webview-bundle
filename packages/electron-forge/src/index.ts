@@ -1,2 +1,2 @@
-export type { WebViewBundlePluginConfig } from './config.js';
-export { WebViewBundlePlugin, WebViewBundlePlugin as default } from './plugin.js';
+export type { WebviewBundlePluginConfig } from './config.js';
+export { WebviewBundlePlugin, WebviewBundlePlugin as default, WvbPlugin } from './plugin.js';
