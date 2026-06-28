@@ -6068,6 +6068,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@yarnpkg/types@npm:^4.0.1":
+  version: 4.0.1
+  resolution: "@yarnpkg/types@npm:4.0.1"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/90226789475680ba599833571dd76c0718dd5b4c5022481263ef309d6a628f6246671cd6ca86e49c966ddefa7aca6ccef82240dc1476d2cea702ea5bee2a6b72
+  languageName: node
+  linkType: hard
+
 "@zip.js/zip.js@npm:^2.8.11":
   version: 2.8.26
   resolution: "@zip.js/zip.js@npm:2.8.26"
@@ -14523,6 +14532,7 @@ __metadata:
     "@arethetypeswrong/cli": "npm:0.18.2"
     "@biomejs/biome": "npm:2.4.15"
     "@taplo/cli": "npm:0.7.0"
+    "@yarnpkg/types": "npm:^4.0.1"
     lefthook: "npm:1.13.6"
     typescript: "catalog:"
     vitest: "catalog:"

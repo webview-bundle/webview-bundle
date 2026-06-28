@@ -10,6 +10,7 @@
     "@arethetypeswrong/cli": "0.18.2",
     "@biomejs/biome": "2.4.15",
     "@taplo/cli": "0.7.0",
+    "@yarnpkg/types": "^4.0.1",
     "lefthook": "1.13.6",
     "typescript": "catalog:",
     "vitest": "catalog:"
