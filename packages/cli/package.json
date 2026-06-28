@@ -67,7 +67,7 @@
     "hono": "^4.12.25",
     "kleur": "^4.1.5",
     "picomatch": "^4.0.4",
-    "rolldown": "1.0.0-beta.51",
+    "rolldown": "1.1.3",
     "supports-color": "^10.0.0",
     "tinyglobby": "^0.2.14",
     "typanion": "^3.14.0"
