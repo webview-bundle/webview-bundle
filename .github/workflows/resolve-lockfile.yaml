@@ -7,11 +7,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # The 👀 acknowledgement and the resolver's outcome reactions hit the issue-comment reactions
-  # endpoint, which the Issues scope gates even for PR comments.
   issues: write
-  # The resolver reads the PR head's check-runs + commit-status rollup to confirm only the lockfile
-  # conflict is blocking the merge before it acts.
   checks: read
   statuses: read
 concurrency:
