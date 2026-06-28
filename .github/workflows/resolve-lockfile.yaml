@@ -27,6 +27,7 @@ jobs:
           token: ${{ github.token }}
       - name: Setup Node.js
         uses: ./.github/actions/node-setup
+      - run: yarn workspaces focus xtask
       - name: Resolve yarn.lock conflict
         env:
           GITHUB_TOKEN: ${{ github.token }}
