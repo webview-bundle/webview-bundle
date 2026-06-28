@@ -1,0 +1,176 @@
+import { Buffer } from 'node:buffer';
+import { randomBytes, webcrypto } from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { type ServerType, serve } from '@hono/node-server';
+import { makeIntegrity, signSignature } from '@wvb/config/remote';
+import getPort from 'get-port';
+import { Hono } from 'hono';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { BundleBuilder, BundleSource, Remote, Updater, writeBundleIntoBuffer } from '../index.js';
+
+const { subtle } = webcrypto as unknown as Crypto;
+
+let port: number;
+let server: ServerType;
+
+// ed25519 keypair (WebCrypto, same stack the producer uses for signing).
+let pkcs8PrivateKey: Buffer; // signer input (format: 'pkcs8')
+let spkiPublicKeyDer: Buffer; // verifier input (format: 'spkiDer')
+
+interface ServedBundle {
+  buf: Buffer;
+  integrity: string;
+  signature: string;
+}
+
+// name -> version -> served bundle (bytes + producer-generated metadata)
+const served: Record<string, Record<string, ServedBundle>> = {};
+
+function buildBundleBuf(name: string, version: string): Buffer {
+  const builder = new BundleBuilder();
+  builder.insertEntry('/index.html', Buffer.from(`<h1>${name}@${version}</h1>`, 'utf8'));
+  const bundle = builder.build();
+  return Buffer.from(writeBundleIntoBuffer(bundle));
+}
+
+async function publish(
+  name: string,
+  version: string,
+  opts: { tamperSignature?: boolean; wrongIntegrity?: boolean } = {}
+): Promise<ServedBundle> {
+  const buf = buildBundleBuf(name, version);
+  // integrity over the EXACT served bytes (base64 SHA-2)
+  let integrity = await makeIntegrity({ algorithm: 'sha256' }, buf);
+  if (opts.wrongIntegrity) {
+    integrity = await makeIntegrity(
+      { algorithm: 'sha256' },
+      Buffer.concat([buf, Buffer.from('x')])
+    );
+  }
+  // signature over the integrity string (base64 ed25519)
+  let signature = await signSignature(
+    { algorithm: 'ed25519', key: { format: 'pkcs8', data: pkcs8PrivateKey } },
+    Buffer.from(integrity, 'utf8')
+  );
+  if (opts.tamperSignature) {
+    // flip the last base64 char to a different valid one -> still 64 bytes, wrong sig
+    const last = signature.endsWith('A') ? 'B' : 'A';
+    signature = signature.slice(0, -1) + last;
+  }
+  const entry: ServedBundle = { buf, integrity, signature };
+  served[name] ??= {};
+  served[name][version] = entry;
+  return entry;
+}
+
+function respond(entry: ServedBundle, name: string, version: string): Response {
+  const headers = new Headers();
+  headers.set('content-type', 'application/webview-bundle');
+  headers.set('webview-bundle-name', name);
+  headers.set('webview-bundle-version', version);
+  headers.set('webview-bundle-integrity', entry.integrity);
+  headers.set('webview-bundle-signature', entry.signature);
+  return new Response(new Uint8Array(entry.buf), { status: 200, headers });
+}
+
+beforeAll(async () => {
+  const kp = (await subtle.generateKey(
+    { name: 'Ed25519' } as unknown as AlgorithmIdentifier,
+    true,
+    ['sign', 'verify']
+  )) as CryptoKeyPair;
+  pkcs8PrivateKey = Buffer.from(await subtle.exportKey('pkcs8', kp.privateKey));
+  spkiPublicKeyDer = Buffer.from(await subtle.exportKey('spki', kp.publicKey));
+
+  port = await getPort();
+  const app = new Hono();
+  app.get('/bundles/:name/:version', c => {
+    const name = c.req.param('name');
+    const version = c.req.param('version');
+    const entry = served[name]?.[version];
+    if (entry == null) return c.notFound();
+    return respond(entry, name, version);
+  });
+  app.get('/bundles/:name', c => {
+    const name = c.req.param('name');
+    const versions = served[name];
+    if (versions == null) return c.notFound();
+    const version = Object.keys(versions).at(-1) as string;
+    return respond(versions[version]!, name, version);
+  });
+  server = serve({ fetch: app.fetch, port });
+});
+
+afterAll(() => {
+  return new Promise<void>((resolve, reject) => {
+    if (server == null) return resolve();
+    server.close(e => (e != null ? reject(e) : resolve()));
+  });
+});
+
+describe('integrity + signature verification (producer -> core)', () => {
+  let tmpdir: string;
+  let builtinDir: string;
+  let remoteDir: string;
+
+  beforeEach(async () => {
+    tmpdir = path.join(os.tmpdir(), 'wvb-node-intsig', randomBytes(8).toString('hex'));
+    builtinDir = path.join(tmpdir, 'builtin');
+    remoteDir = path.join(tmpdir, 'remote');
+    await fs.mkdir(builtinDir, { recursive: true });
+    await fs.mkdir(remoteDir, { recursive: true });
+    for (const k of Object.keys(served)) delete served[k];
+  });
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tmpdir, { recursive: true });
+    } catch {}
+  });
+
+  function setup() {
+    const source = new BundleSource({ builtinDir, remoteDir });
+    const remote = new Remote(`http://localhost:${port}`);
+    const updater = new Updater(source, remote, {
+      integrityPolicy: 'strict',
+      signatureVerifier: {
+        algorithm: 'ed25519',
+        key: { format: 'spkiDer', data: spkiPublicKeyDer },
+      },
+    });
+    return { source, remote, updater };
+  }
+
+  it('download verifies integrity+signature over served bytes (strict)', async () => {
+    await publish('app', '0.2.0');
+    const { updater } = setup();
+    const info = await updater.download('app', '0.2.0');
+    expect(info.version).toBe('0.2.0');
+    expect(info.integrity).toMatch(/^sha256:/);
+    expect(info.signature).toBeTruthy();
+  });
+
+  it('install re-verifies the staged bundle and activates it', async () => {
+    await publish('app', '0.2.0');
+    const { source, updater } = setup();
+    await updater.download('app', '0.2.0');
+    await updater.install('app', '0.2.0');
+    expect(await source.loadVersion('app')).toEqual({ type: 'remote', version: '0.2.0' });
+    const loaded = await source.loadDescriptor('app');
+    expect(await loaded.getData('/index.html')).toEqual(Buffer.from('<h1>app@0.2.0</h1>', 'utf8'));
+  });
+
+  it('rejects a download whose integrity does not match the bytes', async () => {
+    await publish('app', '0.2.0', { wrongIntegrity: true });
+    const { updater } = setup();
+    await expect(updater.download('app', '0.2.0')).rejects.toThrowError();
+  });
+
+  it('rejects a download whose signature is invalid', async () => {
+    await publish('app', '0.2.0', { tamperSignature: true });
+    const { updater } = setup();
+    await expect(updater.download('app', '0.2.0')).rejects.toThrowError();
+  });
+});
