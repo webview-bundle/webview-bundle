@@ -1,10 +1,63 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
 use wvb::remote;
+use wvb::updater::UpdaterConfig;
 
+pub use wvb::integrity::IntegrityPolicy;
 pub use wvb::remote::HttpConfig as Http;
+pub use wvb::signature::SignatureVerifier;
+
+type SignatureVerifierBuilder =
+  Arc<dyn Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync>;
+
+#[derive(Clone, Default)]
+pub struct Updater {
+  pub(crate) channel: Option<String>,
+  pub(crate) integrity_policy: Option<IntegrityPolicy>,
+  pub(crate) signature_verifier: Option<SignatureVerifierBuilder>,
+}
+
+impl Updater {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn channel(mut self, channel: impl Into<String>) -> Self {
+    self.channel = Some(channel.into());
+    self
+  }
+
+  pub fn integrity_policy(mut self, policy: IntegrityPolicy) -> Self {
+    self.integrity_policy = Some(policy);
+    self
+  }
+
+  pub fn signature_verifier<F>(mut self, builder: F) -> Self
+  where
+    F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
+  {
+    self.signature_verifier = Some(Arc::new(builder));
+    self
+  }
+
+  pub(crate) fn build_config(&self) -> crate::Result<UpdaterConfig> {
+    let mut config = UpdaterConfig::default();
+    if let Some(ref channel) = self.channel {
+      config = config.channel(channel.clone());
+    }
+    if let Some(policy) = self.integrity_policy {
+      config = config.integrity_policy(policy);
+    }
+    if let Some(ref builder) = self.signature_verifier {
+      let verifier = builder()?;
+      config = config.signature_verifier(verifier);
+    }
+    Ok(config)
+  }
+}
 
 type DynamicDirFn<R> = fn(app: &AppHandle<R>) -> Result<PathBuf, Box<dyn std::error::Error>>;
 
@@ -199,6 +252,7 @@ pub struct Config<R: Runtime> {
   pub(crate) source: Source<R>,
   pub(crate) protocols: Vec<Protocol>,
   pub(crate) remote: Option<Remote>,
+  pub(crate) updater: Option<Updater>,
 }
 
 impl<R: Runtime> Config<R> {
@@ -207,6 +261,7 @@ impl<R: Runtime> Config<R> {
       source: Source::new(),
       protocols: vec![],
       remote: Default::default(),
+      updater: None,
     }
   }
 
@@ -222,6 +277,12 @@ impl<R: Runtime> Config<R> {
 
   pub fn remote(mut self, remote: Remote) -> Self {
     self.remote = Some(remote);
+    self
+  }
+
+  /// Configures updater integrity/signature verification. Requires a remote.
+  pub fn updater(mut self, updater: Updater) -> Self {
+    self.updater = Some(updater);
     self
   }
 
