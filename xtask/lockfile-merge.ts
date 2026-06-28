@@ -35,12 +35,13 @@ export function classifyConflict(conflictedFiles: readonly string[]): ConflictCl
   return { type: 'other', files };
 }
 
-/** Parse `git diff --name-only --diff-filter=U` stdout into a list of paths. */
-export function parseConflictedFiles(stdout: string): string[] {
-  return stdout
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0);
+/**
+ * Decode the merge stage from a libgit2 index entry's `flags`. Stage 0 is a normally-staged file;
+ * stages 1/2/3 (ancestor/ours/theirs) mark a path still in conflict. The stage lives in bits 12-13
+ * of `flags` (mask `0x3000`).
+ */
+export function indexEntryStage(flags: number): number {
+  return (flags >> 12) & 0x3;
 }
 
 export interface CheckRunLike {

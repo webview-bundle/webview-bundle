@@ -1,5 +1,7 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { Command, Option } from 'clipanion';
-import { execa } from 'execa';
+import { type Commit, type Credential, type Index, openRepository, type Repository } from 'es-git';
 import * as t from 'typanion';
 import { runCommand } from '../child_process.ts';
 import { ColorModeOption, c, setColorMode } from '../console.ts';
@@ -8,36 +10,17 @@ import { createGitHubClient, type GitHubClient } from '../github.ts';
 import {
   classifyConflict,
   evaluateStatusChecks,
+  indexEntryStage,
   LOCKFILE,
-  parseConflictedFiles,
 } from '../lockfile-merge.ts';
 
-interface GitResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
-
-/** Run a git subcommand in the repo root, capturing output. Never rejects — inspect `exitCode`. */
-async function git(args: string[]): Promise<GitResult> {
-  const res = await (execa as any)('git', args, { cwd: ROOT_DIR, reject: false });
-  return {
-    exitCode: typeof res.exitCode === 'number' ? res.exitCode : 1,
-    stdout: typeof res.stdout === 'string' ? res.stdout : '',
-    stderr: typeof res.stderr === 'string' ? res.stderr : '',
-  };
-}
-
-/** Run git expecting success; throws with stderr on a non-zero exit. */
-async function gitOk(args: string[]): Promise<string> {
-  const res = await git(args);
-  if (res.exitCode !== 0) {
-    throw new Error(`git ${args.join(' ')} failed (${res.exitCode}): ${res.stderr.trim()}`);
-  }
-  return res.stdout.trim();
-}
-
 type ReactionContent = 'eyes' | 'rocket' | 'confused' | '-1';
+
+/**
+ * Yarn toolchain files. `yarn install` executes the checked-out Yarn release and any local plugins,
+ * so a PR that changes these could run arbitrary code under the bot token — the bot refuses those.
+ */
+const TOOLCHAIN_PATHS = ['.yarnrc.yml', '.yarn/releases', '.yarn/plugins'];
 
 /**
  * Auto-resolve a pull request whose only merge conflict with its base branch is `yarn.lock`.
@@ -47,7 +30,8 @@ type ReactionContent = 'eyes' | 'rocket' | 'confused' | '-1';
  *
  *   1. Verify the PR is open, same-repo (forks are out of scope), and its head's status checks are
  *      green — i.e. it is only the conflict that blocks the merge.
- *   2. Merge the base branch into the head locally (`--no-commit`) and look at what conflicts.
+ *   2. Merge the base branch into the head in-memory (via es-git/libgit2) and inspect the index for
+ *      what conflicts.
  *   3. If `yarn.lock` is the *only* conflict, take the base branch's `yarn.lock` and run
  *      `yarn install` to regenerate it against the merged `package.json` set, then commit the merge
  *      and push it back to the head branch. Any other conflict aborts and asks for a human.
@@ -75,12 +59,6 @@ export class ResolveLockfileCommand extends Command {
    * pre-filter and includes read-only org members/collaborators.
    */
   readonly commentUser = Option.String('--comment-user', { required: false, env: 'COMMENT_USER' });
-  /**
-   * Whether the push will re-trigger CI. A push authenticated with the default `GITHUB_TOKEN` does
-   * NOT start new workflow runs; the workflow sets this from whether a dedicated bot token is used,
-   * so the success comment can tell the maintainer the truth about CI re-running.
-   */
-  readonly ciWillRerun = Option.String('--ci-will-rerun', 'false', { env: 'CI_WILL_RERUN' });
   readonly committerName = Option.String('--committer-name', 'github-actions[bot]');
   readonly committerEmail = Option.String(
     '--committer-email',
@@ -93,6 +71,7 @@ export class ResolveLockfileCommand extends Command {
   readonly colorMode = ColorModeOption;
 
   #client!: GitHubClient;
+  #repo: Repository | null = null;
 
   async execute(): Promise<number> {
     setColorMode(this.colorMode);
@@ -110,7 +89,7 @@ export class ResolveLockfileCommand extends Command {
       // not in the public comment.
       const message = error instanceof Error ? error.message : String(error);
       console.error(c.error(`resolve-lockfile failed: ${message}`));
-      await this.safeAbortMerge();
+      this.safeAbortMerge();
       await this.react('-1');
       await this.comment(
         `❌ Failed to auto-resolve \`${LOCKFILE}\`. The merge was aborted; please resolve it manually. See the workflow run logs for details.`
@@ -161,35 +140,35 @@ export class ResolveLockfileCommand extends Command {
       }
     }
 
-    // Bring both branches into the local clone (the workflow checks out the default branch only).
-    await gitOk(['config', 'user.name', this.committerName]);
-    await gitOk(['config', 'user.email', this.committerEmail]);
-    await gitOk([
-      'fetch',
-      '--no-tags',
-      'origin',
-      `+refs/heads/${base}:refs/remotes/origin/${base}`,
-      `+refs/heads/${head}:refs/remotes/origin/${head}`,
-    ]);
-    await gitOk(['checkout', '-B', head, `refs/remotes/origin/${head}`]);
+    const token = this.githubToken;
+    if (token == null || token.length === 0) {
+      throw new Error('a GitHub token is required');
+    }
+    const credential: Credential = { type: 'Plain', username: 'x-access-token', password: token };
+    const gitRepo = await openRepository(ROOT_DIR);
+    this.#repo = gitRepo;
+    const origin = gitRepo.getRemote('origin');
 
-    // Security gate: running `yarn install` executes the *checked-out* Yarn release and any local
-    // plugins (corepack honors the merged `yarnPath`; `.yarnrc.yml` declares plugins). If this PR
-    // changed the toolchain, that code would run under the bot token — so refuse and defer to a
-    // human rather than execute a PR-supplied binary/plugin.
-    const mergeBase = await gitOk(['merge-base', `refs/remotes/origin/${base}`, 'HEAD']);
-    const toolchainChanged = parseConflictedFiles(
-      await gitOk([
-        'diff',
-        '--name-only',
-        mergeBase,
-        'HEAD',
-        '--',
-        '.yarnrc.yml',
-        '.yarn/releases',
-        '.yarn/plugins',
-      ])
+    // Bring both branches into the local clone (the workflow checks out the default branch only).
+    await origin.fetch(
+      [
+        `+refs/heads/${base}:refs/remotes/origin/${base}`,
+        `+refs/heads/${head}:refs/remotes/origin/${head}`,
+      ],
+      { fetch: { credential } }
     );
+    const headCommit = gitRepo.getCommit(gitRepo.revparseSingle(`refs/remotes/origin/${head}`));
+    const baseCommit = gitRepo.getCommit(gitRepo.revparseSingle(`refs/remotes/origin/${base}`));
+
+    // Check the PR head out into the working tree so the merge and `yarn install` see its files.
+    gitRepo.createBranch(head, headCommit, { force: true });
+    gitRepo.setHead(`refs/heads/${head}`);
+    gitRepo.checkoutHead({ force: true });
+
+    // Security gate: `yarn install` executes the checked-out Yarn release and any local plugins
+    // (corepack honors the merged `yarnPath`; `.yarnrc.yml` declares plugins). If this PR changed
+    // the toolchain, that code would run under the bot token — refuse and defer to a human.
+    const toolchainChanged = this.changedPaths(gitRepo, baseCommit, headCommit, TOOLCHAIN_PATHS);
     if (toolchainChanged.length > 0) {
       const list = toolchainChanged.map(file => `- \`${file}\``).join('\n');
       return this.bail(
@@ -197,29 +176,34 @@ export class ResolveLockfileCommand extends Command {
       );
     }
 
-    // Attempt the merge without committing; conflicts make this exit non-zero, which is expected.
-    await git(['merge', '--no-ff', '--no-commit', `refs/remotes/origin/${base}`]);
-    const conflicted = parseConflictedFiles(
-      await gitOk(['diff', '--name-only', '--diff-filter=U'])
-    );
-    const classification = classifyConflict(conflicted);
+    // Merge the base branch into HEAD; conflicts are written to the index rather than thrown.
+    gitRepo.merge([gitRepo.getAnnotatedCommit(baseCommit)]);
+    const index = gitRepo.index();
+    const classification = classifyConflict(this.conflictedPaths(index));
 
     if (classification.type === 'none') {
-      await this.safeAbortMerge();
+      gitRepo.cleanupState();
       return this.bail('There is no conflict between this PR and its base branch.');
     }
     if (classification.type === 'other') {
-      await this.safeAbortMerge();
+      gitRepo.cleanupState();
       const list = classification.files.map(file => `- \`${file}\``).join('\n');
       return this.bail(
         `Conflicts are not limited to \`${LOCKFILE}\`, so this needs a human:\n${list}`
       );
     }
 
-    // lockfile-only: take the base branch's lockfile as the starting point, then regenerate it so
+    // lockfile-only: write the base branch's lockfile as the starting point, then regenerate it so
     // it satisfies the merged `package.json` set.
     console.log(`${c.info('[resolve-lockfile]')} regenerating ${LOCKFILE} …`);
-    await gitOk(['checkout', `refs/remotes/origin/${base}`, '--', LOCKFILE]);
+    const baseLock = baseCommit.tree().getPath(LOCKFILE);
+    if (baseLock == null) {
+      throw new Error(`${LOCKFILE} does not exist on ${base}`);
+    }
+    await fs.writeFile(
+      path.join(ROOT_DIR, LOCKFILE),
+      baseLock.toObject(gitRepo).peelToBlob().content()
+    );
     const install = await runCommand('yarn', ['install', '--mode', 'update-lockfile'], {
       cwd: ROOT_DIR,
       prefix: `${c.dim('[yarn]')} `,
@@ -227,19 +211,26 @@ export class ResolveLockfileCommand extends Command {
     if (install.exitCode !== 0) {
       throw new Error(`yarn install failed with exit code ${install.exitCode}`);
     }
-    await gitOk(['add', '--', LOCKFILE]);
 
-    // Safety net: after resolving, no path may be left unmerged (every conflict is at stage 0).
-    const stillConflicted = parseConflictedFiles(
-      await gitOk(['diff', '--name-only', '--diff-filter=U'])
-    );
-    if (stillConflicted.length > 0) {
-      throw new Error(`unexpected unmerged paths remain: ${stillConflicted.join(', ')}`);
+    // Stage the regenerated lockfile (clears its conflict) and build the merge commit from the index.
+    index.addPath(LOCKFILE);
+    index.write();
+    if (index.hasConflicts()) {
+      throw new Error('conflicts remain after regenerating the lockfile');
     }
-
-    const message = `chore: merge ${base} into ${head} and regenerate ${LOCKFILE}`;
-    await gitOk(['commit', '--no-edit', '-m', message]);
-    const mergeSha = await gitOk(['rev-parse', 'HEAD']);
+    const tree = gitRepo.getTree(index.writeTree());
+    const signature = { name: this.committerName, email: this.committerEmail };
+    const mergeSha = gitRepo.commit(
+      tree,
+      `chore: merge ${base} into ${head} and regenerate ${LOCKFILE}`,
+      {
+        updateRef: `refs/heads/${head}`,
+        author: signature,
+        committer: signature,
+        parents: [headCommit.id(), baseCommit.id()],
+      }
+    );
+    gitRepo.cleanupState();
 
     if (this.dryRun) {
       console.log(`${c.warn('[dry-run]')} would push ${mergeSha} to ${head}`);
@@ -249,21 +240,41 @@ export class ResolveLockfileCommand extends Command {
       return 0;
     }
 
-    await gitOk(['push', 'origin', `HEAD:refs/heads/${head}`]);
+    await origin.push([`refs/heads/${head}:refs/heads/${head}`], { credential });
     console.log(c.success(`pushed ${mergeSha} to ${head}`));
     await this.react('rocket');
-    // A push made with the default GITHUB_TOKEN does not start new workflow runs, so be honest
-    // about whether CI will actually re-run on the merge commit.
-    const ciNote =
-      this.ciWillRerun === 'true'
-        ? 'CI will re-run on the new commit — merge once it is green.'
-        : '⚠️ CI will **not** re-run automatically (pushed with the default token). Re-trigger CI ' +
-          'on the new commit (e.g. push an empty commit, or close/reopen the PR) before merging.';
     await this.comment(
       `✅ Resolved the \`${LOCKFILE}\` conflict by merging \`${base}\` and regenerating the lockfile ` +
-        `from \`${base}\` (\`${mergeSha.slice(0, 9)}\`). ${ciNote}`
+        `from \`${base}\` (\`${mergeSha.slice(0, 9)}\`).`
     );
     return 0;
+  }
+
+  /** Distinct paths left in conflict (index stage > 0) after a merge. */
+  private conflictedPaths(index: Index): string[] {
+    const paths = new Set<string>();
+    const entries = index.entries();
+    for (let next = entries.next(); next.done !== true; next = entries.next()) {
+      if (indexEntryStage(next.value.flags) !== 0) {
+        paths.add(next.value.path.toString('utf8'));
+      }
+    }
+    return [...paths];
+  }
+
+  /** Paths under `pathspecs` that `to` changed relative to its merge-base with `from`. */
+  private changedPaths(repo: Repository, from: Commit, to: Commit, pathspecs: string[]): string[] {
+    const mergeBase = repo.getCommit(repo.getMergeBase(from.id(), to.id()));
+    const diff = repo.diffTreeToTree(mergeBase.tree(), to.tree(), { pathspecs });
+    const changed: string[] = [];
+    const deltas = diff.deltas();
+    for (let next = deltas.next(); next.done !== true; next = deltas.next()) {
+      const file = next.value.newFile().path() ?? next.value.oldFile().path();
+      if (file != null) {
+        changed.push(file);
+      }
+    }
+    return changed;
   }
 
   /** Read the head's check-runs + commit-status rollup and decide whether they are green. */
@@ -300,9 +311,13 @@ export class ResolveLockfileCommand extends Command {
     return 0;
   }
 
-  private async safeAbortMerge(): Promise<void> {
-    // Only abort if a merge is actually in progress; ignore "no merge to abort".
-    await git(['merge', '--abort']);
+  private safeAbortMerge(): void {
+    // Clear any in-progress merge state; ignore if no merge is in progress or the repo isn't open.
+    try {
+      this.#repo?.cleanupState();
+    } catch {
+      // nothing to clean up
+    }
   }
 
   private async comment(body: string): Promise<void> {

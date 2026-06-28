@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyConflict,
   evaluateStatusChecks,
+  indexEntryStage,
   LOCKFILE,
-  parseConflictedFiles,
 } from './lockfile-merge.ts';
 
 describe('classifyConflict', () => {
@@ -29,13 +29,15 @@ describe('classifyConflict', () => {
   });
 });
 
-describe('parseConflictedFiles', () => {
-  it('splits, trims and drops blank lines', () => {
-    expect(parseConflictedFiles('yarn.lock\npackage.json\n')).toEqual([
-      'yarn.lock',
-      'package.json',
-    ]);
-    expect(parseConflictedFiles('')).toEqual([]);
+describe('indexEntryStage', () => {
+  it('decodes the conflict stage from libgit2 index flags', () => {
+    expect(indexEntryStage(0)).toBe(0); // normally staged
+    expect(indexEntryStage(0x1000)).toBe(1); // ancestor
+    expect(indexEntryStage(0x2000)).toBe(2); // ours
+    expect(indexEntryStage(0x3000)).toBe(3); // theirs
+    // other flag bits (e.g. name length / extended) must not leak into the stage
+    expect(indexEntryStage(0x2000 | 0x0fff)).toBe(2);
+    expect(indexEntryStage(0x8000 | 0x1000)).toBe(1);
   });
 });
 
