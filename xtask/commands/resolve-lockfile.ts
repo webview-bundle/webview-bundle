@@ -81,7 +81,9 @@ export class ResolveLockfileCommand extends Command {
     }
     this.#client = createGitHubClient(this.githubToken);
 
-    await this.react('eyes');
+    // The workflow already reacts 👀 to the triggering comment before this process starts (so the
+    // commenter gets instant feedback during checkout/setup); here we only add the outcome
+    // reaction — 🚀 on success, 😕 when there's nothing to do, 👎 on failure.
     try {
       return await this.run();
     } catch (error) {
