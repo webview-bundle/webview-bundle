@@ -5767,6 +5767,23 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@wvb/electron-builder@workspace:packages/electron-builder":
+  version: 0.0.0-use.local
+  resolution: "@wvb/electron-builder@workspace:packages/electron-builder"
+  dependencies:
+    "@types/node": "catalog:"
+    "@wvb/cli": "workspace:^"
+    "@wvb/config": "workspace:^"
+    tsdown: "catalog:"
+    typescript: "catalog:"
+  peerDependencies:
+    electron-builder: ">= 24"
+  peerDependenciesMeta:
+    electron-builder:
+      optional: true
+  languageName: unknown
+  linkType: soft
+
 "@wvb/electron-forge@workspace:packages/electron-forge":
   version: 0.0.0-use.local
   resolution: "@wvb/electron-forge@workspace:packages/electron-forge"
