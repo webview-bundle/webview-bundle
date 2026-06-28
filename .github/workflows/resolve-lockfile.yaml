@@ -1,0 +1,46 @@
+name: resolve-lockfile
+# Auto-resolve a PR whose only merge conflict with its base branch is `yarn.lock`.
+# Trigger: a maintainer comments `/merge-lockfile` on the PR.
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  # One resolve per PR at a time; let an in-flight run finish rather than cancel a push mid-way.
+  group: resolve-lockfile-${{ github.event.issue.number }}
+  cancel-in-progress: false
+env:
+  LEFTHOOK: 0
+jobs:
+  resolve:
+    # Only act on PR comments that start with the command. `issue_comment` workflows always run
+    # from the default branch, so this gate cannot be bypassed by editing the workflow in the PR.
+    # `author_association` is only a coarse pre-filter (it includes read-only org members) — the
+    # command itself verifies the commenter's *actual* write access via the API.
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/merge-lockfile') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        with:
+          fetch-depth: 0
+          # Prefer a bot token (PAT or GitHub App installation token) so the resulting push
+          # re-triggers `ci.yaml` — pushes authenticated with the default GITHUB_TOKEN do NOT start
+          # new workflow runs. Falls back to GITHUB_TOKEN (push works, but CI will not re-run).
+          token: ${{ secrets.LOCKFILE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - name: Resolve yarn.lock conflict
+        env:
+          GITHUB_TOKEN: ${{ secrets.LOCKFILE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          COMMENT_USER: ${{ github.event.comment.user.login }}
+          # True only when a dedicated bot token is configured — a push made with the default
+          # GITHUB_TOKEN does not re-trigger `ci.yaml`, and the bot says so in its comment.
+          CI_WILL_RERUN: ${{ secrets.LOCKFILE_BOT_TOKEN != '' }}
+        run: node ./xtask/cli.ts resolve-lockfile --pr "${{ github.event.issue.number }}"
