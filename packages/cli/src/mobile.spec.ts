@@ -3,10 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  ANDROID_BUILTIN_OUT,
+  addIosFolderReference,
   checkAndroidNoCompress,
-  IOS_BUILTIN_OUT,
-  iosStagingDir,
+  defaultAndroidBundlesDir,
+  defaultIosProjectBundlesDir,
   resolveAndroidProject,
   resolveIosProject,
 } from './mobile.js';
@@ -27,9 +27,11 @@ async function write(rel: string, content: string) {
   await fs.writeFile(file, content);
 }
 
-describe('ANDROID_BUILTIN_OUT', () => {
-  it('is the merged-assets builtin path under a module', () => {
-    expect(ANDROID_BUILTIN_OUT).toBe(path.join('src', 'main', 'assets', 'bundles', 'builtin'));
+describe('defaultAndroidBundlesDir', () => {
+  it('is the merged-assets bundles path under the module', () => {
+    expect(defaultAndroidBundlesDir({ root: '/r', moduleDir: '/r/app', moduleName: 'app' })).toBe(
+      path.join('/r/app', 'src', 'main', 'assets', 'bundles')
+    );
   });
 });
 
@@ -101,12 +103,13 @@ describe('resolveAndroidProject', () => {
     expect(await resolveAndroidProject(root)).toBeNull();
   });
 
-  it('walks up from a nested cwd', async () => {
-    await write('settings.gradle.kts', 'include(":app")\n');
-    await write('app/build.gradle.kts', APP_KTS);
-    await write('app/src/main/AndroidManifest.xml', MANIFEST);
-    await fs.mkdir(path.join(root, 'frontend', 'src'), { recursive: true });
-    expect((await resolveAndroidProject(path.join(root, 'frontend')))?.moduleName).toBe('app');
+  it('detects the conventional `android/app` layout', async () => {
+    await write('android/app/build.gradle.kts', APP_KTS);
+    await write('android/app/src/main/AndroidManifest.xml', MANIFEST);
+    const project = await resolveAndroidProject(root);
+    expect(project?.moduleDir).toBe(path.join(root, 'android', 'app'));
+    expect(project?.moduleName).toBe('app');
+    expect(project?.root).toBe(path.join(root, 'android'));
   });
 
   it('honors an explicit module dir and validates it', async () => {
@@ -121,14 +124,13 @@ describe('resolveAndroidProject', () => {
 });
 
 describe('resolveIosProject', () => {
-  it('detects a Tuist project via Project.swift and honors the folderReference root', async () => {
+  it('detects a Tuist project via Project.swift', async () => {
     await write(
       'Project.swift',
       'let project = Project(resources: [.folderReference(path: "./assets")])\n'
     );
     const project = await resolveIosProject(root);
     expect(project?.kind).toBe('tuist');
-    expect(project?.folderReferenceRoot).toBe('assets');
     expect(project?.dir).toBe(root);
   });
 
@@ -138,7 +140,7 @@ describe('resolveIosProject', () => {
     expect((await resolveIosProject(root))?.kind).toBe('xcodeproj');
   });
 
-  it('walks up to an `ios` subdir and honors an explicit dir', async () => {
+  it('searches the `ios` subdir and honors an explicit dir', async () => {
     await write('ios/Project.swift', 'let project = Project()\n');
     expect((await resolveIosProject(root))?.dir).toBe(path.join(root, 'ios'));
     expect((await resolveIosProject(root, 'ios'))?.kind).toBe('tuist');
@@ -149,10 +151,73 @@ describe('resolveIosProject', () => {
     expect(await resolveIosProject(root)).toBeNull();
   });
 
-  it('iosStagingDir uses the folder-reference root + IOS_BUILTIN_OUT layout', () => {
-    expect(IOS_BUILTIN_OUT).toBe(path.join('assets', 'bundles', 'builtin'));
-    expect(iosStagingDir({ dir: '/x', kind: 'tuist', folderReferenceRoot: 'Resources' })).toBe(
-      path.join('/x', 'Resources', 'bundles', 'builtin')
+  it('defaultIosProjectBundlesDir stages bundles directly under the project dir', () => {
+    expect(defaultIosProjectBundlesDir({ dir: '/x', kind: 'tuist' })).toBe(
+      path.join('/x', 'bundles')
     );
+  });
+});
+
+describe('addIosFolderReference', () => {
+  const PROJECT_SWIFT = `import ProjectDescription
+
+let project = Project(
+    name: "TestApp",
+    targets: [
+        .target(
+            name: "TestApp",
+            resources: [
+                "TestApp/Assets.xcassets",
+                .folderReference(path: "./assets"),
+            ]
+        ),
+    ]
+)
+`;
+
+  it('inserts a folder reference into an existing resources array', async () => {
+    await write('Project.swift', PROJECT_SWIFT);
+    expect(await addIosFolderReference(root, 'bundles')).toBe('added');
+    const src = await fs.readFile(path.join(root, 'Project.swift'), 'utf8');
+    expect(src).toContain('.folderReference(path: "./bundles")');
+    // The pre-existing entries are preserved.
+    expect(src).toContain('.folderReference(path: "./assets")');
+    expect(src).toContain('"TestApp/Assets.xcassets"');
+  });
+
+  it('is idempotent when a folder reference to the bundles dir already exists', async () => {
+    await write(
+      'Project.swift',
+      'let project = Project(resources: [\n  .folderReference(path: "./bundles"),\n])\n'
+    );
+    expect(await addIosFolderReference(root, 'bundles')).toBe('already');
+  });
+
+  it('treats a trailing-slash reference to the bundles dir as already present', async () => {
+    await write(
+      'Project.swift',
+      'let project = Project(resources: [\n  .folderReference(path: "./bundles/"),\n])\n'
+    );
+    expect(await addIosFolderReference(root, 'bundles')).toBe('already');
+  });
+
+  it('does NOT treat a sibling reference to a different dir ending in "bundles" as present', async () => {
+    await write(
+      'Project.swift',
+      'let project = Project(resources: [\n  .folderReference(path: "../shared/bundles"),\n])\n'
+    );
+    expect(await addIosFolderReference(root, 'bundles')).toBe('added');
+    const src = await fs.readFile(path.join(root, 'Project.swift'), 'utf8');
+    expect(src).toContain('.folderReference(path: "./bundles")');
+    expect(src).toContain('.folderReference(path: "../shared/bundles")');
+  });
+
+  it('returns "no-resources" when Project.swift has no resources array', async () => {
+    await write('Project.swift', 'let project = Project(name: "TestApp")\n');
+    expect(await addIosFolderReference(root, 'bundles')).toBe('no-resources');
+  });
+
+  it('returns "not-found" when Project.swift is absent', async () => {
+    expect(await addIosFolderReference(root, 'bundles')).toBe('not-found');
   });
 });

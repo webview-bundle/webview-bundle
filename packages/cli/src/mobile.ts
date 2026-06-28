@@ -2,19 +2,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathExists } from './fs.js';
 
-/**
- * Default builtin staging path under an Android app module's main source set. Files placed here are
- * merged into the APK/AAB `assets/` by AGP; at runtime they must be extracted to a real filesystem
- * directory (e.g. `filesDir`) because assets are not filesystem paths.
- */
-export const ANDROID_BUILTIN_OUT = path.join('src', 'main', 'assets', 'bundles', 'builtin');
-
-/**
- * Default builtin staging path under an iOS project's folder-reference root. Matches the runtime
- * contract (`Bundle.main.resourceURL` + `assets/bundles/builtin`) and the committed example layout.
- */
-export const IOS_BUILTIN_OUT = path.join('assets', 'bundles', 'builtin');
-
 export type AndroidNoCompressStatus = 'ok' | 'missing' | 'skipped';
 
 async function readModuleGradle(moduleDir: string): Promise<string | null> {
@@ -50,14 +37,9 @@ export async function checkAndroidNoCompress(moduleDir: string): Promise<Android
   return /noCompress\b[\s\S]{0,60}["']wvb["']/.test(text) ? 'ok' : 'missing';
 }
 
-// --- Android application-module auto-detection -------------------------------------------------
-
 export interface AndroidProject {
-  /** Gradle root directory (the one with `settings.gradle(.kts)`), or the module dir if single-module. */
   root: string;
-  /** The application module directory (the one with `src/main/assets`). */
   moduleDir: string;
-  /** The Gradle module name (e.g. `app`, `testapp`). */
   moduleName: string;
 }
 
@@ -141,13 +123,6 @@ async function findAppModuleInGradleRoot(root: string): Promise<AndroidProject |
   return null;
 }
 
-/**
- * Locate the Android *application* module (the one with `com.android.application` and `src/main/assets`)
- * without an explicit path — mirrors {@link import('./tauri.js').resolveTauriProject}. When `explicitDir`
- * is given it is used as the module directly (still validated). Otherwise it searches `cwd`, conventional
- * module subdirs (`app`, `android/app`, `src-tauri/gen/android/app`), Gradle roots (`.`, `android`,
- * `src-tauri/gen/android`), and a few parent levels — so it works from a frontend dir or the project root.
- */
 export async function resolveAndroidProject(
   cwd: string,
   explicitDir?: string
@@ -159,48 +134,37 @@ export async function resolveAndroidProject(
       : null;
   }
 
-  let dir = path.resolve(cwd);
-  for (let i = 0; i < 4; i++) {
-    // Fast path: a conventionally-named app module directly under common toolchain locations.
-    for (const rel of [
-      'app',
-      path.join('android', 'app'),
-      path.join('src-tauri', 'gen', 'android', 'app'),
-    ]) {
-      const moduleDir = path.join(dir, rel);
-      if (await isAndroidAppModule(moduleDir)) {
-        return { root: path.dirname(moduleDir), moduleDir, moduleName: path.basename(moduleDir) };
-      }
+  const dir = path.resolve(cwd);
+  for (const rel of ['app', path.join('android', 'app')]) {
+    const moduleDir = path.join(dir, rel);
+    if (await isAndroidAppModule(moduleDir)) {
+      return { root: path.dirname(moduleDir), moduleDir, moduleName: path.basename(moduleDir) };
     }
-    // General path: find a Gradle root and classify its modules (handles non-`app` module names).
-    for (const rel of ['', 'android', path.join('src-tauri', 'gen', 'android')]) {
-      const found = await findAppModuleInGradleRoot(path.join(dir, rel));
-      if (found != null) {
-        return found;
-      }
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      break;
-    }
-    dir = parent;
   }
+  // General path: find a Gradle root and classify its modules (handles non-`app` module names).
+  for (const rel of ['', 'android']) {
+    const found = await findAppModuleInGradleRoot(path.join(dir, rel));
+    if (found != null) {
+      return found;
+    }
+  }
+
   return null;
 }
 
-// --- iOS project auto-detection ----------------------------------------------------------------
+export function defaultAndroidBundlesDir(project: AndroidProject): string {
+  return path.join(project.moduleDir, 'src', 'main', 'assets', 'bundles');
+}
 
 export type IosProjectKind = 'tuist' | 'workspace' | 'xcodeproj';
 
 export interface IosProject {
-  /** The iOS project directory (the folder-reference parent; bundles stage under it). */
+  /** The iOS project directory (where `Project.swift` / the Xcode project lives; bundles stage under it). */
   dir: string;
   kind: IosProjectKind;
-  /** Folder-reference root dir name (the Tuist `.folderReference` path, default `assets`). */
-  folderReferenceRoot: string;
 }
 
-async function readdirSafe(dir: string): Promise<string[]> {
+async function safeReaddir(dir: string): Promise<string[]> {
   try {
     return await fs.readdir(dir);
   } catch {
@@ -209,39 +173,20 @@ async function readdirSafe(dir: string): Promise<string[]> {
 }
 
 async function detectIosProject(dir: string): Promise<IosProject | null> {
-  // Tuist's `Project.swift` is the COMMITTED source of truth; the `.xcodeproj`/`.xcworkspace` it
-  // generates are typically gitignored, so detect it first.
   if (await pathExists(path.join(dir, 'Project.swift'))) {
-    let folderReferenceRoot = 'assets';
-    try {
-      const src = await fs.readFile(path.join(dir, 'Project.swift'), 'utf8');
-      const captured = src.match(/\.folderReference\s*\(\s*path:\s*['"]\.?\/?([^'"]+)['"]/)?.[1];
-      if (captured != null) {
-        folderReferenceRoot = captured.split(/[/\\]/)[0] || 'assets';
-      }
-    } catch {
-      // fall back to the default root
-    }
-    return { dir, kind: 'tuist', folderReferenceRoot };
+    return { dir, kind: 'tuist' };
   }
 
-  const entries = await readdirSafe(dir);
+  const entries = await safeReaddir(dir);
   if (entries.some(e => e.endsWith('.xcworkspace'))) {
-    return { dir, kind: 'workspace', folderReferenceRoot: 'assets' };
+    return { dir, kind: 'workspace' };
   }
   if (entries.some(e => e.endsWith('.xcodeproj') && e !== 'Pods.xcodeproj')) {
-    return { dir, kind: 'xcodeproj', folderReferenceRoot: 'assets' };
+    return { dir, kind: 'xcodeproj' };
   }
   return null;
 }
 
-/**
- * Locate the iOS project directory without an explicit path — mirrors `resolveTauriProject`. Detects
- * Tuist (`Project.swift`), then `*.xcworkspace`, then `*.xcodeproj`, searching `cwd`, `ios`,
- * `apple/ios`, `src-tauri/gen/apple`, and a few parent levels. Returns the project dir; the bundles
- * stage at `<dir>/<folderReferenceRoot>/bundles/builtin`. Does NOT auto-wire the Xcode folder
- * reference — that stays a documented manual step.
- */
 export async function resolveIosProject(
   cwd: string,
   explicitDir?: string
@@ -250,29 +195,53 @@ export async function resolveIosProject(
     return detectIosProject(path.resolve(cwd, explicitDir));
   }
 
-  let dir = path.resolve(cwd);
-  for (let i = 0; i < 4; i++) {
-    for (const rel of [
-      '',
-      'ios',
-      path.join('apple', 'ios'),
-      path.join('src-tauri', 'gen', 'apple'),
-    ]) {
-      const found = await detectIosProject(path.join(dir, rel));
-      if (found != null) {
-        return found;
-      }
+  const dir = path.resolve(cwd);
+  for (const rel of ['', 'ios', path.join('apple', 'ios')]) {
+    const found = await detectIosProject(path.join(dir, rel));
+    if (found != null) {
+      return found;
     }
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      break;
-    }
-    dir = parent;
   }
+
   return null;
 }
 
-/** The default builtin staging directory for a detected iOS project. */
-export function iosStagingDir(project: IosProject): string {
-  return path.join(project.dir, project.folderReferenceRoot, 'bundles', 'builtin');
+/** The default builtin staging directory for a detected iOS project (`<dir>/bundles`). */
+export function defaultIosProjectBundlesDir(project: IosProject): string {
+  return path.join(project.dir, 'bundles');
+}
+
+export type IosAddFolderReferenceStatus = 'added' | 'already' | 'no-resources' | 'not-found';
+
+export async function addIosFolderReference(
+  projectDir: string,
+  folder: string
+): Promise<IosAddFolderReferenceStatus> {
+  const file = path.join(projectDir, 'Project.swift');
+  let src: string;
+  try {
+    src = await fs.readFile(file, 'utf8');
+  } catch {
+    return 'not-found';
+  }
+
+  // Idempotency: compare the whole (normalized) referenced path, not just its basename — a reference to
+  // a different directory that merely ends in `<folder>` (e.g. `../shared/bundles`) is not a match.
+  for (const match of src.matchAll(/\.folderReference\s*\(\s*path:\s*['"]([^'"]+)['"]/g)) {
+    const ref = match[1]?.replace(/^\.\//, '').replace(/[/\\]+$/, '');
+    if (ref === folder) {
+      return 'already';
+    }
+  }
+
+  const resources = src.match(/resources:\s*\[/);
+  if (resources?.index == null) {
+    return 'no-resources';
+  }
+  const insertAt = resources.index + resources[0].length;
+  const lineStart = src.lastIndexOf('\n', resources.index) + 1;
+  const indent = src.slice(lineStart, resources.index).match(/^\s*/)?.[0] ?? '';
+  const entry = `\n${indent}    .folderReference(path: "./${folder}"),`;
+  await fs.writeFile(file, src.slice(0, insertAt) + entry + src.slice(insertAt));
+  return 'added';
 }

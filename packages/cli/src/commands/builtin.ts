@@ -5,21 +5,13 @@ import { cascade, isBoolean, isInteger, isNumber } from 'typanion';
 import { builtin } from '../api/builtin.js';
 import { resolveConfig } from '../config.js';
 import {
-  ANDROID_BUILTIN_OUT,
   type AndroidProject,
-  checkAndroidNoCompress,
-  IOS_BUILTIN_OUT,
+  defaultAndroidBundlesDir,
+  defaultIosProjectBundlesDir,
   type IosProject,
-  iosStagingDir,
   resolveAndroidProject,
   resolveIosProject,
 } from '../mobile.js';
-import {
-  checkBundleResources,
-  resolveTauriProject,
-  TAURI_BUNDLES_DIR,
-  type TauriProject,
-} from '../tauri.js';
 import { BaseCommand } from './base.js';
 
 export class BuiltinCommand extends BaseCommand {
@@ -30,10 +22,13 @@ export class BuiltinCommand extends BaseCommand {
     description: 'Install builtin webview bundles from remote or local files.',
     examples: [
       ['A basic usage', '$0 builtin'],
-      ['Install into a Tauri app (wire into `beforeBundleCommand`)', '$0 builtin --tauri'],
       ['Install into the auto-detected Android app module', '$0 builtin --android'],
-      ['…or an explicit Android module', '$0 builtin --android=./android/app'],
+      [
+        '…or an explicit Android module (where build.gradle(.kts) lives)',
+        '$0 builtin --android=./testapp',
+      ],
       ['Install into the auto-detected iOS project', '$0 builtin --ios'],
+      ['…or an explicit iOS project', '$0 builtin --ios=./testapp'],
     ],
   });
 
@@ -84,32 +79,21 @@ This option is only used when the target is "remote".
   readonly cwd = Option.String('--cwd', {
     description: 'Set the working directory for resolving paths. [Default: process.cwd()]',
   });
-  readonly tauri = Option.Boolean('--tauri', false, {
-    description: `Tauri preset. Locate the Tauri project (src-tauri), default the output to "<src-tauri>/${TAURI_BUNDLES_DIR}"
-(so the runtime reads them from the Resource directory), and check that "bundle.resources" ships them.
-Wire this into \`beforeBundleCommand\` (and \`beforeDevCommand\` for dev).`,
-  });
-  readonly tauriDir = Option.String('--tauri-dir', {
-    description: `Path to the Tauri project directory (the one with tauri.conf.json). Auto-detected when omitted.
-Only used together with "--tauri".`,
-  });
   readonly android = Option.String('--android', {
     tolerateBoolean: true,
-    description: `Android preset. Pass "--android" to auto-detect the application module (the one with "src/main/assets"),
-or "--android=<module>" to point at it explicitly. Defaults the output to "<module>/${ANDROID_BUILTIN_OUT}" so the
-bundles are merged into the APK/AAB assets. At runtime, extract them to a filesystem dir (assets are not filesystem paths).`,
+    description: `Android preset. Pass "--android" to auto-detect the application module, or "--android=<module>" to point at
+the module directory (where "build.gradle(.kts)" lives).`,
   });
   readonly ios = Option.String('--ios', {
     tolerateBoolean: true,
-    description: `iOS preset. Pass "--ios" to auto-detect the Xcode/Tuist project, or "--ios=<project>" to point at it
-explicitly. Defaults the output to "<project>/${IOS_BUILTIN_OUT}". Add that directory to your Xcode target as a FOLDER
-REFERENCE (not a group), regenerated from a Run Script phase above "Copy Bundle Resources".`,
+    description: `iOS preset. Pass "--ios" to auto-detect the project, or "--ios=<project>" to point at it explicitly.
+This will adds a \`folderReference\` to Project.swift.`,
   });
 
   async run() {
-    const presetCount = [this.tauri, this.android, this.ios].filter(Boolean).length;
+    const presetCount = [this.android, this.ios].filter(Boolean).length;
     if (presetCount > 1) {
-      this.logger.error('Use only one of "--tauri", "--android", "--ios".');
+      this.logger.error('Use only one of "--android", "--ios".');
       return 1;
     }
 
@@ -119,18 +103,6 @@ REFERENCE (not a group), regenerated from a Run Script phase above "Copy Bundle 
     const cwd = this.cwd ?? process.cwd();
     const androidDir = typeof this.android === 'string' ? this.android : undefined;
     const iosDir = typeof this.ios === 'string' ? this.ios : undefined;
-
-    let tauriProject: TauriProject | null = null;
-    if (this.tauri) {
-      tauriProject = await resolveTauriProject(cwd, this.tauriDir);
-      if (tauriProject == null) {
-        this.logger.error(
-          'Could not locate a Tauri project (no tauri.conf.json/json5 or Tauri.toml found). Pass "--tauri-dir <path>".'
-        );
-        return 1;
-      }
-      this.logger.info(`Tauri project: ${tauriProject.dir}`);
-    }
 
     let androidProject: AndroidProject | null = null;
     if (this.android) {
@@ -178,17 +150,11 @@ REFERENCE (not a group), regenerated from a Run Script phase above "Copy Bundle 
       }
     }
 
-    // Preset output defaults (absolute, independent of the config root):
-    // - Tauri: "<src-tauri>/bundles" → lands at "<Resource>/bundles" via a `bundle.resources` glob.
-    // - Android: "<module>/src/main/assets/bundles/builtin" → merged into the APK/AAB assets.
-    // - iOS: the given staging dir → bundled via a folder reference.
     let defaultDir: string;
-    if (tauriProject != null) {
-      defaultDir = path.join(tauriProject.dir, TAURI_BUNDLES_DIR);
-    } else if (androidProject != null) {
-      defaultDir = path.join(androidProject.moduleDir, ANDROID_BUILTIN_OUT);
+    if (androidProject != null) {
+      defaultDir = defaultAndroidBundlesDir(androidProject);
     } else if (iosProject != null) {
-      defaultDir = iosStagingDir(iosProject);
+      defaultDir = defaultIosProjectBundlesDir(iosProject);
     } else {
       defaultDir = config.builtin?.outDir ?? path.join('.wvb', 'builtin', 'bundles');
     }
@@ -209,50 +175,20 @@ REFERENCE (not a group), regenerated from a Run Script phase above "Copy Bundle 
       logLevel: this.logLevel,
       logger: this.logger,
       progress: this.progress,
+      android:
+        this.write && androidProject != null
+          ? {
+              dir: androidProject.moduleDir,
+              checkNoCompress: true,
+            }
+          : undefined,
+      ios:
+        this.write && iosProject != null
+          ? {
+              dir: iosProject.dir,
+              addProjectFolderReference: iosProject.kind === 'tuist',
+            }
+          : undefined,
     });
-
-    // Post-stage guidance (warn/inform, never fail) against the platform-specific footguns.
-    if (this.write !== false) {
-      if (tauriProject != null) {
-        // The bundler only ships what `bundle.resources` lists — warn if the bundles aren't declared.
-        const status = await checkBundleResources(tauriProject.configFile);
-        if (status === 'missing') {
-          this.logger.warn(
-            `Tauri "bundle.resources" does not reference "${TAURI_BUNDLES_DIR}", so the staged bundles won't be shipped. ` +
-              `Add to ${tauriProject.configFile}:\n` +
-              `  "bundle": { "resources": ["${TAURI_BUNDLES_DIR}/**/*.wvb", "${TAURI_BUNDLES_DIR}/manifest.json"] }`
-          );
-        } else if (status === 'skipped') {
-          // TOML / JSON5 configs aren't parsed here — don't silently imply everything's fine.
-          this.logger.info(
-            `Could not auto-verify "bundle.resources" in ${tauriProject.configFile} (TOML/JSON5 not parsed). ` +
-              `Make sure it ships "${TAURI_BUNDLES_DIR}" so the staged bundles are bundled.`
-          );
-        }
-      } else if (androidProject != null) {
-        // Already-compressed .wvb shouldn't be re-compressed in the APK.
-        const status = await checkAndroidNoCompress(androidProject.moduleDir);
-        if (status === 'missing') {
-          this.logger.warn(
-            "'.wvb' assets may be re-compressed in the APK. Add to your module's build.gradle(.kts):\n" +
-              '  android { androidResources { noCompress += "wvb" } }\n' +
-              'And extract the assets to a filesystem dir at runtime (assets are not filesystem paths).'
-          );
-        }
-      } else if (iosProject != null) {
-        // Copy Bundle Resources flattens groups — a folder reference is required to keep the subtree.
-        this.logger.info(
-          `Add "${dir}" to your Xcode target as a FOLDER REFERENCE (blue folder, not a group) and ` +
-            'regenerate it from a Run Script phase placed above "Copy Bundle Resources" — otherwise the ' +
-            "per-bundle subdirectories are flattened and the runtime can't find them."
-        );
-        if (iosProject.kind === 'tuist') {
-          this.logger.info(
-            `Tuist project detected: declare \`.folderReference(path: "./${iosProject.folderReferenceRoot}")\` ` +
-              'in the target resources and run `tuist generate`.'
-          );
-        }
-      }
-    }
   }
 }
