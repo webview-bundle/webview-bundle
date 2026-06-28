@@ -187,7 +187,7 @@ impl Index {
 
 impl Encode for IndexEntryMap {
   fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-    // Use `BTreeMap` to preserve the original key order.
+    // Use `BTreeMap` to encode entries in deterministic key-sorted order.
     let sorted: BTreeMap<&String, &IndexEntry> = self.0.iter().collect();
     sorted.encode(encoder)
   }
