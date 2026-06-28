@@ -3,15 +3,11 @@ import path from 'node:path';
 import { resolveConfig } from '@wvb/cli';
 import { builtin } from '@wvb/cli/api';
 import type { BuiltinTarget } from '@wvb/config';
-import type { AfterPackContext, AfterPackHook, WebViewBundleOptions } from './config.js';
+import type { AfterPackContext, AfterPackHook, WebviewBundleOptions } from './config.js';
 
 const DEFAULT_BUILTIN_OUT_DIR = path.join('.wvb', 'builtin', 'bundles');
 const DEFAULT_BUNDLES_DIR = 'bundles';
 
-/**
- * Guard against path traversal before destructive fs ops: `bundlesDir` must be a relative path
- * inside the resources directory (no absolute paths, no `..` segments).
- */
 function safeBundlesDir(bundlesDir: string): string {
   if (path.isAbsolute(bundlesDir) || bundlesDir.split(/[/\\]/).includes('..')) {
     throw new Error(
@@ -23,10 +19,6 @@ function safeBundlesDir(bundlesDir: string): string {
 
 /**
  * Resolve the packaged app's `Resources` directory from an electron-builder `afterPack` context.
- * This is where `@wvb/electron` reads builtin bundles from at runtime (`<resourcesPath>/bundles`).
- *
- * - macOS (`darwin` / `mas`): `<appOutDir>/<productFilename>.app/Contents/Resources`
- * - Windows / Linux: `<appOutDir>/resources`
  */
 export function resolveResourcesPath(context: AfterPackContext): string {
   const { appOutDir, electronPlatformName } = context;
@@ -42,34 +34,15 @@ export function resolveResourcesPath(context: AfterPackContext): string {
  * the remote and/or packed from local workspaces as configured in your webview-bundle config — and
  * embeds them into the packaged app's `Resources/<bundlesDir>`, where `@wvb/electron` looks for them
  * at runtime.
- *
- * Most apps should prefer {@link withWebViewBundle}, which wires this hook into your config (and
- * composes with an existing `afterPack`). Use this factory directly when you compose hooks yourself,
- * or when your config references the hook by module path (`electron-builder.yml` / `package.json`):
- *
- * ```js
- * // wvb-after-pack.cjs
- * module.exports = require('@wvb/electron-builder').webViewBundleAfterPack();
- * // electron-builder.yml -> afterPack: ./wvb-after-pack.cjs
- * ```
- *
- * The hook runs once per platform/arch target, after the app is packed (so bundles land next to
- * `app.asar`, outside the archive) and before code signing (so they are signed/notarized with the
- * app). It is not invoked for `electron .` dev runs, so dev stays bundle-free.
- *
- * Note: there is no cross-target download cache, so a multi-target build (e.g. `-mwl`) installs the
- * bundles once per target. Each target stages into its own `<outDir>/<platform>-<arch>` directory,
- * so even parallel targets never clobber a shared staging dir.
  */
-export function webViewBundleAfterPack(
-  options: WebViewBundleOptions = {}
+export function webviewBundleAfterPack(
+  options: WebviewBundleOptions = {}
 ): (context: AfterPackContext) => Promise<void> {
   return async (context: AfterPackContext): Promise<void> => {
     const { bundlesDir, channel, configFile, throwWhenBuiltinIsEmpty = true, ...inline } = options;
 
     const resolved = await resolveConfig({
       ...inline,
-      // Resolve config from the electron-builder project dir, not the (possibly unrelated) cwd.
       root: inline.root ?? context.packager.projectDir ?? process.cwd(),
       configFile: configFile === true ? undefined : configFile,
     });
@@ -122,9 +95,6 @@ export function webViewBundleAfterPack(
       );
     }
 
-    // `builtin()` stages bundles at `<root>/<dir>` with the exact on-disk layout the runtime expects
-    // (`manifest.json` + `<name>/<name>_<version>.wvb`). Copy that tree into the packaged app's
-    // resources so the runtime reads `<resourcesPath>/<bundlesDir>`.
     const stageDir = path.resolve(resolved.root, dir);
     const destDir = path.join(
       resolveResourcesPath(context),
@@ -136,12 +106,10 @@ export function webViewBundleAfterPack(
   };
 }
 
+export const wvbAfterPack: typeof webviewBundleAfterPack = webviewBundleAfterPack;
+
 /**
  * Wrap an electron-builder configuration so it installs builtin Webview Bundles at package time.
- *
- * This is the recommended entry point — it injects the {@link webViewBundleAfterPack} hook into your
- * config, composing with any existing `afterPack` (yours runs first, then the bundle install). Your
- * config object is returned with its type preserved:
  *
  * ```ts
  * // electron-builder.config.ts
@@ -153,33 +121,21 @@ export function webViewBundleAfterPack(
  *   mac: { target: 'dmg' },
  * });
  * ```
- *
- * Because it transforms a config object, the HoC only works with a JS/TS electron-builder config
- * file. For `electron-builder.yml` / `package.json` builds, reference {@link webViewBundleAfterPack}
- * by module path instead.
- *
- * Only a **function** `afterPack` can be composed. electron-builder also accepts a module-path
- * string for `afterPack`, but the HoC cannot faithfully resolve and invoke it, so it throws rather
- * than silently dropping your hook — convert it to a function, or call {@link webViewBundleAfterPack}
- * from within your own hook module.
- *
- * The bundles are placed in `Resources/<bundlesDir>` (default `bundles`), outside `app.asar`, so no
- * `asarUnpack` is needed and the runtime reads them directly from `process.resourcesPath`.
  */
-export function withWebViewBundle<C extends object>(
+export function withWebviewBundle<C extends object>(
   config: C,
-  options: WebViewBundleOptions = {}
+  options: WebviewBundleOptions = {}
 ): C {
-  const install = webViewBundleAfterPack(options);
+  const install = webviewBundleAfterPack(options);
   const existing = (config as { afterPack?: unknown }).afterPack;
 
   // electron-builder's `afterPack` may be `Hook | string | null`. We can only compose a function;
   // fail loud on a module-path string instead of silently discarding the user's hook.
   if (existing != null && typeof existing !== 'function') {
     throw new Error(
-      `withWebViewBundle cannot compose an existing \`afterPack\` of type "${typeof existing}". ` +
+      `\`withWebviewBundle\` cannot compose an existing \`afterPack\` of type "${typeof existing}". ` +
         'electron-builder allows a module-path string here, but this wrapper composes function ' +
-        'hooks only. Convert your `afterPack` to a function, or import `webViewBundleAfterPack()` ' +
+        'hooks only. Convert your `afterPack` to a function, or import `webviewBundleAfterPack()` ' +
         'from your own hook module and call it there.'
     );
   }
@@ -193,3 +149,5 @@ export function withWebViewBundle<C extends object>(
 
   return { ...config, afterPack } as C;
 }
+
+export const withWvb: typeof withWebviewBundle = withWebviewBundle;

@@ -1,6 +1,8 @@
-export type { AfterPackContext, AfterPackHook, WebViewBundleOptions } from './config.js';
+export type { AfterPackContext, AfterPackHook, WebviewBundleOptions } from './config.js';
 export {
   resolveResourcesPath,
-  webViewBundleAfterPack,
-  withWebViewBundle,
-} from './integration.js';
+  webviewBundleAfterPack,
+  withWebviewBundle,
+  withWvb,
+  wvbAfterPack,
+} from './setup.js';
