@@ -1,0 +1,36 @@
+name: resolve-lockfile
+# Auto-resolve a PR whose only merge conflict with its base branch is `yarn.lock`.
+# Trigger: a maintainer comments `/merge-lockfile` on the PR.
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: resolve-lockfile-${{ github.event.issue.number }}
+  cancel-in-progress: false
+env:
+  LEFTHOOK: 0
+jobs:
+  resolve:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/merge-lockfile') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn workspaces focus xtask
+      - name: Resolve yarn.lock conflict
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          COMMENT_USER: ${{ github.event.comment.user.login }}
+        run: node ./xtask/cli.ts resolve-lockfile --pr "${{ github.event.issue.number }}"
