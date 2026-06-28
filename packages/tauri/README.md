@@ -1,1 +1,1 @@
-# webview-bundle-tauri
+# wvb-tauri

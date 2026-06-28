@@ -1,12 +1,15 @@
 name: resolve-lockfile
 # Auto-resolve a PR whose only merge conflict with its base branch is `yarn.lock`.
-# Trigger: a maintainer comments `/merge-lockfile` on the PR.
+# Trigger: a maintainer comments `/merge-lockfile` (or `/resolve-lockfile`) on the PR.
 on:
   issue_comment:
     types: [created]
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+  checks: read
+  statuses: read
 concurrency:
   group: resolve-lockfile-${{ github.event.issue.number }}
   cancel-in-progress: false
@@ -16,10 +19,20 @@ jobs:
   resolve:
     if: >-
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/merge-lockfile') &&
+      (startsWith(github.event.comment.body, '/merge-lockfile') ||
+       startsWith(github.event.comment.body, '/resolve-lockfile')) &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     steps:
+      - name: Acknowledge command
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content=eyes
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
         with:

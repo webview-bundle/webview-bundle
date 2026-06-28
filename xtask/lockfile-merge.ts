@@ -1,9 +1,6 @@
 /** The lockfile this bot knows how to auto-resolve. */
 export const LOCKFILE = 'yarn.lock';
 
-/** Slash command that triggers the resolver from a PR comment. */
-export const TRIGGER_COMMAND = '/merge-lockfile';
-
 /**
  * Outcome of classifying the files left unmerged after attempting to merge the base branch into a
  * PR head branch.

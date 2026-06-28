@@ -32,6 +32,12 @@ import {
 import { c } from '../console.js';
 import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import { isLogLevelAtLeast, type Logger, type LogLevel } from '../log.js';
+import {
+  type AndroidNoCompressStatus,
+  addIosFolderReference,
+  checkAndroidNoCompress,
+  type IosAddFolderReferenceStatus,
+} from '../mobile.js';
 import { coerceArray } from '../utils/coerce.js';
 import { ApiError } from './error.js';
 import { pack } from './pack.js';
@@ -48,12 +54,31 @@ export interface BuiltinParams {
   logLevel?: LogLevel;
   logger?: Logger;
   progress?: boolean;
+  android?: {
+    dir: string;
+    checkNoCompress?: boolean;
+  };
+  ios?: {
+    dir: string;
+    /** This only works if using a Tuist project. */
+    addProjectFolderReference?: boolean;
+  };
+}
+
+export interface BuiltinResult {
+  manifest: BundleManifestData;
+  android?: {
+    noCompressStatus?: AndroidNoCompressStatus;
+  };
+  ios?: {
+    addFolderReferenceStatus?: IosAddFolderReferenceStatus;
+  };
 }
 
 /**
  * Install builtin Webview Bundles from remote and/or local files.
  */
-export async function builtin(params: BuiltinParams): Promise<BundleManifestData> {
+export async function builtin(params: BuiltinParams): Promise<BuiltinResult> {
   const {
     target,
     dir: dirInput = path.join('.wvb', 'builtin', 'bundles'),
@@ -66,6 +91,8 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
     logLevel,
     logger,
     progress: showProgress = false,
+    android,
+    ios,
   } = params;
 
   const dir = toAbsolutePath(dirInput, cwd);
@@ -166,7 +193,60 @@ export async function builtin(params: BuiltinParams): Promise<BundleManifestData
     logger?.info(`Builtin bundles installed: ${c.bold(c.success(dir))}`);
   }
 
-  return manifest;
+  let androidNoCompressStatus: AndroidNoCompressStatus | undefined;
+  if (android?.checkNoCompress === true) {
+    androidNoCompressStatus = await checkAndroidNoCompress(android.dir);
+    if (androidNoCompressStatus === 'missing') {
+      logger?.warn(
+        "'.wvb' assets may be re-compressed in the APK. Add to your module's build.gradle(.kts):\n" +
+          '  android { androidResources { noCompress += "wvb" } }\n' +
+          'And extract the assets to a filesystem dir at runtime.'
+      );
+    }
+  }
+
+  let iosAddFolderReferenceStatus: IosAddFolderReferenceStatus | undefined;
+  if (ios?.addProjectFolderReference === true) {
+    const projectSwift = path.join(ios.dir, 'Project.swift');
+    const bundlesDir = path.relative(ios.dir, dir);
+    iosAddFolderReferenceStatus = await addIosFolderReference(ios.dir, bundlesDir);
+
+    switch (iosAddFolderReferenceStatus) {
+      case 'added':
+        logger?.info(
+          `Added \`folderReference(path: "./${bundlesDir}")\` to ${projectSwift}. ` +
+            'Run `tuist generate` to regenerate the Xcode project.'
+        );
+        break;
+      case 'already':
+        logger?.info(`${projectSwift} already references "${bundlesDir}".`);
+        break;
+      case 'no-resources':
+        break;
+      case 'not-found':
+        logger?.warn(
+          `Project.swift not found in ${ios.dir}. Add "${dir}" to your iOS target as a ` +
+            '"FOLDER REFERENCE" so the per-bundle subdirectories are preserved.'
+        );
+        break;
+    }
+  }
+
+  return {
+    manifest,
+    android:
+      android != null
+        ? {
+            noCompressStatus: androidNoCompressStatus,
+          }
+        : undefined,
+    ios:
+      ios != null
+        ? {
+            addFolderReferenceStatus: iosAddFolderReferenceStatus,
+          }
+        : undefined,
+  };
 }
 
 function buildProgress() {

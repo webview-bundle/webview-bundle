@@ -159,7 +159,7 @@ async function bundleConfigFile(
     format: isEsm ? 'esm' : 'cjs',
     sourcemap: 'inline',
     keepNames: true,
-    inlineDynamicImports: true,
+    codeSplitting: false,
   });
   if (bundleOutput.output[0] == null || bundleOutput.output[0].type !== 'chunk') {
     throw new Error('no output chunk found');
