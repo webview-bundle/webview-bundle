@@ -75,7 +75,7 @@ export function webviewBundleAfterPack(
       outDir ?? DEFAULT_BUILTIN_OUT_DIR,
       `${context.electronPlatformName}-${context.arch}`
     );
-    const manifest = await builtin({
+    const { manifest } = await builtin({
       target: installTarget,
       dir,
       include: include != null ? [include] : undefined,
