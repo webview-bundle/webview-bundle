@@ -51,7 +51,7 @@ tokio      = { workspace = true, features = ["full"] }
 [features]
 _reqwest = ["dep:reqwest"]
 _serde = ["dep:serde", "dep:serde_json", "dep:serde_repr"]
-async = ["dep:tokio", "tokio/io-util", "tokio/rt", "tokio/rt-multi-thread", "tokio/fs", "tokio/sync"]
+async = ["dep:tokio", "tokio/io-util", "tokio/rt", "tokio/rt-multi-thread", "tokio/fs", "tokio/sync", "tokio/time"]
 full = [
   "serde",
   "async",
