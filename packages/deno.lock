@@ -53,6 +53,7 @@
     "dependencies": [
       "jsr:@denosaurs/plug@1",
       "jsr:@std/assert@1",
+      "jsr:@std/encoding@1",
       "jsr:@std/path@1"
     ]
   }

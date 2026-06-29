@@ -24,7 +24,7 @@ setup:
     just build
 
 # Test all files
-test: test-rs test-js test-e2e test-ffi test-ffi-e2e
+test: test-rs test-js test-e2e test-ffi test-ffi-e2e test-deno
 
 # Test JS files
 test-js: build-napi build-js
@@ -45,6 +45,11 @@ test-ffi: build-ffi
 # Test FFI-E2E
 test-ffi-e2e:
     yarn workspace wvb-ffi run e2e-ffi
+
+# Test deno files
+[working-directory: 'packages']
+test-deno:
+    deno task test
 
 # Format all files
 format: format-rs format-js format-toml
@@ -72,9 +77,16 @@ lint-js:
 lint-rs:
     cargo clippy --workspace
 
-# Typechecking with TSC
-typecheck:
+typecheck: typecheck-js typecheck-deno
+
+# Typecheck
+typecheck-js:
     yarn workspaces foreach -Apt run typecheck
+
+# Typecheck deno files
+[working-directory: 'packages']
+typecheck-deno:
+    deno task check
 
 # Build as release mode
 build: build-rs build-napi build-js build-ffi

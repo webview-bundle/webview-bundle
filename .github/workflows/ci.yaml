@@ -111,6 +111,10 @@ jobs:
         with:
           targets: ${{ matrix.settings.target }}
           cache-key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - name: Setup Deno
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        with:
+          install_args: "deno"
       - name: Setup tauri for linux
         if: matrix.settings.host == 'ubuntu-latest'
         uses: ./.github/actions/tauri-linux-setup
@@ -138,6 +142,13 @@ jobs:
         shell: bash
       - name: Run test
         run: yarn vitest run --config vitest.workspace.ts
+        shell: bash
+      - name: Build wvb-deno cdylib (for deno FFI tests)
+        run: cargo build -p wvb-deno
+        shell: bash
+      - name: Run deno test
+        run: deno task test
+        working-directory: packages
         shell: bash
       - name: Install tauri-driver
         if: matrix.settings.host == 'ubuntu-latest'
@@ -204,6 +215,10 @@ jobs:
         uses: ./.github/actions/node-setup
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
+      - name: Setup Deno
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        with:
+          install_args: "deno"
       - run: yarn install --immutable
       - name: Run build
         run: yarn workspaces foreach -Apt --include='@wvb/*' run build
@@ -211,6 +226,9 @@ jobs:
         run: yarn biome check
       - name: Run typecheck
         run: yarn workspaces foreach -Apt run typecheck
+      - name: Run deno check
+        run: deno task check
+        working-directory: packages
   attw:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"

@@ -1,67 +1,56 @@
 // CLI: download the wvb-deno cdylib from GitHub Releases into your project so you can `--include` it
 // in a `deno desktop` / `deno compile` build.
 //
-//   deno run -A jsr:@wvb/deno/install [--out vendor/wvb] [--target <triple>] [--version <v>] [--url <base>]
+//   deno run -A jsr:@wvb/deno/install [--out vendor/wvb] [--target <triple>] [--version <v>] [--url <base>] [--no-integrity]
 //
 // The release asset is named `<prefix>wvb_deno-<target>.<ext>` (e.g. `libwvb_deno-aarch64-apple-darwin.dylib`)
 // and is saved locally under the plain platform name (`libwvb_deno.dylib`), since a single compiled
 // binary targets one platform. Then: `deno desktop --allow-ffi --include <out>/<file> main.ts`.
+//
+// Downloaded bytes are verified against the asset's `.sha256` sidecar before being written, unless
+// `--no-integrity` is passed. See `release.ts` for the asset/checksum scheme.
 
-const DEFAULT_RELEASE_BASE = 'https://github.com/webview-bundle/webview-bundle/releases/download';
+import {
+  localFileName,
+  type Os,
+  osOfTarget,
+  releaseAssetName,
+  releaseBaseUrl,
+  SUPPORTED_TARGETS,
+  VERSION,
+  verifyChecksum,
+} from './release.ts';
 
-type Os = typeof Deno.build.os;
-
-function osOfTarget(target: string): Os {
-  if (target.includes('darwin') || target.includes('apple')) {
-    return 'darwin';
-  }
-  if (target.includes('windows') || target.includes('msvc')) {
-    return 'windows';
-  }
-  return 'linux';
-}
-
-function ext(os: Os): string {
-  return os === 'windows' ? 'dll' : os === 'darwin' ? 'dylib' : 'so';
-}
-
-function prefix(os: Os): string {
-  return os === 'windows' ? '' : 'lib';
-}
-
-/** Plain platform filename to save locally (single-target build), e.g. `libwvb_deno.dylib`. */
-export function localFileName(target: string): string {
-  const os = osOfTarget(target);
-  return `${prefix(os)}wvb_deno.${ext(os)}`;
-}
-
-/** Release asset name for a target, e.g. `libwvb_deno-aarch64-apple-darwin.dylib`. */
-export function releaseAssetName(target: string): string {
-  const os = osOfTarget(target);
-  return `${prefix(os)}wvb_deno-${target}.${ext(os)}`;
-}
+export type { Os };
+export { localFileName, osOfTarget, releaseAssetName, releaseBaseUrl, SUPPORTED_TARGETS, VERSION };
 
 export interface InstallOptions {
   target?: string;
   out?: string;
   version?: string;
-  /** Release base URL; defaults to `<repo>/releases/download/deno@<version>`. */
+  /** Release base URL; defaults to `<repo>/releases/download/deno/<version>`. */
   url?: string;
+  /** Verify the download against its release `.sha256` sidecar. Defaults to `true` (fail closed). */
+  integrity?: boolean;
 }
 
 /** Download the cdylib for `target` into `out`, returning the saved file path. */
 export async function install(options: InstallOptions = {}): Promise<string> {
   const target = options.target ?? Deno.build.target;
   const out = options.out ?? 'vendor/wvb';
-  const version = options.version ?? '0.0.0';
-  const base = options.url ?? `${DEFAULT_RELEASE_BASE}/deno@${version}`;
-  const url = `${base}/${releaseAssetName(target)}`;
+  const version = options.version ?? VERSION;
+  const base = options.url ?? releaseBaseUrl(version);
+  const assetName = releaseAssetName(target);
+  const url = `${base.replace(/\/+$/, '')}/${assetName}`;
 
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`wvb: failed to download ${url} (${res.status} ${res.statusText})`);
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
+  if (options.integrity !== false) {
+    await verifyChecksum(bytes, base, assetName);
+  }
   await Deno.mkdir(out, { recursive: true });
   const dest = `${out}/${localFileName(target)}`;
   await Deno.writeFile(dest, bytes);
@@ -81,12 +70,16 @@ function flag(name: string): string | undefined {
 async function main(): Promise<void> {
   const target = flag('target') ?? Deno.build.target;
   const out = flag('out') ?? 'vendor/wvb';
-  console.log(`wvb: downloading cdylib for ${target}…`);
+  const integrity = !Deno.args.includes('--no-integrity');
+  console.log(
+    `wvb: downloading cdylib for ${target}${integrity ? '' : ' (integrity check disabled)'}…`
+  );
   const dest = await install({
     target,
     out,
     version: flag('version'),
     url: flag('url'),
+    integrity,
   });
   console.log(`wvb: saved ${dest}`);
   console.log(`Build with: deno desktop --allow-ffi --include ${dest} main.ts`);

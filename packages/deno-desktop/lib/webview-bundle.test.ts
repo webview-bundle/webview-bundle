@@ -3,15 +3,13 @@ import { fromFileUrl } from '@std/path';
 import { loadLib } from '@wvb/deno';
 import { bundleProtocol, webviewBundle } from './mod.ts';
 
-// Use the locally-built cdylib + the committed ffi builtin fixture (bundle "app" v1.0.0).
+// Use the locally-built cdylib + the committed builtin fixture (bundle "app" v1.0.0).
 const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';
 const prefix = Deno.build.os === 'windows' ? '' : 'lib';
 const DYLIB = fromFileUrl(
   new URL(`../../../target/debug/${prefix}wvb_deno.${ext}`, import.meta.url)
 );
-const BUILTIN_DIR = fromFileUrl(
-  new URL('../../ffi/apple/ios/assets/bundles/builtin', import.meta.url)
-);
+const BUILTIN_DIR = fromFileUrl(new URL('../fixtures/builtin', import.meta.url));
 
 // Load the native library once at module top level — not inside a test — so Deno's per-test
 // resource-leak sanitizer doesn't flag the intentionally process-lifetime FFI handle.

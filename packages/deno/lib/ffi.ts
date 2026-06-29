@@ -1,9 +1,69 @@
 // Low-level Deno FFI loader for the `wvb-deno` cdylib. Internal to the package.
 import { fromFileUrl } from '@std/path';
+import {
+  fetchExpectedChecksum,
+  releaseAssetName,
+  releaseAssetSuffixes,
+  releaseBaseUrl,
+  sha256Hex,
+  VERSION,
+} from './release.ts';
 
 const SYMBOLS = {
   wvb_source_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
   wvb_source_free: { parameters: ['pointer'], result: 'void' },
+  // BundleSource data API (→ WvbResult). Disk/manifest ops run on the tokio runtime → nonblocking.
+  wvb_source_list_bundles: { parameters: ['pointer'], result: 'pointer', nonblocking: true },
+  wvb_source_load_version: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_update_version: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_resolve_filepath: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  // Filepath getters + unload are synchronous in core.
+  wvb_source_get_builtin_filepath: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+  },
+  wvb_source_get_remote_filepath: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+  },
+  wvb_source_load_builtin_metadata: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_load_remote_metadata: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_unload_descriptor: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_source_remove_remote_bundle: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_remote_retained_versions: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_prune_remote_bundles: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
   wvb_bundle_protocol_new: { parameters: ['pointer'], result: 'pointer' },
   wvb_local_protocol_new: { parameters: ['buffer'], result: 'pointer' },
   wvb_protocol_free: { parameters: ['pointer'], result: 'void' },
@@ -99,22 +159,58 @@ export function loadLib(libPath: string | URL): WvbLib {
   return lib;
 }
 
+export interface LoadLibViaPlugOptions {
+  /** Release base URL (a directory). Defaults to `<repo>/releases/download/deno/<version>/`. */
+  url?: string;
+  /** Release version, used to build the default `url`. Defaults to this package's version. */
+  version?: string;
+  /** Verify the download against its release `.sha256` sidecar. Defaults to `true` (fail closed). */
+  integrity?: boolean;
+}
+
 /**
- * Download the platform cdylib from a release `url` via `@denosaurs/plug`, cache it, and load it.
- * For `deno run` / library use where the dylib isn't bundled. NOT for self-contained `deno desktop`
- * builds — there, vendor + `--include` the dylib and use {@link loadLib}.
+ * Download the platform cdylib from a release via `@denosaurs/plug`, verify it, cache it, and load
+ * it. For `deno run` / library use where the dylib isn't bundled. NOT for self-contained
+ * `deno desktop` builds — there, vendor + `--include` the dylib and use {@link loadLib}.
+ *
+ * Requires `--allow-net --allow-read --allow-write --allow-env --allow-ffi`.
  */
-export async function loadLibViaPlug(options: { url: string }): Promise<WvbLib> {
+export async function loadLibViaPlug(options: LoadLibViaPlugOptions = {}): Promise<WvbLib> {
   if (lib != null) {
     return lib;
   }
   // Single-flight: concurrent callers share one in-flight load so the dylib is opened exactly once.
-  loadingPromise ??= (async () => {
-    const { dlopen } = await import('@denosaurs/plug');
-    lib = (await dlopen({ name: 'wvb_deno', url: options.url }, SYMBOLS)) as WvbLib;
-    return lib;
-  })();
+  // On failure, reset the slot so a later call can retry instead of replaying the cached rejection.
+  loadingPromise ??= loadViaPlug(options).catch(e => {
+    loadingPromise = null;
+    throw e;
+  });
   return loadingPromise;
+}
+
+async function loadViaPlug(options: LoadLibViaPlugOptions): Promise<WvbLib> {
+  const target = Deno.build.target;
+  // plug treats `url` as a directory; normalize to exactly one trailing slash.
+  const base = `${(options.url ?? `${releaseBaseUrl(options.version ?? VERSION)}/`).replace(/\/+$/, '')}/`;
+  const { download } = await import('@denosaurs/plug');
+  // Use `download` (not `dlopen`) so we get the cached file path and can verify the bytes before
+  // `Deno.dlopen` — plug itself performs no integrity check. `name` + `suffixes` resolve our
+  // `<prefix>wvb_deno-<target>.<ext>` asset and cache it with the correct platform extension.
+  const path = await download({ name: 'wvb_deno', url: base, suffixes: releaseAssetSuffixes() });
+  if (options.integrity !== false) {
+    // Fetch the expected hash first; a failure here (e.g. offline) must NOT evict a valid cached
+    // dylib — only a genuine content mismatch (tampering/corruption) does.
+    const expected = await fetchExpectedChecksum(base, releaseAssetName(target));
+    const actual = await sha256Hex(await Deno.readFile(path));
+    if (actual !== expected) {
+      await Deno.remove(path).catch(() => {});
+      throw new Error(
+        `wvb: checksum mismatch for ${releaseAssetName(target)}\n  expected ${expected}\n  actual   ${actual}`
+      );
+    }
+  }
+  lib = Deno.dlopen(path, SYMBOLS) as WvbLib;
+  return lib;
 }
 
 let loadingPromise: Promise<WvbLib> | null = null;

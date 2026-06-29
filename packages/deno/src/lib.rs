@@ -1,3 +1,4 @@
+use base64ct::{Base64, Encoding};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::{Arc, OnceLock};
@@ -6,7 +7,11 @@ use wvb::http;
 use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{BundleProtocol, LocalProtocol, Protocol};
 use wvb::remote::{HttpConfig, Remote as CoreRemote};
-use wvb::source::BundleSource;
+use wvb::signature::{
+  EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
+  RsaPssVerifier, SignatureVerifier,
+};
+use wvb::source::{self, BundleSource};
 use wvb::updater::{Updater as CoreUpdater, UpdaterConfig};
 
 fn runtime() -> &'static Runtime {
@@ -309,6 +314,37 @@ fn update_info_json(info: &wvb::updater::BundleUpdateInfo) -> serde_json::Value 
   })
 }
 
+fn source_kind_str(kind: &source::BundleSourceKind) -> &'static str {
+  match kind {
+    source::BundleSourceKind::Builtin => "builtin",
+    source::BundleSourceKind::Remote => "remote",
+  }
+}
+
+fn manifest_metadata_json(m: &source::BundleManifestMetadata) -> serde_json::Value {
+  serde_json::json!({
+    "etag": m.etag,
+    "integrity": m.integrity,
+    "signature": m.signature,
+    "lastModified": m.last_modified,
+  })
+}
+
+fn source_version_json(v: &source::BundleSourceVersion) -> serde_json::Value {
+  serde_json::json!({ "type": source_kind_str(&v.kind), "version": v.version })
+}
+
+// Flat shape, matching `@wvb/node`'s `ListBundleItem` (the established host contract).
+fn list_bundle_item_json(it: &source::ListBundleItem) -> serde_json::Value {
+  serde_json::json!({
+    "type": source_kind_str(&it.kind),
+    "name": it.item.name,
+    "version": it.item.version,
+    "current": it.item.current,
+    "metadata": manifest_metadata_json(&it.item.metadata),
+  })
+}
+
 /// Parse a JSON object of HTTP client options (camelCase, mirroring `@wvb/node`'s `HttpOptions`,
 /// minus `defaultHeaders` for now) into an `HttpConfig`.
 fn parse_http_config(raw: &str) -> Option<HttpConfig> {
@@ -463,8 +499,81 @@ pub unsafe extern "C" fn wvb_remote_download_version(
   }
 }
 
+/// Build a core `SignatureVerifier` from a `signatureVerifier` JSON object
+/// (`{ algorithm, key: { format, data } }`, mirroring `@wvb/node`'s `SignatureVerifierOptions`). For
+/// the PEM key formats `data` is the PEM text; for the binary formats (`spkiDer`/`pkcs1Der`/`sec1`/
+/// `raw`) it is standard base64. Returns `None` on any parse, base64-decode, unsupported
+/// algorithm/format combination, or key-construction failure, so the caller can fail closed.
+fn build_signature_verifier(sv: &serde_json::Value) -> Option<SignatureVerifier> {
+  let algorithm = sv.get("algorithm")?.as_str()?;
+  let key = sv.get("key")?;
+  let format = key.get("format")?.as_str()?;
+  let data = key.get("data")?.as_str()?;
+  // Base64-decoded key bytes, for the binary key formats.
+  let bytes = || Base64::decode_vec(data).ok();
+  let verifier = match (algorithm, format) {
+    ("ecdsaSecp256R1", "sec1") => SignatureVerifier::EcdsaSecp256r1(Arc::new(
+      EcdsaSecp256r1Verifier::from_sec1_bytes(&bytes()?).ok()?,
+    )),
+    ("ecdsaSecp256R1", "spkiDer") => SignatureVerifier::EcdsaSecp256r1(Arc::new(
+      EcdsaSecp256r1Verifier::from_public_key_der(&bytes()?).ok()?,
+    )),
+    ("ecdsaSecp256R1", "spkiPem") => SignatureVerifier::EcdsaSecp256r1(Arc::new(
+      EcdsaSecp256r1Verifier::from_public_key_pem(data).ok()?,
+    )),
+    ("ecdsaSecp384R1", "sec1") => SignatureVerifier::EcdsaSecp384r1(Arc::new(
+      EcdsaSecp384r1Verifier::from_sec1_bytes(&bytes()?).ok()?,
+    )),
+    ("ecdsaSecp384R1", "spkiDer") => SignatureVerifier::EcdsaSecp384r1(Arc::new(
+      EcdsaSecp384r1Verifier::from_public_key_der(&bytes()?).ok()?,
+    )),
+    ("ecdsaSecp384R1", "spkiPem") => SignatureVerifier::EcdsaSecp384r1(Arc::new(
+      EcdsaSecp384r1Verifier::from_public_key_pem(data).ok()?,
+    )),
+    ("ed25519", "spkiDer") => SignatureVerifier::Ed25519(Arc::new(
+      Ed25519Verifier::from_public_key_der(&bytes()?).ok()?,
+    )),
+    ("ed25519", "spkiPem") => {
+      SignatureVerifier::Ed25519(Arc::new(Ed25519Verifier::from_public_key_pem(data).ok()?))
+    }
+    ("ed25519", "raw") => {
+      let raw = bytes()?;
+      let arr: [u8; 32] = raw.get(..32)?.try_into().ok()?;
+      SignatureVerifier::Ed25519(Arc::new(Ed25519Verifier::from_public_key_bytes(&arr).ok()?))
+    }
+    ("rsaPkcs1V15", "pkcs1Der") => SignatureVerifier::RsaPkcs1V15(Arc::new(
+      RsaPkcs1V15Verifier::from_pkcs1_der(&bytes()?).ok()?,
+    )),
+    ("rsaPkcs1V15", "pkcs1Pem") => {
+      SignatureVerifier::RsaPkcs1V15(Arc::new(RsaPkcs1V15Verifier::from_pkcs1_pem(data).ok()?))
+    }
+    ("rsaPkcs1V15", "spkiDer") => SignatureVerifier::RsaPkcs1V15(Arc::new(
+      RsaPkcs1V15Verifier::from_public_key_der(&bytes()?).ok()?,
+    )),
+    ("rsaPkcs1V15", "spkiPem") => SignatureVerifier::RsaPkcs1V15(Arc::new(
+      RsaPkcs1V15Verifier::from_public_key_pem(data).ok()?,
+    )),
+    ("rsaPss", "pkcs1Der") => {
+      SignatureVerifier::RsaPss(Arc::new(RsaPssVerifier::from_pkcs1_der(&bytes()?).ok()?))
+    }
+    ("rsaPss", "pkcs1Pem") => {
+      SignatureVerifier::RsaPss(Arc::new(RsaPssVerifier::from_pkcs1_pem(data).ok()?))
+    }
+    ("rsaPss", "spkiDer") => SignatureVerifier::RsaPss(Arc::new(
+      RsaPssVerifier::from_public_key_der(&bytes()?).ok()?,
+    )),
+    ("rsaPss", "spkiPem") => {
+      SignatureVerifier::RsaPss(Arc::new(RsaPssVerifier::from_public_key_pem(data).ok()?))
+    }
+    _ => return None,
+  };
+  Some(verifier)
+}
+
 /// Create an updater over `source` + `remote`. `options_json` is null/empty or a JSON object with
-/// `channel` (string) and/or `integrityPolicy` ("strict" | "optional" | "none").
+/// `channel` (string), `integrityPolicy` ("strict" | "optional" | "none"), and/or `signatureVerifier`
+/// (`{ algorithm, key: { format, data } }`). A malformed options object, or a `signatureVerifier`
+/// that can't be built, returns null (fail closed) rather than an unverified updater.
 ///
 /// # Safety
 /// `source`/`remote` must be valid handles; `options_json` null or a valid C string.
@@ -482,26 +591,34 @@ pub unsafe extern "C" fn wvb_updater_new(
   let config = if raw.is_empty() {
     None
   } else {
-    serde_json::from_str::<serde_json::Value>(&raw)
-      .ok()
-      .map(|value| {
-        let mut config = UpdaterConfig::default();
-        if let Some(channel) = value.get("channel").and_then(|x| x.as_str()) {
-          config = config.channel(channel.to_string());
-        }
-        if let Some(policy) = value.get("integrityPolicy").and_then(|x| x.as_str()) {
-          let policy = match policy {
-            "strict" => IntegrityPolicy::Strict,
-            "optional" => IntegrityPolicy::Optional,
-            "none" => IntegrityPolicy::None,
-            // Unknown value (e.g. a typo) → fail closed with strict verification rather than
-            // silently weakening integrity checks.
-            _ => IntegrityPolicy::Strict,
-          };
-          config = config.integrity_policy(policy);
-        }
-        config
-      })
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+      return std::ptr::null_mut();
+    };
+    let mut config = UpdaterConfig::default();
+    if let Some(channel) = value.get("channel").and_then(|x| x.as_str()) {
+      config = config.channel(channel.to_string());
+    }
+    if let Some(policy) = value.get("integrityPolicy").and_then(|x| x.as_str()) {
+      let policy = match policy {
+        "strict" => IntegrityPolicy::Strict,
+        "optional" => IntegrityPolicy::Optional,
+        "none" => IntegrityPolicy::None,
+        // Unknown value (e.g. a typo) → fail closed with strict verification rather than
+        // silently weakening integrity checks.
+        _ => IntegrityPolicy::Strict,
+      };
+      config = config.integrity_policy(policy);
+    }
+    // A present-but-unbuildable signatureVerifier fails closed (null updater) rather than silently
+    // serving updates unverified.
+    match value.get("signatureVerifier") {
+      None | Some(serde_json::Value::Null) => {}
+      Some(sv) => match build_signature_verifier(sv) {
+        Some(verifier) => config = config.signature_verifier(verifier),
+        None => return std::ptr::null_mut(),
+      },
+    }
+    Some(config)
   };
   let updater = CoreUpdater::new(source.inner.clone(), remote.inner.clone(), config);
   Box::into_raw(Box::new(WvbUpdater { inner: updater }))
@@ -584,6 +701,241 @@ pub unsafe extern "C" fn wvb_updater_install(
   let version = unsafe { cstr(version) };
   match runtime().block_on(updater.inner.install(name, version)) {
     Ok(()) => ok_result(serde_json::Value::Null, Vec::new()),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// BundleSource data API
+//
+// These mirror `@wvb/node`'s `BundleSource` methods so `@wvb/deno-desktop` can serve the
+// `@wvb/bridge` `source.*` commands. Each returns a `WvbResult` (JSON payload on success). The async
+// methods run on the internal tokio runtime and should be invoked from `nonblocking` Deno symbols.
+// ---------------------------------------------------------------------------
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_list_bundles(handle: *const WvbSource) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  match runtime().block_on(async move { source.list_bundles().await }) {
+    Ok(items) => ok_result(
+      serde_json::Value::Array(items.iter().map(list_bundle_item_json).collect()),
+      Vec::new(),
+    ),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name` a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_load_version(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  match runtime().block_on(async move { source.load_version(&name).await }) {
+    Ok(Some(v)) => ok_result(source_version_json(&v), Vec::new()),
+    Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name`/`version` valid C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_update_version(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+  version: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  let version = unsafe { cstr(version) };
+  match runtime().block_on(async move { source.update_remote_version(&name, &version).await }) {
+    Ok(()) => ok_result(serde_json::Value::Null, Vec::new()),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name` a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_resolve_filepath(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  match runtime().block_on(async move { source.resolve_filepath(&name).await }) {
+    Ok(path) => ok_result(
+      serde_json::Value::String(path.to_string_lossy().into_owned()),
+      Vec::new(),
+    ),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name`/`version` valid C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_get_builtin_filepath(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+  version: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  let version = unsafe { cstr(version) };
+  match source.inner.get_builtin_bundle_filepath(&name, &version) {
+    Ok(path) => ok_result(
+      serde_json::Value::String(path.to_string_lossy().into_owned()),
+      Vec::new(),
+    ),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name`/`version` valid C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_get_remote_filepath(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+  version: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  let version = unsafe { cstr(version) };
+  match source.inner.get_remote_bundle_filepath(&name, &version) {
+    Ok(path) => ok_result(
+      serde_json::Value::String(path.to_string_lossy().into_owned()),
+      Vec::new(),
+    ),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name`/`version` valid C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_load_builtin_metadata(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+  version: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  let version = unsafe { cstr(version) };
+  match runtime().block_on(async move { source.load_builtin_metadata(&name, &version).await }) {
+    Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
+    Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name`/`version` valid C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_load_remote_metadata(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+  version: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  let version = unsafe { cstr(version) };
+  match runtime().block_on(async move { source.load_remote_metadata(&name, &version).await }) {
+    Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
+    Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name` a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_unload_descriptor(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  ok_result(
+    serde_json::Value::Bool(source.inner.unload_descriptor(&name)),
+    Vec::new(),
+  )
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name`/`version` valid C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_remove_remote_bundle(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+  version: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  let version = unsafe { cstr(version) };
+  match runtime().block_on(async move { source.remove_remote_bundle(&name, &version).await }) {
+    Ok(removed) => ok_result(serde_json::Value::Bool(removed), Vec::new()),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name` a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_remote_retained_versions(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  match runtime().block_on(async move { source.remote_retained_versions(&name).await }) {
+    Ok(versions) => ok_result(serde_json::json!(versions), Vec::new()),
+    Err(e) => err_result(e.to_string()),
+  }
+}
+
+/// # Safety
+/// `handle` must be a valid `WvbSource`; `bundle_name` a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_prune_remote_bundles(
+  handle: *const WvbSource,
+  bundle_name: *const c_char,
+) -> *mut WvbResult {
+  let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
+    return err_result("source handle is null".to_string());
+  };
+  let name = unsafe { cstr(bundle_name) };
+  match runtime().block_on(async move { source.prune_remote_bundles(&name).await }) {
+    Ok(removed) => ok_result(serde_json::json!(removed), Vec::new()),
     Err(e) => err_result(e.to_string()),
   }
 }

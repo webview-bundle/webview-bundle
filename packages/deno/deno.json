@@ -1,12 +1,17 @@
 {
   "name": "@wvb/deno",
   "version": "0.0.0",
+  "license": "MIT",
   "exports": {
     ".": "./lib/mod.ts",
     "./install": "./lib/install.ts"
   },
   "tasks": {
-    "check": "deno check lib/**/*.ts",
-    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write"
+    "check": "deno check lib/**/*.ts scripts/**/*.ts",
+    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write",
+    "build": "deno run --allow-read --allow-write --allow-run --allow-env scripts/build.ts"
+  },
+  "publish": {
+    "exclude": ["fixtures", "scripts", "**/*.test.ts"]
   }
 }

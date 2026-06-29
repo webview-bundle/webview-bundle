@@ -8,9 +8,7 @@ const prefix = Deno.build.os === 'windows' ? '' : 'lib';
 const DYLIB = fromFileUrl(
   new URL(`../../../target/debug/${prefix}wvb_deno.${ext}`, import.meta.url)
 );
-const BUILTIN_DIR = fromFileUrl(
-  new URL('../../ffi/apple/ios/assets/bundles/builtin', import.meta.url)
-);
+const BUILTIN_DIR = fromFileUrl(new URL('../fixtures/builtin', import.meta.url));
 
 loadLib(DYLIB);
 
