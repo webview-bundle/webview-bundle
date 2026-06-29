@@ -171,7 +171,11 @@ impl BundleBuilder {
   pub(crate) fn build_index(&self) -> Index {
     let mut index = Index::new_with_capacity(self.entries().len());
     let mut offset = 0;
-    for (path, entry) in self.entries() {
+
+    let mut entries: Vec<(&String, &BundleEntry)> = self.entries().iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (path, entry) in entries {
       let len = entry.len() as u64;
       let mut index_entry =
         IndexEntry::new(offset, len, entry.content_type(), entry.content_length);
@@ -187,7 +191,11 @@ impl BundleBuilder {
 
   pub(crate) fn build_data(&self) -> Vec<u8> {
     let mut data = vec![];
-    for entry in self.entries().values() {
+
+    let mut entries: Vec<(&String, &BundleEntry)> = self.entries().iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (_path, entry) in entries {
       let checksum = make_checksum(self.options.data_checksum_seed, entry.data());
       data.extend_from_slice(entry.data());
       data.extend_from_slice(&checksum.to_be_bytes());

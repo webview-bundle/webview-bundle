@@ -1,15 +1,11 @@
 //! Bundle integrity verification using cryptographic hashes.
 //!
-//! The integrity module provides SHA3-based hash verification to ensure bundles
-//! haven't been tampered with during download or storage.
-//!
 //! ## Integrity Format
 //!
-//! Integrity hashes follow the [Subresource Integrity](https://w3c.github.io/webappsec-subresource-integrity/)
-//! format:
+//! Integrity hashes are formatted as `<algorithm>:<base64-hash>`.
 //!
 //! ```text
-//! sha3-384-base64hash...
+//! sha256:base64hash...
 //! ```
 //!
 //! ## Example
