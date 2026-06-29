@@ -2,7 +2,7 @@ import { defineConfig, type ViteUserConfig } from 'vitest/config';
 
 const config: ViteUserConfig = defineConfig({
   test: {
-    name: '@wvb/ffi/e2e',
+    name: 'wvb-ffi/e2e',
     include: ['**/*.spec.ts'],
     fileParallelism: false,
     pool: 'forks',

@@ -15,7 +15,7 @@ export async function makeIntegrity(maker: IntegrityMaker, data: Buffer): Promis
   const alg = maker?.algorithm ?? 'sha256';
   const hash = await crypto.subtle.digest({ name: hashAlg(alg) }, new Uint8Array(data));
   const hashBuf = Buffer.from(hash);
-  return `${alg}:${hashBuf.toString('hex')}`;
+  return `${alg}:${hashBuf.toString('base64')}`;
 }
 
 function hashAlg(rasHash: IntegrityAlgorithm): string {

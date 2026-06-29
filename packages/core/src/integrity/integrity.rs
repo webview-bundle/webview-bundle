@@ -1,5 +1,5 @@
 use base64ct::{Base64, Encoding};
-use sha3::{Digest, Sha3_256, Sha3_384, Sha3_512};
+use sha2::{Digest, Sha256, Sha384, Sha512};
 use std::str::FromStr;
 
 #[derive(Default, Debug, Eq, PartialEq, Clone, Copy)]
@@ -13,9 +13,9 @@ pub enum IntegrityAlgorithm {
 impl IntegrityAlgorithm {
   pub fn digest(&self, data: &[u8]) -> Vec<u8> {
     match self {
-      Self::Sha256 => Sha3_256::digest(data).to_vec(),
-      Self::Sha384 => Sha3_384::digest(data).to_vec(),
-      Self::Sha512 => Sha3_512::digest(data).to_vec(),
+      Self::Sha256 => Sha256::digest(data).to_vec(),
+      Self::Sha384 => Sha384::digest(data).to_vec(),
+      Self::Sha512 => Sha512::digest(data).to_vec(),
     }
   }
 }
@@ -96,12 +96,12 @@ mod tests {
   #[test]
   fn integrity_serialize() {
     let str = Integrity::compute(IntegrityAlgorithm::Sha256, b"test").serialize();
-    assert_eq!(str, "sha256:NvAoWAuwLMgnKpoCD0IA40bidq5mTkXugHRVdOL1q4A=");
+    assert_eq!(str, "sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=");
   }
 
   #[test]
   fn integrity_from_str() {
-    let str = "sha256:NvAoWAuwLMgnKpoCD0IA40bidq5mTkXugHRVdOL1q4A=";
+    let str = "sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=";
     let integrity = Integrity::from_str(str).unwrap();
     assert_eq!(integrity.alg, IntegrityAlgorithm::Sha256);
     assert_eq!(integrity.value, IntegrityAlgorithm::Sha256.digest(b"test"));

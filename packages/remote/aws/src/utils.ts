@@ -64,8 +64,14 @@ export async function getKmsClient<T extends AwsKmsClientConfigLike = AwsKmsClie
   return new KMSClientImpl({ ...config.kmsClientConfig });
 }
 
-export function isNoSuchKeyError(e: unknown): boolean {
-  return e != null && typeof e === 'object' && (e as Error).name === 'NoSuchKey';
+export function isNotFoundError(e: unknown): boolean {
+  if (e == null || typeof e !== 'object') {
+    return false;
+  }
+  const err = e as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return (
+    err.name === 'NotFound' || err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404
+  );
 }
 
 export function filterS3Metadata(

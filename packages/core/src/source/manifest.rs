@@ -185,12 +185,28 @@ where
         if !tokio::fs::try_exists(&self.filepath).await? {
           return Ok::<RwLock<BundleManifestData>, crate::Error>(Default::default());
         }
-        let raw = tokio::fs::read(&self.filepath).await?;
+        let raw = read_with_win_retry(&self.filepath).await?;
         let data: BundleManifestData = serde_json::from_slice(&raw)?;
         Ok::<RwLock<BundleManifestData>, crate::Error>(RwLock::new(data))
       })
       .await?;
     Ok(data)
+  }
+}
+
+// Windows briefly returns ACCESS_DENIED (5) / SHARING_VIOLATION (32) when reading a file a concurrent save is renaming into place; retry those.
+async fn read_with_win_retry(path: &Path) -> std::io::Result<Vec<u8>> {
+  let mut attempts = 0;
+  loop {
+    match tokio::fs::read(path).await {
+      Err(e)
+        if attempts < 20 && cfg!(windows) && matches!(e.raw_os_error(), Some(5) | Some(32)) =>
+      {
+        attempts += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+      }
+      result => return result,
+    }
   }
 }
 

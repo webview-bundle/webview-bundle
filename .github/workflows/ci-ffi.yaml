@@ -57,9 +57,9 @@ jobs:
           rustup target add x86_64-linux-android
           cargo install cargo-ndk
       - name: Build ffi android
-        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-android --target x86_64-linux-android
+        run: yarn workspace wvb-ffi run build-ffi-android --target x86_64-linux-android
       - name: Test ffi android
-        run: yarn workspaces foreach -At --include='@wvb/*' run test-ffi-android
+        run: yarn workspace wvb-ffi run test-ffi-android
       - name: Cache Appium drivers
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
@@ -81,7 +81,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
-          script: yarn workspace @wvb/ffi run e2e-ffi-android
+          script: yarn workspace wvb-ffi run e2e-ffi-android
   ffi-test-apple:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.ffi == 'true'
@@ -105,9 +105,9 @@ jobs:
         with:
           install_args: "tuist"
       - name: Build ffi apple
-        run: yarn workspaces foreach -At --include='@wvb/*' run build-ffi-apple
+        run: yarn workspace wvb-ffi run build-ffi-apple
       - name: Test ffi apple
-        run: yarn workspaces foreach -At --include='@wvb/*' run test-ffi-apple
+        run: yarn workspace wvb-ffi run test-ffi-apple
       - name: Cache Appium drivers
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
@@ -115,4 +115,4 @@ jobs:
           key: ${{ runner.os }}-appium-apple-${{ hashFiles('packages/ffi/package.json') }}
           restore-keys: ${{ runner.os }}-appium-apple-
       - name: Run e2e test
-        run: yarn workspace @wvb/ffi run e2e-ffi-apple
+        run: yarn workspace wvb-ffi run e2e-ffi-apple

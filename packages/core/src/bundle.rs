@@ -528,6 +528,49 @@ mod tests {
     assert!(bundle.get_data("/not_found.html").unwrap().is_none());
   }
 
+  #[test]
+  fn serialization_is_deterministic_regardless_of_insert_order() {
+    fn serialize(pairs: &[(&str, &str)]) -> Vec<u8> {
+      let mut builder = Bundle::builder();
+      for (path, body) in pairs {
+        builder.insert_entry(*path, BundleEntry::new(body.as_bytes(), "text/plain", None));
+      }
+      let bundle = builder.build().unwrap();
+      let mut data = vec![];
+      BundleWriter::new(Cursor::new(&mut data))
+        .write(&bundle)
+        .unwrap();
+      data
+    }
+    let forward = serialize(&[
+      ("/a.txt", "aaa"),
+      ("/b.txt", "bbb"),
+      ("/c.txt", "ccc"),
+      ("/d.txt", "ddd"),
+    ]);
+    let reverse = serialize(&[
+      ("/d.txt", "ddd"),
+      ("/c.txt", "ccc"),
+      ("/b.txt", "bbb"),
+      ("/a.txt", "aaa"),
+    ]);
+    assert_eq!(
+      forward, reverse,
+      "bundle bytes must be identical regardless of insertion order"
+    );
+
+    let mut reader = BundleReader::new(Cursor::new(&forward));
+    let parsed: Bundle = reader.read().unwrap();
+    let mut reserialized = vec![];
+    BundleWriter::new(Cursor::new(&mut reserialized))
+      .write(&parsed)
+      .unwrap();
+    assert_eq!(
+      forward, reserialized,
+      "re-serializing a parsed bundle must reproduce identical bytes"
+    );
+  }
+
   #[cfg(feature = "async")]
   #[tokio::test]
   async fn async_get_data() {

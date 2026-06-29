@@ -62,7 +62,7 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
     throw new ApiError(message);
   }
   logger?.info(
-    `Will upload Remote Webview Bundle: ${c.bold(c.info(bundleName))} (Version: ${c.info(version)}`
+    `Will upload Remote Webview Bundle: ${c.bold(c.info(bundleName))} (Version: ${c.info(version)})`
   );
 
   const buf = writeBundleIntoBuffer(bundle);

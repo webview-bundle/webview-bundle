@@ -10,9 +10,21 @@
     "@arethetypeswrong/cli": "0.18.2",
     "@biomejs/biome": "2.4.15",
     "@taplo/cli": "0.7.0",
+    "@yarnpkg/types": "^4.0.1",
     "lefthook": "1.13.6",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "packageManager": "yarn@4.15.0"
+  "resolutions": {
+    "fast-xml-parser": "^5.7.0",
+    "picomatch@npm:^4.0.3": "4.0.4",
+    "picomatch@npm:^2.3.1": "2.3.2",
+    "minimatch@npm:^10.0.3": "^10.2.5",
+    "minimatch@npm:^10.1.1": "^10.2.5",
+    "minimatch@npm:^10.1.2": "^10.2.5",
+    "undici@npm:^7.19.0": "^7.28.0",
+    "undici@npm:^7.24.4": "^7.28.0",
+    "form-data": "^4.0.6"
+  },
+  "packageManager": "yarn@4.17.0"
 }

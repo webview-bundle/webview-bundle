@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { CallbackBag } from './callback.js';
-import { unknownPlatform } from './error.js';
+import { BridgeError, unknownPlatform } from './error.js';
 import { INVOKE_MOCK_KEY, type InvokeMockFn } from './invoke-mock.js';
 import { type AndroidWindow, type ElectronWindow, type IosWindow, platform } from './platform.js';
 import { snakeCase } from './utils.js';
@@ -10,7 +10,21 @@ export interface InvokeParams {
   [key: string | number]: any;
 }
 
-export function invoke<T = unknown>(name: string, params?: InvokeParams): Promise<T> {
+/**
+ * Invokes a native bridge command and resolves its result.
+ * Before using the bridge, make sure native supports webview-bundle.
+ *
+ * Throws a {@link BridgeError} on failure.
+ */
+export async function invoke<T = unknown>(name: string, params?: InvokeParams): Promise<T> {
+  try {
+    return await invokeInner<T>(name, params);
+  } catch (error) {
+    throw BridgeError.from(error);
+  }
+}
+
+function invokeInner<T>(name: string, params?: InvokeParams): Promise<T> {
   const mock = getWindow<Record<string, InvokeMockFn | undefined>>()[INVOKE_MOCK_KEY];
   if (mock != null) {
     return mock(name, params) as Promise<T>;

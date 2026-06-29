@@ -10,7 +10,7 @@ import {
   type AwsS3ClientConfigLike,
   getCloudFrontClient,
   getS3Client,
-  isNoSuchKeyError,
+  isNotFoundError,
 } from './utils.js';
 
 export interface AwsRemoteDeployerConfig
@@ -90,7 +90,7 @@ class AwsRemoteDeployerImpl implements BaseRemoteDeployer {
       }
       return JSON.parse(raw);
     } catch (e) {
-      if (isNoSuchKeyError(e)) {
+      if (isNotFoundError(e)) {
         return null;
       }
       throw e;

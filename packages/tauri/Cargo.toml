@@ -10,11 +10,24 @@ rust-version = "1.85.0"
 version      = "0.1.0"
 
 [dependencies]
-serde     = { workspace = true }
-tauri     = { workspace = true, features = ["unstable"] }
+serde = { workspace = true }
+tauri = { workspace = true, features = ["unstable"] }
 thiserror = { workspace = true }
-tracing   = { workspace = true }
-wvb       = { workspace = true, features = ["source", "protocol", "protocol-local", "remote", "updater"] }
+tracing = { workspace = true }
+wvb = { workspace = true, features = [
+  "source",
+  "protocol",
+  "protocol-local",
+  "remote",
+  "updater",
+  "integrity",
+  "signature",
+  "signature-ecdsa_secp256r1",
+  "signature-ecdsa_secp384r1",
+  "signature-edd25519",
+  "signature-rsa_pkcs1_v1_5",
+  "signature-rsa_pss",
+] }
 
 [build-dependencies]
 tauri-plugin = { workspace = true, features = ["build"] }
@@ -24,6 +37,10 @@ tauri-plugin = { workspace = true, features = ["build"] }
 [target.'cfg(target_os = "android")'.dependencies]
 serde_json      = { workspace = true }
 tauri-plugin-fs = "2"
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+tokio = { workspace = true, features = ["full"] }
 
 # Resolver-only pins (never compiled): tauri pulls brotli 8.0.3, which caps alloc-no-stdlib at 2.x.
 # But two of brotli's deps shipped releases that jumped to the incompatible alloc-no-stdlib 3.0.0

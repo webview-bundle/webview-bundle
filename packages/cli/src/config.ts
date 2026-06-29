@@ -6,6 +6,7 @@ import type {
   BundleInfoResolverParams,
   BundleNameResolver,
   Config,
+  ConfigInput,
   PackageJson,
   VersionResolver,
 } from '@wvb/config';
@@ -72,7 +73,7 @@ export async function loadConfigFile(
     await fs.writeFile(tmpFilePath, bundle.code);
     try {
       const imported = await import(pathToFileURL(tmpFilePath).href);
-      const config = imported.default;
+      const config = await normalizeConfigInput(imported.default);
       return {
         config,
         configFile: resolvedFilePath,
@@ -98,12 +99,17 @@ export async function loadConfigFile(
   const raw = _require(resolvedFilePath);
   _require.extensions[loaderExt] = defaultLoader;
 
-  const config = (raw.__esModule as boolean) ? raw.default : raw;
+  const config = await normalizeConfigInput((raw.__esModule as boolean) ? raw.default : raw);
   return {
     config,
     configFile: resolvedFilePath,
     configFileDependencies: bundle.dependencies,
   };
+}
+
+async function normalizeConfigInput(input: ConfigInput | undefined): Promise<Config> {
+  const value = typeof input === 'function' ? input() : input;
+  return (await value) ?? {};
 }
 
 async function bundleConfigFile(
@@ -153,7 +159,7 @@ async function bundleConfigFile(
     format: isEsm ? 'esm' : 'cjs',
     sourcemap: 'inline',
     keepNames: true,
-    inlineDynamicImports: true,
+    codeSplitting: false,
   });
   if (bundleOutput.output[0] == null || bundleOutput.output[0].type !== 'chunk') {
     throw new Error('no output chunk found');

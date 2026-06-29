@@ -203,7 +203,7 @@ impl MockBundleCollection {
 
   pub fn remove_all(&mut self, name: impl Into<String>) -> &mut Self {
     let name = name.into();
-    self.bundles.retain(|x| x.name() != &name);
+    self.bundles.retain(|x| x.name() != name);
     self
   }
 

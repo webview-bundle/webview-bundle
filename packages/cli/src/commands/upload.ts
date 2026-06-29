@@ -32,8 +32,8 @@ The upload process includes:
     examples: [
       ['Basic usage', '$0 remote upload'],
       ['Upload a specific bundle file', '$0 upload --file ./dist/myapp.wvb'],
-      ['Upload with explicit name and version', '$0 upload myapp 1.2.0'],
-      ['Force overwrite existing version', '$0 upload myapp 1.2.0 --force'],
+      ['Upload with explicit name and version', '$0 upload myapp --version=1.2.0'],
+      ['Force overwrite existing version', '$0 upload myapp --version=1.2.0 --force'],
       ['Deploy after upload is done', '$0 upload --deploy'],
     ],
   });
@@ -42,9 +42,8 @@ The upload process includes:
     name: 'BUNDLE',
     required: false,
   });
-  readonly version = Option.String({
-    name: 'VERSION',
-    required: false,
+  readonly version = Option.String('--version,-V', {
+    description: 'Version of the bundle to deploy.',
   });
   readonly file = Option.String('--file,-F', {
     description: 'Path to the Webview Bundle file (.wvb) to upload.',
@@ -54,10 +53,10 @@ The upload process includes:
     validator: isBoolean(),
     description: 'Overwrite if the same version already exists on remote.',
   });
-  readonly deploy = Option.String('--deploy', true, {
+  readonly deploy = Option.String('--deploy', false, {
     tolerateBoolean: true,
     validator: isBoolean(),
-    description: 'Deploy the bundle to the remote endpoint after upload.',
+    description: 'Deploy the bundle to the remote endpoint after upload. [Default: false]',
   });
   readonly channel = Option.String('--channel', {
     description: `Release channel to manage and distribute different stability versions. (e.g. "beta", "alpha")

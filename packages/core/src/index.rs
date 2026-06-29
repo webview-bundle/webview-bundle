@@ -7,7 +7,7 @@ use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode, config, decode_from_slice, encode_to_vec};
 use http::{HeaderMap, HeaderName, HeaderValue};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 
@@ -112,15 +112,12 @@ impl Encode for IndexEntry {
   }
 }
 
+type DecodedIndexEntry = (u64, u64, Vec<u8>, u64, Vec<(String, Vec<u8>)>);
+
 impl<T> Decode<T> for IndexEntry {
   fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-    let (offset, len, content_type_raw, content_length, pairs): (
-      u64,
-      u64,
-      Vec<u8>,
-      u64,
-      Vec<(String, Vec<u8>)>,
-    ) = Decode::decode(decoder)?;
+    let (offset, len, content_type_raw, content_length, pairs): DecodedIndexEntry =
+      Decode::decode(decoder)?;
     let content_type = String::from_utf8(content_type_raw)
       .map_err(|_| DecodeError::OtherString("invalid content type".into()))?;
     let mut headers = HeaderMap::new();
@@ -190,7 +187,9 @@ impl Index {
 
 impl Encode for IndexEntryMap {
   fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-    self.0.encode(encoder)
+    // Use `BTreeMap` to encode entries in deterministic key-sorted order.
+    let sorted: BTreeMap<&String, &IndexEntry> = self.0.iter().collect();
+    sorted.encode(encoder)
   }
 }
 

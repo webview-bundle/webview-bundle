@@ -1,5 +1,6 @@
 use crate::Bundle;
 use crate::signature::Verifier as SignatureVerifier;
+use base64ct::{Base64, Encoding};
 use ed25519_dalek::pkcs8::DecodePublicKey;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
@@ -28,8 +29,48 @@ impl Ed25519Verifier {
 
 impl SignatureVerifier for Ed25519Verifier {
   async fn verify(&self, _bundle: &Bundle, data: &[u8], signature: &str) -> crate::Result<bool> {
+    let signature_bytes =
+      Base64::decode_vec(signature).map_err(|_| crate::Error::InvalidSignature)?;
     let signature =
-      Signature::from_slice(signature.as_bytes()).map_err(|_| crate::Error::InvalidSignature)?;
+      Signature::from_slice(&signature_bytes).map_err(|_| crate::Error::InvalidSignature)?;
     Ok(self.key.verify(data, &signature).is_ok())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use ed25519_dalek::{Signer, SigningKey};
+
+  #[tokio::test]
+  async fn verifies_base64_encoded_signature() {
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let message = b"sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=";
+    let signature_b64 = Base64::encode_string(&signing_key.sign(message).to_bytes());
+
+    let verifier =
+      Ed25519Verifier::from_public_key_bytes(&signing_key.verifying_key().to_bytes()).unwrap();
+    let bundle = Bundle::builder().build().unwrap();
+
+    assert!(
+      verifier
+        .verify(&bundle, message, &signature_b64)
+        .await
+        .unwrap()
+    );
+    // Wrong message must not verify.
+    assert!(
+      !verifier
+        .verify(&bundle, b"tampered", &signature_b64)
+        .await
+        .unwrap()
+    );
+    // Raw (non-base64) signature bytes must fail to decode.
+    assert!(
+      verifier
+        .verify(&bundle, message, "!!!not base64!!!")
+        .await
+        .is_err()
+    );
   }
 }
