@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { glob } from 'tinyglobby';
+import { glob, globSync } from 'tinyglobby';
 import type { PackageJson as PackageJsonType } from 'type-fest';
 import { z } from 'zod';
 import type { Action } from './action.ts';
@@ -350,6 +351,27 @@ interface DenoJsonShape {
   private?: boolean;
 }
 
+// Deno workspace members import siblings by package name (e.g. `@wvb/deno`), not via `imports`, so source is scanned for the dependency graph to see those edges.
+function scanDenoSourceImports(denoJsonPath: string): string[] {
+  const dir = path.dirname(path.join(ROOT_DIR, denoJsonPath));
+  const files = globSync('**/*.{ts,tsx,mts,cts,js,mjs,cjs}', {
+    cwd: dir,
+    onlyFiles: true,
+    ignore: ['**/node_modules/**'],
+  });
+  const specifiers = new Set<string>();
+  const re = /(?:\bfrom|\bimport\b\s*\(?)\s*['"]([^'"\n]+)['"]/g;
+  for (const file of files) {
+    for (const match of readFileSync(path.join(dir, file), 'utf8').matchAll(re)) {
+      const spec = match[1];
+      if (spec != null && !spec.startsWith('.') && !spec.startsWith('/')) {
+        specifiers.add(spec);
+      }
+    }
+  }
+  return [...specifiers];
+}
+
 class DenoJson implements PackageManager {
   private readonly json: DenoJsonShape;
   private readonly _path: string;
@@ -391,9 +413,9 @@ class DenoJson implements PackageManager {
   }
 
   get dependencyNames(): string[] {
-    // `imports` keys are bare specifiers; workspace package names among them (e.g. `@wvb/deno`) feed
-    // the dependency graph. Non-workspace specifiers (e.g. `@std/path`) match nothing and are ignored.
-    return Object.keys(this.json.imports ?? {});
+    // `imports` keys plus source-scanned specifiers; only those matching a workspace package (e.g.
+    // `@wvb/deno`) feed the dependency graph — non-workspace specifiers (e.g. `@std/path`) are ignored.
+    return [...Object.keys(this.json.imports ?? {}), ...scanDenoSourceImports(this._path)];
   }
 
   write(nextVersion: Version): Action[] {

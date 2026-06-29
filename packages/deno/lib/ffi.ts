@@ -209,6 +209,10 @@ async function loadViaPlug(options: LoadLibViaPlugOptions): Promise<WvbLib> {
       );
     }
   }
+  // Re-check after the awaits: an explicit loadLib() may have set `lib` while we were downloading.
+  if (lib != null) {
+    return lib;
+  }
   lib = Deno.dlopen(path, SYMBOLS) as WvbLib;
   return lib;
 }

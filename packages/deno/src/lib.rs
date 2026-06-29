@@ -538,7 +538,8 @@ fn build_signature_verifier(sv: &serde_json::Value) -> Option<SignatureVerifier>
     }
     ("ed25519", "raw") => {
       let raw = bytes()?;
-      let arr: [u8; 32] = raw.get(..32)?.try_into().ok()?;
+      // Ed25519 raw keys must be exactly 32 bytes; reject anything else (fail closed).
+      let arr: [u8; 32] = raw.as_slice().try_into().ok()?;
       SignatureVerifier::Ed25519(Arc::new(Ed25519Verifier::from_public_key_bytes(&arr).ok()?))
     }
     ("rsaPkcs1V15", "pkcs1Der") => SignatureVerifier::RsaPkcs1V15(Arc::new(

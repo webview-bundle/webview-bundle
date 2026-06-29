@@ -27,8 +27,9 @@ async function withSource(fn: (source: BundleSource) => Promise<void>): Promise<
     `${remoteDir}/manifest.json`,
     JSON.stringify({ manifestVersion: 1, entries: {} })
   );
-  using source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir });
   try {
+    // Construct inside try so a constructor throw still triggers temp-dir cleanup.
+    using source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir });
     await fn(source);
   } finally {
     await Deno.remove(remoteDir, { recursive: true });

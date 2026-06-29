@@ -110,10 +110,15 @@ function defaultAppName(): string {
 function ensureDir(dir: string): string {
   Deno.mkdirSync(dir, { recursive: true });
   const manifest = `${dir}/manifest.json`;
+  // createNew seeds atomically: never clobber a manifest written concurrently (first-run update).
   try {
-    Deno.statSync(manifest);
-  } catch {
-    Deno.writeTextFileSync(manifest, JSON.stringify({ manifestVersion: 1, entries: {} }));
+    Deno.writeTextFileSync(manifest, JSON.stringify({ manifestVersion: 1, entries: {} }), {
+      createNew: true,
+    });
+  } catch (error) {
+    if (!(error instanceof Deno.errors.AlreadyExists)) {
+      throw error;
+    }
   }
   return dir;
 }

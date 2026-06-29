@@ -40,5 +40,6 @@ Deno.test('bundleSource writes the remote dir under the app-data directory', () 
     assertEquals(Deno.statSync(`${base}/myapp/bundles/manifest.json`).isFile, true);
   } finally {
     Deno.env.delete('WVB_APP_DATA_DIR');
+    Deno.removeSync(base, { recursive: true });
   }
 });

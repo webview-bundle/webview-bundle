@@ -55,8 +55,11 @@ export class WebviewBundle {
   constructor(config: WebviewBundleConfig) {
     // Fail fast on invalid config before any side effects (loading the lib, creating dirs), rather
     // than deferring the error to the first request.
-    if (config.protocols.length === 0) {
-      throw new Error('webviewBundle requires at least one protocol');
+    // Deno desktop is single-origin (one protocol served at the HTTP root); reject ambiguous configs.
+    if (config.protocols.length !== 1) {
+      throw new Error(
+        'webviewBundle requires exactly one protocol (Deno desktop serves a single origin)'
+      );
     }
     this.#config = config;
     if (config.lib != null) {
