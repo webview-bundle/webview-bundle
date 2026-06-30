@@ -1,4 +1,4 @@
-<img height="56" alt="Webview Bundle" src="https://github.com/user-attachments/assets/60b177cd-842f-4e15-99a7-c5d5edac2ffc" />
+<img height="56" alt="Webview Bundle" src="https://static.wvb.dev/banner.png" />
 
 <kbd>&nbsp;<b>English</b>&nbsp;</kbd> [<kbd>&nbsp;한국어&nbsp;</kbd>](https://github.com/webview-bundle/webview-bundle/blob/main/README-ko_kr.md)
 
