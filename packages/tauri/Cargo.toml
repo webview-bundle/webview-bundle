@@ -13,6 +13,7 @@ version      = "0.1.0"
 serde = { workspace = true }
 tauri = { workspace = true, features = ["unstable"] }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 wvb = { workspace = true, features = [
   "source",
   "protocol",
@@ -30,6 +31,12 @@ wvb = { workspace = true, features = [
 
 [build-dependencies]
 tauri-plugin = { workspace = true, features = ["build"] }
+
+# Android ships builtin bundles as APK `asset://` resources that std::fs cannot
+# read, so they are extracted via the fs plugin (see src/android.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+serde_json      = { workspace = true }
+tauri-plugin-fs = "2"
 
 [dev-dependencies]
 tauri = { workspace = true, features = ["test"] }
