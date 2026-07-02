@@ -13,6 +13,8 @@ pub enum Error {
   FailToResolveDirectory(String),
   #[error("tauri error: {0}")]
   Tauri(#[from] tauri::Error),
+  #[error("io error: {0}")]
+  Io(#[from] std::io::Error),
   #[error("duplicated protocol scheme: {scheme}")]
   ProtocolSchemeDuplicated { scheme: String },
   #[error("remote is not initialized")]

@@ -12,17 +12,16 @@ pub use wvb::signature::{
   RsaPssVerifier,
 };
 
-#[cfg(desktop)]
-mod desktop;
-
+#[cfg(target_os = "android")]
+mod android;
 mod commands;
 mod config;
 mod error;
+mod state;
 
 pub use error::{Error, Result};
 
-#[cfg(desktop)]
-use desktop::WebviewBundle;
+use state::WebviewBundle;
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the tauri APIs.
 pub trait WebviewBundleExtra<R: Runtime> {
@@ -39,43 +38,59 @@ impl<R: Runtime, T: Manager<R>> WebviewBundleExtra<R> for T {
 }
 
 /// Initializes the plugin.
+///
+/// On **Android**, apps that ship builtin bundles must also register
+/// `tauri_plugin_fs::init()`: builtin bundles live in the APK as `asset://`
+/// resources, and the plugin reads them through the fs plugin to extract them to
+/// a readable directory on startup. Desktop, iOS, and remote-only apps are
+/// unaffected.
 pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
   let config = Arc::new(config);
   let c = config.clone();
 
   let mut builder = Builder::<R>::new("wvb-tauri").setup(move |app, _api| {
-    #[cfg(desktop)]
-    let webview_bundle = desktop::init(app, c)?;
+    let webview_bundle = state::init(app, c)?;
     app.manage(webview_bundle);
     Ok(())
   });
 
   for protocol_config in &config.protocols {
     let scheme = protocol_config.scheme().to_string();
+    #[cfg(target_os = "android")]
+    let is_bundle = matches!(protocol_config, Protocol::Bundle(_));
     builder = builder.register_asynchronous_uri_scheme_protocol(
       protocol_config.scheme(),
       move |ctx: UriSchemeContext<R>, req, res| {
-        let protocol = ctx
-          .app_handle()
-          .webview_bundle()
-          .get_protocol(&scheme)
-          .unwrap_or_else(|| panic!("protocol not found: {scheme}"))
-          .clone();
+        let app = ctx.app_handle().clone();
+        let scheme = scheme.clone();
         tauri::async_runtime::spawn(async move {
+          // Logs the URI the handler actually receives — useful for confirming the
+          // per-platform custom-protocol URL shape (e.g. on mobile).
+          tracing::debug!(
+            scheme = %scheme,
+            method = %req.method(),
+            uri = %req.uri(),
+            "webview-bundle protocol request"
+          );
+          let wvb = app.webview_bundle();
+          // Android serves builtin bundles from extracted assets, so copy the
+          // requested bundle out (if not already) before the protocol reads it.
+          #[cfg(target_os = "android")]
+          if is_bundle {
+            if let Some(name) = req.uri().host().and_then(|host| host.split('.').next()) {
+              if let Err(e) = wvb.ensure_builtin_bundle(name) {
+                res.respond(protocol_error_response(&e));
+                return;
+              }
+            }
+          }
+          let protocol = wvb
+            .get_protocol(&scheme)
+            .unwrap_or_else(|| panic!("protocol not found: {scheme}"))
+            .clone();
           match protocol.handle(req).await {
             Ok(resp) => res.respond(resp),
-            Err(e) => {
-              let resp = http::Response::builder()
-                .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                .header(http::header::CONTENT_TYPE, "text/plain")
-                .body(
-                  format!("webview bundle protocol error: {e}")
-                    .as_bytes()
-                    .to_vec(),
-                )
-                .unwrap();
-              res.respond(resp);
-            }
+            Err(e) => res.respond(protocol_error_response(&e)),
           }
         });
       },
@@ -108,4 +123,17 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
       commands::updater_install,
     ])
     .build()
+}
+
+/// A `500` plain-text response for a failed protocol request.
+fn protocol_error_response(error: &dyn std::fmt::Display) -> http::Response<Vec<u8>> {
+  http::Response::builder()
+    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+    .header(http::header::CONTENT_TYPE, "text/plain")
+    .body(
+      format!("webview bundle protocol error: {error}")
+        .as_bytes()
+        .to_vec(),
+    )
+    .unwrap()
 }
