@@ -1,4 +1,4 @@
-import type { Repository, Tag } from 'es-git';
+import type { Repository } from 'es-git';
 import type { Version } from './version.ts';
 
 export class VersionedGitTag {
@@ -22,22 +22,20 @@ export class VersionedGitTag {
     return `refs/tags/${this.tagName}`;
   }
 
-  findTag(repo: Repository): Tag | null {
-    let tagOid: string | undefined;
-    repo.tagForeach((oid, name) => {
+  /**
+   * Whether the tag ref exists, annotated or lightweight. Matches on the ref name because a
+   * lightweight tag's oid is the commit itself, which `repo.findTag` cannot resolve — and GitHub
+   * creates lightweight tags when a release's tag is missing.
+   */
+  exists(repo: Repository): boolean {
+    let found = false;
+    repo.tagForeach((_oid, name) => {
       if (name === this.tagRef) {
-        tagOid = oid;
+        found = true;
         return false;
       }
       return true;
     });
-    if (tagOid == null) {
-      return null;
-    }
-    return repo.findTag(tagOid);
-  }
-
-  exists(repo: Repository): boolean {
-    return this.findTag(repo) != null;
+    return found;
   }
 }

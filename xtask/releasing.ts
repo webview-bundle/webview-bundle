@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Commit, Repository, Tree } from 'es-git';
 import { isNotNil, uniq } from 'es-toolkit';
 import type { PackageJson } from 'type-fest';
-import { runActions } from './action.ts';
+import { type Action, type RunActionResult, runActions } from './action.ts';
 import { editCargoTomlVersion, formatCargoToml, parseCargoToml } from './cargo-toml.ts';
 import { Changelog } from './changelog.ts';
 import type { Changes } from './changes.ts';
@@ -12,6 +12,8 @@ import { c } from './console.ts';
 import { ROOT_DIR } from './consts.ts';
 import { commitsTouchingPaths } from './git.ts';
 import { Package, type PackageGraph } from './package.ts';
+import { isAlreadyPublishedRejection } from './registry.ts';
+import { Version } from './version.ts';
 import type { VersionedFile, VersionedFileRegistry } from './versioned-file.ts';
 
 export interface ReleaseTarget {
@@ -85,14 +87,15 @@ function versionAtTree(repo: Repository, tree: Tree, file: VersionedFile): strin
 }
 
 /**
- * Packages whose version was changed by the `HEAD` commit, compared to its first parent — i.e. the
- * packages bumped by a merged `prepare-release` commit. A package counts only if one of its
- * manifests existed in the parent with a *different* version: a manifest that is absent from the
+ * Packages whose version was *raised* by the `HEAD` commit, compared to its first parent — i.e.
+ * the packages bumped by a merged `prepare-release` commit. A package counts only if one of its
+ * manifests existed in the parent with a *lower* version: a manifest that is absent from the
  * parent is a brand-new package (or a newly added manifest), not a bump, so the commit that first
  * introduces a package does not publish it. Such a package is released through the normal
  * `prepare-release` flow, whose merge commit bumps the (now-existing) manifest off its initial
- * version. This is how `release` decides what to publish, so an ordinary merge (no version change)
- * publishes nothing.
+ * version. Requiring the version to go *up* (not merely change) keeps a revert of a release merge
+ * from re-triggering the release pipeline. This is how `release` decides what to publish, so an
+ * ordinary merge (no version change) publishes nothing.
  */
 export function packagesBumpedInHead(repo: Repository, packages: Package[]): Package[] {
   const head = repo.head().target();
@@ -112,7 +115,14 @@ export function packagesBumpedInHead(repo: Repository, packages: Package[]): Pac
       const previous = parentTree != null ? versionAtTree(repo, parentTree, file) : null;
       // A manifest absent from the parent (`previous == null`) is new, not bumped — skip it so new
       // packages aren't published on the commit that adds them.
-      return previous != null && previous !== file.version.toString();
+      if (previous == null) {
+        return false;
+      }
+      try {
+        return file.version.greaterThan(Version.parse(previous));
+      } catch {
+        return false;
+      }
     })
   );
 }
@@ -166,6 +176,118 @@ async function writeRootChangelog(targets: ReleaseTarget[], dryRun: boolean): Pr
   }
   await runActions(changelog.write(), { dryRun });
   return true;
+}
+
+export type PublishStatus = 'published' | 'already-published' | 'failed';
+
+/** The result of one package's (idempotent) publish attempt. */
+export interface PublishOutcome {
+  package: Package;
+  status: PublishStatus;
+  /** What failed, when `status === 'failed'` (the beforePublish scripts vs the publish itself). */
+  reason?: string;
+}
+
+export interface PublishPackageOptions {
+  /** Publish the manifests' current (already-written) version instead of the pending bump. */
+  current?: boolean;
+  distTag?: string;
+  dryRun?: boolean;
+}
+
+/**
+ * Publish one package's manifests, skipping any whose version is already live in its registry.
+ * This is what makes `release`/`prerelease` retryable: re-running after a partial failure
+ * publishes only what is still missing instead of failing on "version already exists". The
+ * `beforePublish` scripts run only when at least one manifest actually needs publishing.
+ */
+export async function publishPackage(
+  pkg: Package,
+  opts: PublishPackageOptions = {}
+): Promise<PublishOutcome> {
+  const { current = false, distTag, dryRun = false } = opts;
+  const files = pkg.versionedFiles.filter(file => file.canPublish && (current || file.hasChanged));
+  if (files.length === 0) {
+    // Nothing goes to a registry (e.g. a private package that is only tagged + GitHub-released).
+    return { package: pkg, status: 'published' };
+  }
+  const pending: VersionedFile[] = [];
+  for (const file of files) {
+    const version = current ? file.version : file.nextVersion;
+    // Dry runs stay offline and show every publish that would run.
+    const exists = dryRun ? false : await file.existsInRegistry(version);
+    if (exists === true) {
+      console.log(
+        `${c.warn(`[${pkg.name}]`)} ${file.name}@${version.toString()} already published. skip.`
+      );
+    } else {
+      pending.push(file);
+    }
+  }
+  if (pending.length === 0) {
+    return { package: pkg, status: 'already-published' };
+  }
+  if (!(await runBeforePublishScripts(pkg, dryRun))) {
+    return { package: pkg, status: 'failed', reason: 'beforePublish scripts failed' };
+  }
+  const actions = pending.flatMap(file =>
+    current ? file.publishCurrent(distTag) : file.publish(distTag)
+  );
+  const result = await runActions(actions, {
+    name: pkg.name,
+    dryRun,
+    failFast: false,
+    reject: false,
+  });
+  const items: RunActionResult[] = result.items;
+  const failed = items.filter(
+    (item): item is Extract<RunActionResult, { succeed: false }> => !item.succeed
+  );
+  // A duplicate-version rejection means the version is already published — notably npm's *staged*
+  // publishes, which stay invisible to the registry check above until approved.
+  const rejected = failed.filter(item => isAlreadyPublishedRejection(item.output));
+  if (rejected.length > 0) {
+    console.log(
+      `${c.warn(`[${pkg.name}]`)} registry rejected ${rejected.length} publish(es) as duplicates. treating as already published.`
+    );
+  }
+  if (failed.length > rejected.length) {
+    return { package: pkg, status: 'failed', reason: 'publish failed' };
+  }
+  return { package: pkg, status: 'published' };
+}
+
+async function runBeforePublishScripts(pkg: Package, dryRun: boolean): Promise<boolean> {
+  if (pkg.beforePublishScripts.length === 0) {
+    return true;
+  }
+  const result = await runActions(
+    pkg.beforePublishScripts.map(
+      (script): Action => ({
+        type: 'command',
+        cmd: script.command,
+        args: (script.args ?? []) as string[],
+        path: script.cwd ?? pkg.path,
+      })
+    ),
+    { name: pkg.name, dryRun, reject: false }
+  );
+  if (!result.allSucceed) {
+    console.error(`${c.error(`[${pkg.name}]`)} beforePublish scripts failed`);
+  }
+  return result.allSucceed;
+}
+
+/** The status cell shown for a package in the GitHub step summary. */
+export function formatPublishStatus(outcome: PublishOutcome): string {
+  switch (outcome.status) {
+    case 'published':
+      return '✅ published';
+    case 'already-published':
+      return '✅ already published';
+    case 'failed':
+      return `❌ ${outcome.reason ?? 'failed'}`;
+  }
 }
 
 /**

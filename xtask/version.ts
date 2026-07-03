@@ -40,6 +40,10 @@ export class Version {
     return this.ver.compare(other.ver) === 0;
   }
 
+  greaterThan(other: Version): boolean {
+    return this.ver.compare(other.ver) > 0;
+  }
+
   clone(): Version {
     return Version.parse(this.ver.toString());
   }

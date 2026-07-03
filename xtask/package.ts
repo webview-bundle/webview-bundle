@@ -201,15 +201,6 @@ export class Package {
   write(): Action[] {
     return this.versionedFiles.flatMap(x => x.write());
   }
-
-  publish(distTag?: string): Action[] {
-    return this.versionedFiles.flatMap(x => x.publish(distTag));
-  }
-
-  /** Publish actions for the current (already-written) version. Used by tag-based publish. */
-  publishCurrent(distTag?: string): Action[] {
-    return this.versionedFiles.flatMap(x => x.publishCurrent(distTag));
-  }
 }
 
 /**

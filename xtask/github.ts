@@ -35,18 +35,64 @@ export async function resolveAssets(pkg: Package): Promise<AssetFile[]> {
   }));
 }
 
-/** Upload files to a GitHub release; returns the uploaded file names. */
+export interface ExistingRelease {
+  id: number;
+  htmlUrl: string;
+}
+
+/** The GitHub release for `tag`, or `null` when none exists. */
+export async function findReleaseByTag(
+  client: GitHubClient,
+  tag: string
+): Promise<ExistingRelease | null> {
+  try {
+    const release = await client.rest.repos.getReleaseByTag({
+      owner: GITHUB_REPO.owner,
+      repo: GITHUB_REPO.name,
+      tag,
+    });
+    return { id: release.data.id, htmlUrl: release.data.html_url };
+  } catch (e) {
+    if ((e as { status?: number }).status === 404) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+/**
+ * Upload files to a GitHub release; returns the asset names now on the release. Idempotent so
+ * retries work: an asset that is already fully uploaded is skipped, and a stub left by an
+ * interrupted upload (which would block re-uploading under the same name) is deleted first.
+ */
 export async function uploadReleaseAssets(
   client: GitHubClient,
   releaseId: number,
   assets: AssetFile[]
 ): Promise<string[]> {
+  if (assets.length === 0) {
+    return [];
+  }
+  const repo = { owner: GITHUB_REPO.owner, repo: GITHUB_REPO.name };
+  const existing = await client.paginate(client.rest.repos.listReleaseAssets, {
+    ...repo,
+    release_id: releaseId,
+    per_page: 100,
+  });
   const uploaded: string[] = [];
   for (const asset of assets) {
+    const prior = existing.find(x => x.name === asset.name);
+    if (prior != null) {
+      if (prior.state === 'uploaded') {
+        console.log(`  ${c.dim(`asset already uploaded: ${asset.name}`)}`);
+        uploaded.push(asset.name);
+        continue;
+      }
+      await client.rest.repos.deleteReleaseAsset({ ...repo, asset_id: prior.id });
+    }
     const data = await fs.readFile(asset.path);
     await client.rest.repos.uploadReleaseAsset({
-      owner: GITHUB_REPO.owner,
-      repo: GITHUB_REPO.name,
+      ...repo,
       release_id: releaseId,
       name: asset.name,
       data: data as unknown as string,

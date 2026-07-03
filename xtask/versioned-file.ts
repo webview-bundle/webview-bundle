@@ -11,6 +11,7 @@ import {
   parseCargoToml,
 } from './cargo-toml.ts';
 import { ROOT_DIR } from './consts.ts';
+import { cratesVersionExists, npmVersionExists } from './registry.ts';
 import { never } from './utils.ts';
 import { type BumpRule, Version } from './version.ts';
 
@@ -120,6 +121,22 @@ export class VersionedFile {
           version,
           url: `https://crates.io/crates/${this.name}/${version}`,
         };
+      default:
+        return never();
+    }
+  }
+
+  /**
+   * Whether `version` of this manifest is already live in its registry. `null` when the check
+   * itself failed — the caller should then attempt the publish and let the registry reject a
+   * duplicate.
+   */
+  async existsInRegistry(version: Version): Promise<boolean | null> {
+    switch (this.type) {
+      case 'package.json':
+        return npmVersionExists(this.name, version.toString());
+      case 'Cargo.toml':
+        return cratesVersionExists(this.name, version.toString());
       default:
         return never();
     }

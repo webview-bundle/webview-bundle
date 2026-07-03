@@ -34,7 +34,7 @@ export interface RunActionsContext {
 
 export type RunActionResult =
   | { succeed: true; action: Action }
-  | { succeed: false; action: Action; error: Error };
+  | { succeed: false; action: Action; error: Error; output?: string };
 export type RunActionsResult =
   | {
       allSucceed: true;
@@ -111,7 +111,7 @@ async function runCommandAction(
   action: Extract<Action, { type: 'command' }>
 ): Promise<RunActionResult> {
   console.log(`${c.info(`[${name}]`)} ${formatAction(action)}`);
-  const { exitCode } = await runCommand(action.cmd, action.args, {
+  const { exitCode, output } = await runCommand(action.cmd, action.args, {
     cwd: path.join(ROOT_DIR, action.path),
     prefix: `${c.info(`[${name}]`)} `,
   });
@@ -121,6 +121,7 @@ async function runCommandAction(
       succeed: false,
       action,
       error: new Error(`command failed with exitCode: ${exitCode}`),
+      output,
     };
   }
   return { succeed: true, action };
