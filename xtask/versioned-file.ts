@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { glob, globSync } from 'tinyglobby';
+import { glob } from 'tinyglobby';
 import type { PackageJson as PackageJsonType } from 'type-fest';
 import { z } from 'zod';
 import type { Action } from './action.ts';
@@ -15,7 +14,7 @@ import { ROOT_DIR } from './consts.ts';
 import { never } from './utils.ts';
 import { type BumpRule, Version } from './version.ts';
 
-export const VersionedFileTypeSchema = z.enum(['package.json', 'Cargo.toml', 'deno.json']);
+export const VersionedFileTypeSchema = z.enum(['package.json', 'Cargo.toml']);
 export type VersionedFileType = z.infer<typeof VersionedFileTypeSchema>;
 
 export interface VersionedFileRegistry {
@@ -57,10 +56,6 @@ export class VersionedFile {
       }
       case 'Cargo.toml':
         return new VersionedFile('Cargo.toml', new Cargo(filepath, content));
-      case 'deno.json': {
-        const deno = DenoJson.create(filepath, content);
-        return deno == null ? null : new VersionedFile('deno.json', deno);
-      }
       default:
         throw new Error(`unrecognized file: ${filepath}`);
     }
@@ -124,13 +119,6 @@ export class VersionedFile {
           type: 'cargo',
           version,
           url: `https://crates.io/crates/${this.name}/${version}`,
-        };
-      case 'deno.json':
-        return {
-          name: this.name,
-          type: 'jsr',
-          version,
-          url: `https://jsr.io/${this.name}@${version}`,
         };
       default:
         return never();
@@ -339,109 +327,6 @@ class Cargo implements PackageManager {
         cmd: 'cargo',
         args: ['publish', '--allow-dirty', '-p', this.name],
         path: '',
-      },
-    ];
-  }
-}
-
-interface DenoJsonShape {
-  name?: string;
-  version?: string;
-  imports?: Record<string, string>;
-  private?: boolean;
-}
-
-// Deno workspace members import siblings by package name (e.g. `@wvb/deno`), not via `imports`, so source is scanned for the dependency graph to see those edges.
-function scanDenoSourceImports(denoJsonPath: string): string[] {
-  const dir = path.dirname(path.join(ROOT_DIR, denoJsonPath));
-  const files = globSync('**/*.{ts,tsx,mts,cts,js,mjs,cjs}', {
-    cwd: dir,
-    onlyFiles: true,
-    ignore: ['**/node_modules/**'],
-  });
-  const specifiers = new Set<string>();
-  const re = /(?:\bfrom|\bimport\b\s*\(?)\s*['"]([^'"\n]+)['"]/g;
-  for (const file of files) {
-    for (const match of readFileSync(path.join(dir, file), 'utf8').matchAll(re)) {
-      const spec = match[1];
-      if (spec != null && !spec.startsWith('.') && !spec.startsWith('/')) {
-        specifiers.add(spec);
-      }
-    }
-  }
-  return [...specifiers];
-}
-
-class DenoJson implements PackageManager {
-  private readonly json: DenoJsonShape;
-  private readonly _path: string;
-  private readonly raw: string;
-
-  static create(path: string, raw: string): DenoJson | null {
-    const parsed: DenoJsonShape = JSON.parse(raw);
-    // A versionless deno.json (e.g. a Deno workspace-root config with only a `workspace` field) is
-    // not a release target.
-    if (parsed.version == null) {
-      return null;
-    }
-    if (parsed.name == null) {
-      throw new Error('"name" field is required in deno.json');
-    }
-    return new DenoJson(path, parsed, raw);
-  }
-
-  private constructor(path: string, json: DenoJsonShape, raw: string) {
-    this.json = json;
-    this._path = path;
-    this.raw = raw;
-  }
-
-  get name(): string {
-    return this.json.name!;
-  }
-
-  get path(): string {
-    return this._path;
-  }
-
-  get version(): Version {
-    return Version.parse(this.json.version!);
-  }
-
-  get canPublish(): boolean {
-    return this.json.private !== true;
-  }
-
-  get dependencyNames(): string[] {
-    // `imports` keys plus source-scanned specifiers; only those matching a workspace package (e.g.
-    // `@wvb/deno`) feed the dependency graph — non-workspace specifiers (e.g. `@std/path`) are ignored.
-    return [...Object.keys(this.json.imports ?? {}), ...scanDenoSourceImports(this._path)];
-  }
-
-  write(nextVersion: Version): Action[] {
-    const json = { ...this.json };
-    json.version = nextVersion.toString();
-
-    const content = `${JSON.stringify(json, null, 2)}\n`;
-    return [
-      {
-        type: 'write',
-        path: this.path,
-        content,
-        prevContent: this.raw,
-      },
-    ];
-  }
-
-  publish(_version: Version, _distTag?: string): Action[] {
-    // Publish to JSR. JSR has no dist-tags (prerelease versions publish as-is); `--allow-dirty`
-    // because the release flow writes the new version just before publishing.
-    return [
-      {
-        type: 'command',
-        cmd: 'deno',
-        args: ['publish', '--allow-dirty'],
-        path: path.dirname(this.path),
       },
     ];
   }

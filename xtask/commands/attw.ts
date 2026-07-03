@@ -1,66 +1,16 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Command, Option } from 'clipanion';
-import micromatch from 'micromatch';
 import pAll from 'p-all';
-import { glob } from 'tinyglobby';
 import * as t from 'typanion';
-import type { PackageJson } from 'type-fest';
 import { runCommand } from '../child_process.ts';
 import { ColorModeOption, colors, setColorMode } from '../console.ts';
 import { ROOT_DIR } from '../consts.ts';
-
-interface Workspace {
-  pkg: PackageJson;
-  name: string;
-  path: string;
-  absolutePath: string;
-}
-
-async function loadAllWorkspaces(): Promise<Workspace[]> {
-  const packageJsons = await glob('**/package.json', {
-    cwd: ROOT_DIR,
-    dot: false,
-    onlyFiles: true,
-    ignore: ['**/node_modules', '**/.yarn', '**/target', '**/dist', '**/esm'],
-  });
-  const workspaces: Workspace[] = [];
-  for (const pkgFilepath of packageJsons) {
-    const filepath = path.join(ROOT_DIR, pkgFilepath);
-    const pkgRaw = await fs.readFile(filepath, 'utf8');
-    const pkg: PackageJson = JSON.parse(pkgRaw);
-    workspaces.push({
-      pkg,
-      name: pkg.name!,
-      path: path.dirname(pkgFilepath),
-      absolutePath: path.dirname(filepath),
-    });
-  }
-  return workspaces;
-}
-
-function matchWorkspaceByPattern(workspace: Workspace, pattern: string | string[]): boolean {
-  const patterns = Array.isArray(pattern) ? pattern : [pattern];
-  if (patterns.length === 0) {
-    return false;
-  }
-  return patterns.some(x => {
-    return micromatch.isMatch(workspace.name, x) || micromatch.isMatch(workspace.path, x);
-  });
-}
-
-function isRootWorkspace(workspace: Workspace): boolean {
-  return workspace.path === '.';
-}
-
-async function runWorkspaceCommand(workspace: Workspace, cmd: string, args: string[] = []) {
-  const prefix = colors.info(`[${workspace.path}]`);
-  console.log(`${prefix} run command: ${cmd} ${args.join()}`);
-  return await runCommand(cmd, args, {
-    cwd: workspace.absolutePath,
-    prefix: `${prefix} `,
-  });
-}
+import {
+  isRootWorkspace,
+  loadAllWorkspaces,
+  matchWorkspaceByPattern,
+  runWorkspaceCommand,
+} from '../workspaces.ts';
 
 export class AttwCommand extends Command {
   static paths = [['attw']];
