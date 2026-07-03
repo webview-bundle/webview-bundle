@@ -41,6 +41,50 @@ export interface PublishCommand {
 }
 
 const FETCH_TIMEOUT_MS = 10_000;
+/** Extra attempts after the first, for the registry existence checks. */
+const FETCH_RETRIES = 2;
+const RETRY_BASE_MS = 500;
+
+export interface FetchRetryOptions {
+  retries?: number;
+  baseDelayMs?: number;
+  timeoutMs?: number;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * `fetch` with retry on *transient* failures — a thrown network/timeout error, or a retryable
+ * status (429, or >= 500) — using exponential backoff. A definitive answer (any other status,
+ * including 200/404) returns immediately without a retry. After the last attempt the final
+ * response is returned (or the last error re-thrown) so a caller can fall back to `null`
+ * (unknown). Without this a single network blip during a release would skip the
+ * already-published check and trigger an unnecessary publish attempt.
+ */
+export async function fetchWithRetry(url: string, opts: FetchRetryOptions = {}): Promise<Response> {
+  const {
+    retries = FETCH_RETRIES,
+    baseDelayMs = RETRY_BASE_MS,
+    timeoutMs = FETCH_TIMEOUT_MS,
+  } = opts;
+  let attempt = 0;
+  while (true) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (attempt >= retries || (res.status < 500 && res.status !== 429)) {
+        return res;
+      }
+    } catch (e) {
+      if (attempt >= retries) {
+        throw e;
+      }
+    }
+    attempt += 1;
+    if (baseDelayMs > 0) {
+      await sleep(baseDelayMs * 2 ** (attempt - 1));
+    }
+  }
+}
 
 export const npmRegistry: Registry = {
   type: 'npm',
@@ -53,7 +97,7 @@ export const npmRegistry: Registry = {
     // Scoped names keep the `@` but encode the `/` (`@scope%2Fname`).
     const url = `https://registry.npmjs.org/${name.replace('/', '%2F')}/${version}`;
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      const res = await fetchWithRetry(url);
       if (res.ok) {
         return true;
       }
@@ -98,7 +142,7 @@ export const cratesRegistry: Registry = {
   async exists(name, version) {
     const url = `https://index.crates.io/${crateIndexPath(name)}`;
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      const res = await fetchWithRetry(url);
       if (res.status === 404) {
         // The crate has never been published at all.
         return false;
@@ -148,7 +192,7 @@ export const jsrRegistry: Registry = {
     const [, scope, pkg] = scoped;
     const url = `https://api.jsr.io/scopes/${scope}/packages/${pkg}/versions/${version}`;
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      const res = await fetchWithRetry(url);
       if (res.ok) {
         return true;
       }
