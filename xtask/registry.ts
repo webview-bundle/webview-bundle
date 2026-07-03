@@ -23,7 +23,7 @@ export interface Registry {
   publishCommand(opts: PublishCommandOptions): PublishCommand;
 }
 
-export type RegistryType = 'npm' | 'cargo';
+export type RegistryType = 'npm' | 'cargo' | 'jsr';
 
 export interface PublishCommandOptions {
   name: string;
@@ -131,9 +131,54 @@ export const cratesRegistry: Registry = {
   },
 };
 
+export const jsrRegistry: Registry = {
+  type: 'jsr',
+
+  url(name, version) {
+    return `https://jsr.io/${name}@${version}`;
+  },
+
+  // Queries the same JSR API endpoint `deno publish`'s own pre-flight check uses. A yanked version
+  // still returns 200 — correct here, since its version number can never be re-published.
+  async exists(name, version) {
+    const scoped = /^@([^/]+)\/(.+)$/.exec(name);
+    if (scoped == null) {
+      return null;
+    }
+    const [, scope, pkg] = scoped;
+    const url = `https://api.jsr.io/scopes/${scope}/packages/${pkg}/versions/${version}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (res.ok) {
+        return true;
+      }
+      if (res.status === 404) {
+        return false;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
+  isDuplicateRejection() {
+    // `deno publish` is idempotent: re-publishing an existing version is a no-op that exits 0, so
+    // a duplicate never reaches the non-zero path this hook classifies.
+    return false;
+  },
+
+  publishCommand({ dir }) {
+    // JSR has no dist-tags; prereleases are automatically excluded from `latest` and semver
+    // ranges, so the channel is irrelevant. `--allow-dirty` because the release flow writes the
+    // new version just before publishing.
+    return { cmd: 'deno', args: ['publish', '--allow-dirty'], path: dir };
+  },
+};
+
 const registries: Record<RegistryType, Registry> = {
   npm: npmRegistry,
   cargo: cratesRegistry,
+  jsr: jsrRegistry,
 };
 
 export function registryOf(type: RegistryType): Registry {
@@ -141,8 +186,15 @@ export function registryOf(type: RegistryType): Registry {
 }
 
 /** The registry a manifest type publishes to. */
-export function registryOfManifest(type: 'package.json' | 'Cargo.toml'): Registry {
-  return type === 'package.json' ? npmRegistry : cratesRegistry;
+export function registryOfManifest(type: 'package.json' | 'Cargo.toml' | 'deno.json'): Registry {
+  switch (type) {
+    case 'package.json':
+      return npmRegistry;
+    case 'Cargo.toml':
+      return cratesRegistry;
+    case 'deno.json':
+      return jsrRegistry;
+  }
 }
 
 /** Sparse-index path for a crate name: `1/a`, `2/ab`, `3/a/abc`, `ab/cd/abcdefg`. */

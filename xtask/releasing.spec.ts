@@ -21,11 +21,33 @@ function npmManifest(
   return file;
 }
 
-function crateManifest(name: string, version: string): VersionedFile {
+function crateManifest(
+  name: string,
+  version: string,
+  opts: { publish?: boolean } = {}
+): VersionedFile {
+  const publishLine = opts.publish === false ? '\npublish = false' : '';
   const file = VersionedFile.parse(
     'Cargo.toml',
     `packages/test/${name}/Cargo.toml`,
-    `[package]\nname = "${name}"\nversion = "${version}"\n`
+    `[package]\nname = "${name}"\nversion = "${version}"${publishLine}\n`
+  );
+  if (file == null) {
+    throw new Error('failed to build manifest fixture');
+  }
+  return file;
+}
+
+function denoManifest(
+  name: string,
+  version: string,
+  extra: Record<string, unknown> = {}
+): VersionedFile {
+  // A directory that does not exist, so the source-import scan is a no-op in these unit tests.
+  const file = VersionedFile.parse(
+    'deno.json',
+    `packages/test/${name.replaceAll('/', '_')}/deno.json`,
+    JSON.stringify({ name, version, ...extra })
   );
   if (file == null) {
     throw new Error('failed to build manifest fixture');
@@ -46,6 +68,49 @@ function makePorts(overrides: Partial<Ports> = {}): Ports {
     ...overrides,
   };
 }
+
+describe('deno.json manifest', () => {
+  it('parses a named, versioned deno.json as a jsr release target', () => {
+    const file = denoManifest('@wvb/deno', '0.2.0');
+    expect(file.name).toBe('@wvb/deno');
+    expect(file.canPublish).toBe(true);
+    expect(file.registry).toEqual({
+      name: '@wvb/deno',
+      type: 'jsr',
+      version: '0.2.0',
+      url: 'https://jsr.io/@wvb/deno@0.2.0',
+    });
+    expect(file.publishAction(file.version)).toMatchObject({
+      type: 'publish',
+      registry: 'jsr',
+      manifest: '@wvb/deno',
+      version: '0.2.0',
+      cmd: 'deno',
+      args: ['publish', '--allow-dirty'],
+    });
+  });
+
+  it('is not a release target when versionless (workspace-root deno.json)', () => {
+    const file = VersionedFile.parse(
+      'deno.json',
+      'packages/deno.json',
+      JSON.stringify({ workspace: ['./deno'], imports: { '@std/path': 'jsr:@std/path@^1' } })
+    );
+    expect(file).toBeNull();
+  });
+
+  it('honors private: true', () => {
+    expect(denoManifest('@wvb/deno', '0.2.0', { private: true }).canPublish).toBe(false);
+  });
+
+  it('derives dependency names from the imports map', () => {
+    const file = denoManifest('@wvb/deno-desktop', '0.2.0', {
+      imports: { '@wvb/deno': 'jsr:@wvb/deno@^0.2.0', '@std/path': 'jsr:@std/path@^1' },
+    });
+    // The source scan is empty (fixture dir does not exist), so only the imports keys remain.
+    expect(file.dependencyNames).toEqual(['@wvb/deno', '@std/path']);
+  });
+});
 
 describe('observePublishState', () => {
   it('checks the current versions of every publishable manifest', async () => {
@@ -162,6 +227,27 @@ describe('publishPackage (observe → plan → apply)', () => {
     // Only the crate was missing; the npm manifest was skipped by the registry check.
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0]![0]).toBe('cargo');
+  });
+
+  it('publishes a deno package via deno, checking the jsr registry by manifest type', async () => {
+    // packages/deno ships a non-publishable cdylib crate alongside the JSR-published deno.json.
+    const pkg = makePackage([
+      crateManifest('wvb-deno', '0.2.0', { publish: false }),
+      denoManifest('@wvb/deno', '0.2.0'),
+    ]);
+    const run = vi.fn(async (_cmd: string, _args: string[], _opts: { cwd: string }) => ({
+      exitCode: 0,
+      output: '',
+    }));
+    const exists = vi.fn(async () => false as boolean | null);
+    const outcome = await publishPackage(pkg, {
+      current: true,
+      ports: makePorts({ proc: { run }, registry: { exists } }),
+    });
+    expect(outcome.status).toBe('published');
+    expect(exists).toHaveBeenCalledWith('deno.json', '@wvb/deno', '0.2.0');
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]![0]).toBe('deno');
   });
 
   it('reports already-published when every version is live', async () => {

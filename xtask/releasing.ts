@@ -80,6 +80,8 @@ function versionAtTree(repo: Repository, tree: Tree, file: VersionedFile): strin
         return (JSON.parse(content) as PackageJson)?.version ?? null;
       case 'Cargo.toml':
         return parseCargoToml(content).package?.version ?? null;
+      case 'deno.json':
+        return (JSON.parse(content) as { version?: string })?.version ?? null;
     }
   } catch {
     return null;
