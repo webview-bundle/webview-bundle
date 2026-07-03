@@ -1,16 +1,13 @@
 import fs from 'node:fs/promises';
 import { Command, Option } from 'clipanion';
 import { openRepository, type Repository } from 'es-git';
+import { type Action, runActions } from '../action.ts';
 import { Changelog } from '../changelog.ts';
 import { ColorModeOption, c, setColorMode } from '../console.ts';
-import { GIT_SIGNATURE, GITHUB_REPO, ROOT_DIR } from '../consts.ts';
-import {
-  createGitHubClient,
-  findReleaseByTag,
-  resolveAssets,
-  uploadReleaseAssets,
-} from '../github.ts';
+import { ROOT_DIR } from '../consts.ts';
+import { resolveAssets } from '../github.ts';
 import { Package } from '../package.ts';
+import { createPorts, type GitHubRelease, type Ports } from '../ports.ts';
 import {
   describeReleasedPackage,
   formatPublishStatus,
@@ -36,7 +33,7 @@ interface PublishedPackage extends ReleasedPackage {
 /**
  * Stable publish, run on the base branch after a Release PR merges.
  *
- * The targets are the packages whose version was changed by the merge's `HEAD` commit (the
+ * The targets are the packages whose version was raised by the merge's `HEAD` commit (the
  * `prepare-release` commit) — so an ordinary merge publishes nothing. Targets are published in
  * dependency order; each one that succeeds is tagged on the merge commit and gets a GitHub release
  * (with its configured assets). Every step skips work that is already done (registry versions,
@@ -84,29 +81,34 @@ export class ReleaseCommand extends Command {
       return 0;
     }
 
+    const ports = createPorts({ repo, githubToken: this.githubToken });
     const head = repo.head().target();
-    const outcomes = await this.publishPackages(targets);
+    const outcomes = await this.publishPackages(targets, ports);
     const succeeded = outcomes.filter(x => x.status !== 'failed').map(x => x.package);
-    let releases: Map<string, ReleaseInfo> = new Map();
-    let releaseFailures: Map<string, string> = new Map();
+    // Per-package failures of the post-publish steps (tag/push/release), folded into the outcomes.
+    const stepFailures = new Map<string, string>();
+    let releases = new Map<string, ReleaseInfo>();
     if (succeeded.length > 0) {
-      this.createTags(repo, succeeded);
-      if (await this.pushTags(repo, succeeded)) {
-        ({ releases, failures: releaseFailures } = await this.createGitHubReleases(
-          succeeded,
-          head ?? undefined
-        ));
-      } else {
-        // Stop before creating releases: with the tags missing from the remote, `createRelease`
-        // would materialize them itself as lightweight tags.
-        for (const pkg of succeeded) {
-          releaseFailures.set(pkg.name, 'pushing tags failed');
+      const tagged = await this.ensureTags(repo, succeeded, ports, stepFailures);
+      if (tagged.length > 0) {
+        if (await this.pushTags(tagged, ports)) {
+          releases = await this.ensureGitHubReleases(
+            tagged,
+            head ?? undefined,
+            ports,
+            stepFailures
+          );
+        } else {
+          // Stop before creating releases: with the tags missing from the remote, `createRelease`
+          // would materialize them itself as lightweight tags.
+          for (const pkg of tagged) {
+            stepFailures.set(pkg.name, 'pushing tags failed');
+          }
         }
       }
     }
-    // Fold GitHub release failures into the outcomes so they fail the run (and get retried).
     const finalOutcomes = outcomes.map((outcome): PublishOutcome => {
-      const failure = releaseFailures.get(outcome.package.name);
+      const failure = stepFailures.get(outcome.package.name);
       return outcome.status !== 'failed' && failure != null
         ? { ...outcome, status: 'failed', reason: failure }
         : outcome;
@@ -131,7 +133,7 @@ export class ReleaseCommand extends Command {
   }
 
   /** Publish each target package idempotently (see {@link publishPackage}); returns every outcome. */
-  private async publishPackages(targets: Package[]): Promise<PublishOutcome[]> {
+  private async publishPackages(targets: Package[], ports: Ports): Promise<PublishOutcome[]> {
     const outcomes: PublishOutcome[] = [];
     for (const pkg of targets) {
       console.log(`${c.info(`[${pkg.name}]`)} publishing v${pkg.version.toString()}`);
@@ -139,6 +141,7 @@ export class ReleaseCommand extends Command {
         current: true,
         distTag: this.distTag,
         dryRun: this.dryRun,
+        ports,
       });
       if (outcome.status === 'failed') {
         console.error(`${c.error(`[${pkg.name}]`)} publish failed`);
@@ -148,50 +151,55 @@ export class ReleaseCommand extends Command {
     return outcomes;
   }
 
-  private createTags(repo: Repository, packages: Package[]) {
-    const head = repo.head().target();
-    if (head == null || this.dryRun) {
-      for (const pkg of packages) {
-        console.log(`${c.info(`[${pkg.name}]`)} will create tag: ${pkg.versionedGitTag.tagName}`);
-      }
-      return;
-    }
-    const commit = repo.getCommit(head);
+  /** Create the missing git tags; returns the packages whose tag exists afterwards. */
+  private async ensureTags(
+    repo: Repository,
+    packages: Package[],
+    ports: Ports,
+    failures: Map<string, string>
+  ): Promise<Package[]> {
+    const missing: Package[] = [];
     for (const pkg of packages) {
-      const tag = pkg.versionedGitTag;
-      if (tag.exists(repo)) {
-        console.log(`${c.warn('[root]')} tag already exists: ${tag.tagName}`);
-        continue;
+      if (pkg.versionedGitTag.exists(repo)) {
+        console.log(`${c.warn('[root]')} tag already exists: ${pkg.versionedGitTag.tagName}`);
+      } else {
+        missing.push(pkg);
       }
-      const tagId = repo.createTag(tag.tagName, commit.asObject(), tag.tagName, {
-        tagger: GIT_SIGNATURE,
-      });
-      console.log(`${c.success('[root]')} tag: ${repo.getTag(tagId).name()}`);
     }
+    const actions = missing.map(
+      (pkg): Action => ({ type: 'createTag', tag: pkg.versionedGitTag.tagName })
+    );
+    const result = await runActions(actions, {
+      dryRun: this.dryRun,
+      ports,
+      failFast: false,
+      reject: false,
+    });
+    const failedTags = new Set(
+      result.items
+        .filter(item => !item.succeed)
+        .map(item => (item.action.type === 'createTag' ? item.action.tag : ''))
+    );
+    for (const pkg of missing) {
+      if (failedTags.has(pkg.versionedGitTag.tagName)) {
+        failures.set(pkg.name, 'creating tag failed');
+      }
+    }
+    return packages.filter(pkg => !failures.has(pkg.name));
   }
 
   /** Push the packages' tags; a failure is reported (not thrown) so the run can still report. */
-  private async pushTags(repo: Repository, packages: Package[]): Promise<boolean> {
+  private async pushTags(packages: Package[], ports: Ports): Promise<boolean> {
     const refspecs = packages.map(pkg => {
       const ref = pkg.versionedGitTag.tagRef;
       return `${ref}:${ref}`;
     });
-    if (this.dryRun || this.githubToken == null) {
-      console.log(`${c.info('[root]')} will push tags:`);
-      for (const ref of refspecs) {
-        console.log(c.dim(`  - ${ref}`));
-      }
-      return true;
-    }
-    try {
-      const remote = repo.getRemote('origin');
-      await remote.push(refspecs, { credential: { type: 'Plain', password: this.githubToken } });
-      console.log(`${c.success('[root]')} pushed ${refspecs.length} tag(s)`);
-      return true;
-    } catch (e) {
-      console.error(`${c.error('[root]')} failed to push tags: ${(e as Error).message}`);
-      return false;
-    }
+    const result = await runActions([{ type: 'pushTags', refspecs }], {
+      dryRun: this.dryRun,
+      ports,
+      reject: false,
+    });
+    return result.allSucceed;
   }
 
   /**
@@ -199,48 +207,57 @@ export class ReleaseCommand extends Command {
    * its missing assets. Failures are collected per package instead of thrown, so one bad release
    * doesn't block the others (nor the report).
    */
-  private async createGitHubReleases(
+  private async ensureGitHubReleases(
     packages: Package[],
-    commitish: string | undefined
-  ): Promise<{ releases: Map<string, ReleaseInfo>; failures: Map<string, string> }> {
+    commitish: string | undefined,
+    ports: Ports,
+    failures: Map<string, string>
+  ): Promise<Map<string, ReleaseInfo>> {
     const releases = new Map<string, ReleaseInfo>();
-    const failures = new Map<string, string>();
-    const client = this.githubToken != null ? createGitHubClient(this.githubToken) : null;
     for (const pkg of packages) {
       const tagName = pkg.versionedGitTag.tagName;
-      if (this.dryRun || client == null) {
-        console.log(`${c.info('[root]')} will create github release: ${tagName}`);
-        for (const asset of pkg.assets) {
-          console.log(c.dim(`  will upload asset: ${asset}`));
-        }
-        continue;
-      }
+      // A throw while resolving assets/changelog is isolated to this package (like a failed
+      // action), so one bad package can't abort the run before its report.
       try {
-        let release = await findReleaseByTag(client, tagName);
-        if (release != null) {
-          console.log(`${c.warn('[root]')} github release already exists: ${tagName}`);
-        } else {
-          const changelog = await Changelog.load(pkg.changelog).catch(() => null);
-          const created = await client.rest.repos.createRelease({
-            owner: GITHUB_REPO.owner,
-            repo: GITHUB_REPO.name,
-            tag_name: tagName,
-            // Pins a tag GitHub might still need to create to the release commit.
-            target_commitish: commitish,
+        const changelog = await Changelog.load(pkg.changelog).catch(() => null);
+        const actions: Action[] = [
+          {
+            type: 'ensureRelease',
+            tag: tagName,
             name: `${pkg.name} v${pkg.version.toString()}`,
             body: changelog?.extractChanges(pkg) ?? undefined,
-          });
-          console.log(`${c.success('[root]')} github release: ${created.data.tag_name}`);
-          release = { id: created.data.id, htmlUrl: created.data.html_url };
+            targetCommitish: commitish,
+          },
+          { type: 'uploadAssets', tag: tagName, assets: await resolveAssets(pkg) },
+        ];
+        const result = await runActions(actions, {
+          name: pkg.name,
+          dryRun: this.dryRun,
+          ports,
+          failFast: true,
+          reject: false,
+        });
+        if (!result.allSucceed) {
+          failures.set(pkg.name, 'github release failed');
+          continue;
         }
-        const assets = await uploadReleaseAssets(client, release.id, await resolveAssets(pkg));
-        releases.set(pkg.name, { tag: tagName, url: release.htmlUrl, assets });
+        const release = result.items.find(item => item.action.type === 'ensureRelease');
+        const uploaded = result.items.find(item => item.action.type === 'uploadAssets');
+        const data = release?.succeed === true ? (release.data as GitHubRelease | undefined) : null;
+        if (data != null) {
+          releases.set(pkg.name, {
+            tag: tagName,
+            url: data.htmlUrl,
+            assets:
+              uploaded?.succeed === true ? ((uploaded.data as string[] | undefined) ?? []) : [],
+          });
+        }
       } catch (e) {
         console.error(`${c.error(`[${pkg.name}]`)} github release failed: ${(e as Error).message}`);
         failures.set(pkg.name, 'github release failed');
       }
     }
-    return { releases, failures };
+    return releases;
   }
 
   /**

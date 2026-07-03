@@ -5,22 +5,15 @@ import { Octokit } from '@octokit/rest';
 import { execa } from 'execa';
 import mime from 'mime-types';
 import { glob } from 'tinyglobby';
-import { c } from './console.ts';
 import { GITHUB_REPO, ROOT_DIR } from './consts.ts';
 import type { Package } from './package.ts';
+import type { AssetFile, GitHubPort } from './ports.ts';
 
 export type GitHubClient = Octokit;
 
 export function createGitHubClient(token: string): GitHubClient {
   const Client = Octokit.plugin(retry);
   return new Client({ auth: token, userAgent: 'webview-bundle' });
-}
-
-export interface AssetFile {
-  /** Absolute path to the file on disk. */
-  path: string;
-  /** Name the asset is uploaded under. */
-  name: string;
 }
 
 /** Resolve a package's configured `assets` globs to concrete files on disk. */
@@ -35,76 +28,62 @@ export async function resolveAssets(pkg: Package): Promise<AssetFile[]> {
   }));
 }
 
-export interface ExistingRelease {
-  id: number;
-  htmlUrl: string;
-}
-
-/** The GitHub release for `tag`, or `null` when none exists. */
-export async function findReleaseByTag(
-  client: GitHubClient,
-  tag: string
-): Promise<ExistingRelease | null> {
-  try {
-    const release = await client.rest.repos.getReleaseByTag({
-      owner: GITHUB_REPO.owner,
-      repo: GITHUB_REPO.name,
-      tag,
-    });
-    return { id: release.data.id, htmlUrl: release.data.html_url };
-  } catch (e) {
-    if ((e as { status?: number }).status === 404) {
-      return null;
-    }
-    throw e;
-  }
-}
-
-/**
- * Upload files to a GitHub release; returns the asset names now on the release. Idempotent so
- * retries work: an asset that is already fully uploaded is skipped, and a stub left by an
- * interrupted upload (which would block re-uploading under the same name) is deleted first.
- */
-export async function uploadReleaseAssets(
-  client: GitHubClient,
-  releaseId: number,
-  assets: AssetFile[]
-): Promise<string[]> {
-  if (assets.length === 0) {
-    return [];
-  }
+/** The octokit-backed {@link GitHubPort}. */
+export function createGitHubPort(token: string): GitHubPort {
+  const client = createGitHubClient(token);
   const repo = { owner: GITHUB_REPO.owner, repo: GITHUB_REPO.name };
-  const existing = await client.paginate(client.rest.repos.listReleaseAssets, {
-    ...repo,
-    release_id: releaseId,
-    per_page: 100,
-  });
-  const uploaded: string[] = [];
-  for (const asset of assets) {
-    const prior = existing.find(x => x.name === asset.name);
-    if (prior != null) {
-      if (prior.state === 'uploaded') {
-        console.log(`  ${c.dim(`asset already uploaded: ${asset.name}`)}`);
-        uploaded.push(asset.name);
-        continue;
+  return {
+    async findReleaseByTag(tag) {
+      try {
+        const release = await client.rest.repos.getReleaseByTag({ ...repo, tag });
+        return { id: release.data.id, htmlUrl: release.data.html_url };
+      } catch (e) {
+        if ((e as { status?: number }).status === 404) {
+          return null;
+        }
+        throw e;
       }
-      await client.rest.repos.deleteReleaseAsset({ ...repo, asset_id: prior.id });
-    }
-    const data = await fs.readFile(asset.path);
-    await client.rest.repos.uploadReleaseAsset({
-      ...repo,
-      release_id: releaseId,
-      name: asset.name,
-      data: data as unknown as string,
-      headers: {
-        'content-type': mime.lookup(asset.name) || 'application/octet-stream',
-        'content-length': String(data.byteLength),
-      },
-    });
-    console.log(`  ${c.dim(`asset: ${asset.name}`)}`);
-    uploaded.push(asset.name);
-  }
-  return uploaded;
+    },
+    async createRelease(params) {
+      const release = await client.rest.repos.createRelease({
+        ...repo,
+        tag_name: params.tag,
+        name: params.name,
+        body: params.body,
+        prerelease: params.prerelease,
+        // Pins a tag GitHub might still need to create to the release commit.
+        target_commitish: params.targetCommitish,
+      });
+      return { id: release.data.id, htmlUrl: release.data.html_url };
+    },
+    async updateReleaseBody(releaseId, body) {
+      await client.rest.repos.updateRelease({ ...repo, release_id: releaseId, body });
+    },
+    async listReleaseAssets(releaseId) {
+      const assets = await client.paginate(client.rest.repos.listReleaseAssets, {
+        ...repo,
+        release_id: releaseId,
+        per_page: 100,
+      });
+      return assets.map(asset => ({ id: asset.id, name: asset.name, state: asset.state }));
+    },
+    async deleteReleaseAsset(assetId) {
+      await client.rest.repos.deleteReleaseAsset({ ...repo, asset_id: assetId });
+    },
+    async uploadReleaseAsset(releaseId, asset) {
+      const data = await fs.readFile(asset.path);
+      await client.rest.repos.uploadReleaseAsset({
+        ...repo,
+        release_id: releaseId,
+        name: asset.name,
+        data: data as unknown as string,
+        headers: {
+          'content-type': mime.lookup(asset.name) || 'application/octet-stream',
+          'content-length': String(data.byteLength),
+        },
+      });
+    },
+  };
 }
 
 interface GhResult {

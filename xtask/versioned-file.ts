@@ -11,8 +11,7 @@ import {
   parseCargoToml,
 } from './cargo-toml.ts';
 import { ROOT_DIR } from './consts.ts';
-import { cratesVersionExists, npmVersionExists } from './registry.ts';
-import { never } from './utils.ts';
+import { registryOfManifest } from './registry.ts';
 import { type BumpRule, Version } from './version.ts';
 
 export const VersionedFileTypeSchema = z.enum(['package.json', 'Cargo.toml']);
@@ -51,14 +50,23 @@ export class VersionedFile {
     const filename = path.basename(absolutePath);
     const content = await fs.readFile(absolutePath, 'utf8');
     switch (filename) {
+      case 'package.json':
+      case 'Cargo.toml':
+        return VersionedFile.parse(filename, filepath, content);
+      default:
+        throw new Error(`unrecognized file: ${filepath}`);
+    }
+  }
+
+  /** Build a versioned file from raw manifest content (`null` for a `package.json` without a version). */
+  static parse(type: VersionedFileType, filepath: string, content: string): VersionedFile | null {
+    switch (type) {
       case 'package.json': {
         const pkg = PackageJson.create(filepath, content);
         return pkg == null ? null : new VersionedFile('package.json', pkg);
       }
       case 'Cargo.toml':
         return new VersionedFile('Cargo.toml', new Cargo(filepath, content));
-      default:
-        throw new Error(`unrecognized file: ${filepath}`);
     }
   }
 
@@ -104,42 +112,14 @@ export class VersionedFile {
   }
 
   get registry(): VersionedFileRegistry {
+    const registry = registryOfManifest(this.type);
     const version = this.nextVersion.toString();
-
-    switch (this.type) {
-      case 'package.json':
-        return {
-          name: this.name,
-          type: 'npm',
-          version,
-          url: `https://www.npmjs.com/package/${this.name}/v/${version}`,
-        };
-      case 'Cargo.toml':
-        return {
-          name: this.name,
-          type: 'cargo',
-          version,
-          url: `https://crates.io/crates/${this.name}/${version}`,
-        };
-      default:
-        return never();
-    }
-  }
-
-  /**
-   * Whether `version` of this manifest is already live in its registry. `null` when the check
-   * itself failed — the caller should then attempt the publish and let the registry reject a
-   * duplicate.
-   */
-  async existsInRegistry(version: Version): Promise<boolean | null> {
-    switch (this.type) {
-      case 'package.json':
-        return npmVersionExists(this.name, version.toString());
-      case 'Cargo.toml':
-        return cratesVersionExists(this.name, version.toString());
-      default:
-        return never();
-    }
+    return {
+      name: this.name,
+      type: registry.type,
+      version,
+      url: registry.url(this.name, version),
+    };
   }
 
   bumpVersion(rule: BumpRule): void {
@@ -160,24 +140,24 @@ export class VersionedFile {
     return this.pkgManager.write(this.nextVersion);
   }
 
-  publish(distTag?: string): Action[] {
-    if (!this.hasChanged || !this.canPublish) {
-      return [];
-    }
-    return this.pkgManager.publish(this.nextVersion, distTag);
-  }
-
-  /**
-   * Publish actions for the file's *current* version, regardless of `hasChanged`.
-   *
-   * Used by the tag-based `publish` command, where version files were already bumped by a
-   * merged Release PR (so there is no pending bump in this run).
-   */
-  publishCurrent(distTag?: string): Action[] {
-    if (!this.canPublish) {
-      return [];
-    }
-    return this.pkgManager.publish(this.version, distTag);
+  /** The action publishing `version` of this manifest to its registry. */
+  publishAction(version: Version, distTag?: string): Action {
+    const registry = registryOfManifest(this.type);
+    const command = registry.publishCommand({
+      name: this.name,
+      dir: path.dirname(this.path),
+      version,
+      distTag,
+    });
+    return {
+      type: 'publish',
+      registry: registry.type,
+      manifest: this.name,
+      version: version.toString(),
+      cmd: command.cmd,
+      args: command.args,
+      path: command.path,
+    };
   }
 }
 
@@ -188,7 +168,6 @@ interface PackageManager {
   readonly canPublish: boolean;
   readonly dependencyNames: string[];
   write(nextVersion: Version): Action[];
-  publish(version: Version, distTag?: string): Action[];
 }
 
 class PackageJson implements PackageManager {
@@ -252,28 +231,6 @@ class PackageJson implements PackageManager {
       },
     ];
   }
-
-  publish(version: Version, distTag?: string): Action[] {
-    const args = ['npm', 'publish', '--access=public', '--provenance'];
-    const prerelease = version.prerelease;
-    if (prerelease != null) {
-      // Prereleases publish under their channel id (e.g. `next`).
-      args.push(`--tag=${prerelease.id}`);
-    } else if (distTag != null) {
-      // Maintenance lines publish under a line tag so `latest` never moves backward.
-      args.push(`--tag=${distTag}`, '--staged');
-    } else {
-      args.push('--staged');
-    }
-    return [
-      {
-        type: 'command',
-        cmd: 'yarn',
-        args,
-        path: path.dirname(this.path),
-      },
-    ];
-  }
 }
 
 class Cargo implements PackageManager {
@@ -333,17 +290,6 @@ class Cargo implements PackageManager {
         path: this.path,
         content,
         prevContent: this.raw,
-      },
-    ];
-  }
-
-  publish(_nextVersion: Version): Action[] {
-    return [
-      {
-        type: 'command',
-        cmd: 'cargo',
-        args: ['publish', '--allow-dirty', '-p', this.name],
-        path: '',
       },
     ];
   }
