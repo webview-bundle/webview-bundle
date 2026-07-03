@@ -2,8 +2,8 @@ import type { Repository } from 'es-git';
 import { runCommand } from './child_process.ts';
 import { GIT_SIGNATURE } from './consts.ts';
 import { createGitHubPort } from './github.ts';
-import { registryOfManifest } from './registry.ts';
-import type { VersionedFileType } from './versioned-file.ts';
+import { registryOf } from './registry.ts';
+import { toRegisterType, type VersionedFileType } from './versioned-file.ts';
 
 /**
  * The side-effect boundary of the release pipeline. Everything that touches the outside world —
@@ -81,7 +81,7 @@ const procPort: ProcPort = {
 
 const registryPort: RegistryPort = {
   exists(type, name, version) {
-    return registryOfManifest(type).exists(name, version);
+    return registryOf(toRegisterType(type)).exists(name, version);
   },
 };
 

@@ -45,7 +45,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 const FETCH_RETRIES = 2;
 const RETRY_BASE_MS = 500;
 
-export interface FetchRetryOptions {
+interface FetchRetryOptions {
   retries?: number;
   baseDelayMs?: number;
   timeoutMs?: number;
@@ -53,15 +53,7 @@ export interface FetchRetryOptions {
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * `fetch` with retry on *transient* failures — a thrown network/timeout error, or a retryable
- * status (429, or >= 500) — using exponential backoff. A definitive answer (any other status,
- * including 200/404) returns immediately without a retry. After the last attempt the final
- * response is returned (or the last error re-thrown) so a caller can fall back to `null`
- * (unknown). Without this a single network blip during a release would skip the
- * already-published check and trigger an unnecessary publish attempt.
- */
-export async function fetchWithRetry(url: string, opts: FetchRetryOptions = {}): Promise<Response> {
+async function fetchWithRetry(url: string, opts: FetchRetryOptions = {}): Promise<Response> {
   const {
     retries = FETCH_RETRIES,
     baseDelayMs = RETRY_BASE_MS,
@@ -86,7 +78,7 @@ export async function fetchWithRetry(url: string, opts: FetchRetryOptions = {}):
   }
 }
 
-export const npmRegistry: Registry = {
+const npmRegistry: Registry = {
   type: 'npm',
 
   url(name, version) {
@@ -131,7 +123,7 @@ export const npmRegistry: Registry = {
   },
 };
 
-export const cratesRegistry: Registry = {
+const cratesRegistry: Registry = {
   type: 'cargo',
 
   url(name, version) {
@@ -175,7 +167,7 @@ export const cratesRegistry: Registry = {
   },
 };
 
-export const jsrRegistry: Registry = {
+const jsrRegistry: Registry = {
   type: 'jsr',
 
   url(name, version) {
@@ -229,20 +221,8 @@ export function registryOf(type: RegistryType): Registry {
   return registries[type];
 }
 
-/** The registry a manifest type publishes to. */
-export function registryOfManifest(type: 'package.json' | 'Cargo.toml' | 'deno.json'): Registry {
-  switch (type) {
-    case 'package.json':
-      return npmRegistry;
-    case 'Cargo.toml':
-      return cratesRegistry;
-    case 'deno.json':
-      return jsrRegistry;
-  }
-}
-
 /** Sparse-index path for a crate name: `1/a`, `2/ab`, `3/a/abc`, `ab/cd/abcdefg`. */
-export function crateIndexPath(name: string): string {
+function crateIndexPath(name: string): string {
   const lower = name.toLowerCase();
   switch (lower.length) {
     case 1:

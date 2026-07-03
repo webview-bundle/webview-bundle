@@ -285,7 +285,6 @@ export async function applyPackagePublish(
     return { package: pkg, status: 'already-published' };
   }
   if (publishes.length === 0) {
-    // Nothing goes to a registry (e.g. a private package that is only tagged + GitHub-released).
     return { package: pkg, status: 'published' };
   }
   if (scripts.length > 0) {

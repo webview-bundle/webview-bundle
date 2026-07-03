@@ -12,11 +12,22 @@ import {
   parseCargoToml,
 } from './cargo-toml.ts';
 import { ROOT_DIR } from './consts.ts';
-import { registryOfManifest } from './registry.ts';
+import { type RegistryType, registryOf } from './registry.ts';
 import { type BumpRule, Version } from './version.ts';
 
 export const VersionedFileTypeSchema = z.enum(['package.json', 'Cargo.toml', 'deno.json']);
 export type VersionedFileType = z.infer<typeof VersionedFileTypeSchema>;
+
+export function toRegisterType(type: VersionedFileType): RegistryType {
+  switch (type) {
+    case 'package.json':
+      return 'npm';
+    case 'Cargo.toml':
+      return 'cargo';
+    case 'deno.json':
+      return 'jsr';
+  }
+}
 
 export interface VersionedFileRegistry {
   name: string;
@@ -48,16 +59,12 @@ export class VersionedFile {
 
   static async load(filepath: string): Promise<VersionedFile | null> {
     const absolutePath = path.join(ROOT_DIR, filepath);
-    const filename = path.basename(absolutePath);
-    const content = await fs.readFile(absolutePath, 'utf8');
-    switch (filename) {
-      case 'package.json':
-      case 'Cargo.toml':
-      case 'deno.json':
-        return VersionedFile.parse(filename, filepath, content);
-      default:
-        throw new Error(`unrecognized file: ${filepath}`);
+    const filename = VersionedFileTypeSchema.safeParse(path.basename(absolutePath));
+    if (!filename.success) {
+      throw new Error(`unrecognized file: ${filepath}`);
     }
+    const content = await fs.readFile(absolutePath, 'utf8');
+    return VersionedFile.parse(filename.data, filepath, content);
   }
 
   /**
@@ -121,7 +128,7 @@ export class VersionedFile {
   }
 
   get registry(): VersionedFileRegistry {
-    const registry = registryOfManifest(this.type);
+    const registry = registryOf(toRegisterType(this.type));
     const version = this.nextVersion.toString();
     return {
       name: this.name,
@@ -151,7 +158,7 @@ export class VersionedFile {
 
   /** The action publishing `version` of this manifest to its registry. */
   publishAction(version: Version, distTag?: string): Action {
-    const registry = registryOfManifest(this.type);
+    const registry = registryOf(toRegisterType(this.type));
     const command = registry.publishCommand({
       name: this.name,
       dir: path.dirname(this.path),
