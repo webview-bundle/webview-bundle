@@ -182,10 +182,16 @@ where
     let data = self
       .data
       .get_or_try_init(|| async {
-        if !tokio::fs::try_exists(&self.filepath).await? {
-          return Ok::<RwLock<BundleManifestData>, crate::Error>(Default::default());
-        }
-        let raw = read_with_win_retry(&self.filepath).await?;
+        // Existence is probed by the read itself: a separate `try_exists` sits outside the
+        // Windows retry below, and metadata queries can also transiently fail with
+        // ACCESS_DENIED while a concurrent save renames the manifest into place.
+        let raw = match read_with_win_retry(&self.filepath).await {
+          Ok(raw) => raw,
+          Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok::<RwLock<BundleManifestData>, crate::Error>(Default::default());
+          }
+          Err(e) => return Err(e.into()),
+        };
         let data: BundleManifestData = serde_json::from_slice(&raw)?;
         Ok::<RwLock<BundleManifestData>, crate::Error>(RwLock::new(data))
       })
