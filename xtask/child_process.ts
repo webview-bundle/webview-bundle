@@ -8,12 +8,25 @@ export interface RunCommandOptions {
   reject?: boolean;
 }
 
-export async function runCommand(cmd: string, args: string[], options: RunCommandOptions = {}) {
+export interface RunCommandResult {
+  exitCode: number | undefined;
+  /** The command's combined stdout + stderr, as printed. */
+  output: string;
+}
+
+export async function runCommand(
+  cmd: string,
+  args: string[],
+  options: RunCommandOptions = {}
+): Promise<RunCommandResult> {
   const { cwd, env, prefix = '', reject = false } = options;
+  const lines: string[] = [];
   const stdout = function* (line: string) {
+    lines.push(line);
     yield `${prefix}${line}`;
   };
   const stderr = function* (line: string) {
+    lines.push(line);
     yield `${prefix}${line}`;
   };
   const { exitCode } = await (execa as any)(cmd, args, {
@@ -26,5 +39,5 @@ export async function runCommand(cmd: string, args: string[], options: RunComman
   if (reject && exitCode !== 0) {
     throw new Error(`Command failed with exit code ${exitCode}`);
   }
-  return { exitCode } as { exitCode: number | undefined };
+  return { exitCode, output: lines.join('\n') };
 }

@@ -16,10 +16,9 @@ picks up the new version. Contributors are not required to follow any commit con
    version bump, propagates through the dependency graph, then commits the bumps + changelogs to a
    content-addressed `release/<hash>` branch and opens (or updates) a PR via the `gh` CLI.
 2. Merging that PR is the trigger: on the base branch the CI runs `just xtask release`, which
-   publishes every package whose current version is not yet tagged, tags the merge commit, pushes
-   the tags, and creates GitHub releases (uploading each package's configured assets).
-   Tagging marks a package released, so a partial failure is recoverable — re-running republishes
-   only the still-untagged packages.
+   publishes every package bumped by the merge commit, tags the merge commit, pushes the tags, and
+   creates GitHub releases (uploading each package's configured assets). Every step skips work
+   that is already done, so a partial failure is recoverable by re-running the job.
 
 > [!NOTE]
 > npm package will be [staged](https://docs.npmjs.com/staged-publishing) published when releasing to a stable channel.
@@ -30,8 +29,9 @@ picks up the new version. Contributors are not required to follow any commit con
 On every other base-branch commit, CI runs `just xtask prerelease`. It computes the affected
 packages (directly changed since their last tag, plus dependency-graph propagation), bumps them to
 `x.y.z-next.<short-sha>`, and publishes under the `next` channel — without committing
-(`cargo publish --allow-dirty`). The set of prereleased packages is reported via the job output
-(`prereleased`, `packages`) and the step summary.
+(`cargo publish --allow-dirty`). Each target's publish status (including failures) is reported
+via the job output (`prereleased`, `packages`) and the step summary. Re-running the job on the
+same commit retries only what is missing.
 
 This workflow is used to test a package's behavior prior to the official release.
 

@@ -38,17 +38,7 @@ export class Changelog {
     } else {
       const packages = pkg.versionedFiles
         .filter(x => x.canPublish)
-        // biome-ignore lint/suspicious/useIterableCallbackReturn: ts issue
-        .map((file): string => {
-          const name = file.name;
-          const version = file.nextVersion.toString();
-          switch (file.type) {
-            case 'package.json':
-              return `[\`${name}\`](https://www.npmjs.com/package/${name}/v/${version})`;
-            case 'Cargo.toml':
-              return `[\`${name}\`](https://crates.io/crates/${name}/${version})`;
-          }
-        })
+        .map(file => `[\`${file.name}\`](${file.registry.url})`)
         .join(', ');
       const lines = [
         '',

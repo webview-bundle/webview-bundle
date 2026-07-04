@@ -5,13 +5,17 @@ import { type Action, runActions } from '../action.ts';
 import { Changelog } from '../changelog.ts';
 import { Change, Changes } from '../changes.ts';
 import { ColorModeOption, c, setColorMode } from '../console.ts';
-import { GITHUB_REPO, ROOT_DIR } from '../consts.ts';
-import { createGitHubClient, resolveAssets, uploadReleaseAssets } from '../github.ts';
+import { ROOT_DIR } from '../consts.ts';
+import { resolveAssets } from '../github.ts';
 import type { Package, PackageGraph } from '../package.ts';
+import { createPorts, type GitHubRelease, type Ports } from '../ports.ts';
 import {
   describeReleasedPackage,
+  formatPublishStatus,
   logTarget,
+  type PublishOutcome,
   planRelease,
+  publishPackage,
   type ReleasePlan,
   type ReleaseTarget,
   writeReleaseTargets,
@@ -25,8 +29,13 @@ import {
  * runs with `--allow-dirty`), and publishes the registry-publishable ones under the `<id>` channel
  * (npm dist-tag). Every affected package's assets — including the Android/Swift FFI artifacts that
  * aren't published to a registry — are uploaded to a single `prerelease: true` GitHub release
- * tagged `prerelease/<sha>`, so prerelease builds can be downloaded from a separate repo. The set
- * of prereleased packages is reported via GitHub Actions output and the step summary.
+ * tagged `prerelease/<sha>`, so prerelease builds can be downloaded from a separate repo. Every
+ * target's publish status (including failures) is reported via GitHub Actions output and the
+ * step summary.
+ *
+ * The prerelease version is derived from the commit (`<id>.<short-sha>`), so re-running the job
+ * on the same commit retries only what is missing: already-published versions are skipped, the
+ * existing GitHub release is reused, and only its missing assets are uploaded.
  */
 export class PrereleaseCommand extends Command {
   static paths = [['prerelease']];
@@ -61,12 +70,7 @@ export class PrereleaseCommand extends Command {
     }
     const sha = head.slice(0, 7);
     const tag = `prerelease/${sha}`;
-
-    if (await this.alreadyReleased(tag)) {
-      console.log(`${c.warn('[root]')} "${tag}" already exists. nothing to prerelease.`);
-      await this.setOutput('prereleased', 'false');
-      return 1;
-    }
+    const ports = createPorts({ repo, githubToken: this.githubToken });
 
     // 1) Registry prereleases: bump + publish only packages that publish to a registry.
     const publishable = plan.candidates.filter(pkg => pkg.canPublish);
@@ -76,19 +80,23 @@ export class PrereleaseCommand extends Command {
     }
     // Write bumped versions + changelogs so the publish carries them. Not committed.
     await writeReleaseTargets(targets, { dryRun: this.dryRun });
-    const published = await this.publishTargets(targets);
+    const outcomes = await this.publishTargets(targets, ports);
+    const published = outcomes.filter(x => x.status !== 'failed').map(x => x.package);
 
-    // 2) One aggregated GitHub prerelease hosting every affected package's assets.
-    const assetReleaseUrl = await this.uploadPrereleaseAssets(
+    // 2) One aggregated GitHub prerelease hosting every affected package's assets. A failure here
+    // must not prevent the report below.
+    const { url: assetReleaseUrl, failed: assetsFailed } = await this.ensurePrereleaseAssets(
       plan.candidates,
       head,
       sha,
       tag,
-      published
+      published,
+      ports
     );
 
-    await this.report(published, assetReleaseUrl);
-    return published.length === targets.length ? 0 : 1;
+    await this.report(outcomes, assetReleaseUrl);
+    const allPublished = outcomes.every(x => x.status !== 'failed');
+    return allPublished && !assetsFailed ? 0 : 1;
   }
 
   /** Bump every (publishable) candidate to a prerelease of its current version and build its changelog. */
@@ -131,102 +139,72 @@ export class PrereleaseCommand extends Command {
     return new Changes(changes);
   }
 
-  /** Publish each target (running its beforePublish scripts first); returns the ones that succeeded. */
-  private async publishTargets(targets: ReleaseTarget[]): Promise<Package[]> {
-    const published: Package[] = [];
+  /** Publish each target idempotently (see {@link publishPackage}); returns every outcome. */
+  private async publishTargets(targets: ReleaseTarget[], ports: Ports): Promise<PublishOutcome[]> {
+    const outcomes: PublishOutcome[] = [];
     for (const { package: pkg } of targets) {
-      if (!(await this.runBeforePublish(pkg))) {
-        continue;
-      }
-      const result = await runActions(pkg.publish(), {
-        name: pkg.name,
-        dryRun: this.dryRun,
-        failFast: false,
-        reject: false,
-      });
-      if (result.allSucceed) {
-        published.push(pkg);
-      } else {
+      const outcome = await publishPackage(pkg, { dryRun: this.dryRun, ports });
+      if (outcome.status === 'failed') {
         console.error(`${c.error(`[${pkg.name}]`)} prerelease publish failed`);
       }
+      outcomes.push(outcome);
     }
-    return published;
-  }
-
-  private async runBeforePublish(pkg: Package): Promise<boolean> {
-    if (pkg.beforePublishScripts.length === 0) {
-      return true;
-    }
-    const result = await runActions(
-      pkg.beforePublishScripts.map(
-        (script): Action => ({
-          type: 'command',
-          cmd: script.command,
-          args: (script.args ?? []) as string[],
-          path: script.cwd ?? pkg.path,
-        })
-      ),
-      { name: pkg.name, dryRun: this.dryRun, reject: false }
-    );
-    if (!result.allSucceed) {
-      console.error(`${c.error(`[${pkg.name}]`)} beforePublish scripts failed`);
-      return false;
-    }
-    return true;
+    return outcomes;
   }
 
   /**
    * Collect every affected package's assets and upload them to one GitHub release tagged
    * `prerelease/<sha>` (marked `prerelease: true`), so prerelease builds — notably the Android/Swift
-   * FFI artifacts that aren't published to a registry — can be downloaded. Returns the release URL,
-   * or `null` when there is nothing to upload (or no token / dry-run).
+   * FFI artifacts that aren't published to a registry — can be downloaded. A release left by a
+   * previous run is reused: its body is refreshed and only the missing assets are uploaded.
+   * Returns the release URL (`null` when there is nothing to upload, or no token / dry-run).
    */
-  private async uploadPrereleaseAssets(
+  private async ensurePrereleaseAssets(
     candidates: Package[],
     commitish: string,
     sha: string,
     tag: string,
-    published: Package[]
-  ): Promise<string | null> {
-    const assets = (await Promise.all(candidates.map(pkg => resolveAssets(pkg)))).flat();
-    if (assets.length === 0) {
-      console.log(`${c.warn('[root]')} no assets found. skip prerelease release.`);
-      return null;
-    }
-    if (this.dryRun || this.githubToken == null) {
-      console.log(
-        `${c.info('[root]')} will create prerelease "${tag}" with ${assets.length} asset(s):`
-      );
-      for (const asset of assets) {
-        console.log(c.dim(`  ${asset.name}`));
+    published: Package[],
+    ports: Ports
+  ): Promise<{ url: string | null; failed: boolean }> {
+    try {
+      const assets = (await Promise.all(candidates.map(pkg => resolveAssets(pkg)))).flat();
+      if (assets.length === 0) {
+        console.log(`${c.warn('[root]')} no assets found. skip prerelease release.`);
+        return { url: null, failed: false };
       }
-      return null;
+      const actions: Action[] = [
+        {
+          type: 'ensureRelease',
+          tag,
+          name: `prerelease ${sha}`,
+          body: this.prereleaseBody(sha, published),
+          prerelease: true,
+          targetCommitish: commitish,
+          updateBody: true,
+        },
+        { type: 'uploadAssets', tag, assets },
+      ];
+      const result = await runActions(actions, {
+        dryRun: this.dryRun,
+        ports,
+        failFast: true,
+        reject: false,
+      });
+      // Only surface the release URL when the whole phase succeeded, so a failed run never points
+      // the `assets` output / summary at a release with an incomplete asset set.
+      if (!result.allSucceed) {
+        return { url: null, failed: true };
+      }
+      const release = result.items.find(item => item.action.type === 'ensureRelease');
+      const data = release?.succeed === true ? (release.data as GitHubRelease | undefined) : null;
+      return { url: data?.htmlUrl ?? null, failed: false };
+    } catch (e) {
+      console.error(
+        `${c.error('[root]')} failed to upload prerelease assets: ${(e as Error).message}`
+      );
+      return { url: null, failed: true };
     }
-
-    const client = createGitHubClient(this.githubToken);
-    const repo = { owner: GITHUB_REPO.owner, repo: GITHUB_REPO.name };
-    const release = await client.rest.repos.createRelease({
-      ...repo,
-      tag_name: tag,
-      target_commitish: commitish,
-      name: `prerelease ${sha}`,
-      body: this.prereleaseBody(sha, published),
-      prerelease: true,
-    });
-    console.log(`${c.success('[root]')} prerelease release: ${release.data.tag_name}`);
-    await uploadReleaseAssets(client, release.data.id, assets);
-    return release.data.html_url;
-  }
-
-  private async alreadyReleased(tag: string): Promise<boolean> {
-    if (this.dryRun || this.githubToken == null) {
-      return false;
-    }
-    const client = createGitHubClient(this.githubToken);
-    const repo = { owner: GITHUB_REPO.owner, repo: GITHUB_REPO.name };
-    // getRef answers 404 when the ref does not exist.
-    const ref = await client.rest.git.getRef({ ...repo, ref: `tags/${tag}` }).catch(() => null);
-    return ref != null;
   }
 
   private prereleaseBody(sha: string, published: Package[]): string {
@@ -241,23 +219,30 @@ export class PrereleaseCommand extends Command {
     return lines.join('\n');
   }
 
-  /** Report the prereleased packages + the assets release via the GitHub Actions output and summary. */
-  private async report(published: Package[], assetReleaseUrl: string | null): Promise<void> {
-    const entries = published.map(pkg => describeReleasedPackage(pkg));
+  /**
+   * Report every target's publish status (including failures) via the GitHub Actions output and
+   * step summary. The `packages` output keeps carrying only the published packages.
+   */
+  private async report(outcomes: PublishOutcome[], assetReleaseUrl: string | null): Promise<void> {
+    const published = outcomes.filter(x => x.status !== 'failed');
+    const entries = published.map(x => describeReleasedPackage(x.package));
     await this.setOutput('prereleased', published.length > 0 ? 'true' : 'false');
     await this.setOutput('packages', JSON.stringify(entries));
     if (assetReleaseUrl != null) {
       await this.setOutput('assets', assetReleaseUrl);
     }
-    if (this.githubStepSummary != null && (entries.length > 0 || assetReleaseUrl != null)) {
+    if (this.githubStepSummary != null && (outcomes.length > 0 || assetReleaseUrl != null)) {
       const summary = [
         '## Prerelease',
         '',
-        ...(entries.length > 0
+        ...(outcomes.length > 0
           ? [
-              '| package | version |',
-              '| --- | --- |',
-              ...entries.map(entry => `| \`${entry.name}\` | \`${entry.version}\` |`),
+              '| package | version | status |',
+              '| --- | --- | --- |',
+              ...outcomes.map(
+                outcome =>
+                  `| \`${outcome.package.name}\` | \`${outcome.package.nextVersion.toString()}\` | ${formatPublishStatus(outcome)} |`
+              ),
               '',
             ]
           : []),
