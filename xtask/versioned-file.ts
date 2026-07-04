@@ -329,7 +329,7 @@ function scanDenoSourceImports(denoJsonPath: string): string[] {
   const files = globSync('**/*.{ts,tsx,mts,cts,js,mjs,cjs}', {
     cwd: dir,
     onlyFiles: true,
-    ignore: ['**/node_modules/**'],
+    ignore: ['**/node_modules/**', '**/dist/**', '**/target/**'],
   });
   const specifiers = new Set<string>();
   const re = /(?:\bfrom|\bimport\b\s*\(?)\s*['"]([^'"\n]+)['"]/g;
