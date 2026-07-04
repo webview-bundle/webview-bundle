@@ -123,6 +123,7 @@ jobs:
           name: artifacts-${{ github.ref_name }}-${{ matrix.settings.host }}-${{ matrix.settings.target }}
           path: artifacts-merged
           if-no-files-found: error
+          overwrite: true
 
   build-ffi-android:
     runs-on: ubuntu-latest
@@ -170,6 +171,7 @@ jobs:
           name: artifacts-${{ github.ref_name }}-ffi-android
           path: artifacts-merged
           if-no-files-found: error
+          overwrite: true
 
   build-ffi-apple:
     runs-on: macos-latest
@@ -207,6 +209,7 @@ jobs:
           name: artifacts-${{ github.ref_name }}-ffi-apple
           path: artifacts-merged
           if-no-files-found: error
+          overwrite: true
 
   release:
     runs-on: ubuntu-latest

@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { glob } from 'tinyglobby';
+import { glob, globSync } from 'tinyglobby';
 import type { PackageJson as PackageJsonType } from 'type-fest';
 import { z } from 'zod';
 import type { Action } from './action.ts';
@@ -11,11 +12,22 @@ import {
   parseCargoToml,
 } from './cargo-toml.ts';
 import { ROOT_DIR } from './consts.ts';
-import { never } from './utils.ts';
+import { type RegistryType, registryOf } from './registry.ts';
 import { type BumpRule, Version } from './version.ts';
 
-export const VersionedFileTypeSchema = z.enum(['package.json', 'Cargo.toml']);
+export const VersionedFileTypeSchema = z.enum(['package.json', 'Cargo.toml', 'deno.json']);
 export type VersionedFileType = z.infer<typeof VersionedFileTypeSchema>;
+
+export function toRegisterType(type: VersionedFileType): RegistryType {
+  switch (type) {
+    case 'package.json':
+      return 'npm';
+    case 'Cargo.toml':
+      return 'cargo';
+    case 'deno.json':
+      return 'jsr';
+  }
+}
 
 export interface VersionedFileRegistry {
   name: string;
@@ -47,17 +59,30 @@ export class VersionedFile {
 
   static async load(filepath: string): Promise<VersionedFile | null> {
     const absolutePath = path.join(ROOT_DIR, filepath);
-    const filename = path.basename(absolutePath);
+    const filename = VersionedFileTypeSchema.safeParse(path.basename(absolutePath));
+    if (!filename.success) {
+      throw new Error(`unrecognized file: ${filepath}`);
+    }
     const content = await fs.readFile(absolutePath, 'utf8');
-    switch (filename) {
+    return VersionedFile.parse(filename.data, filepath, content);
+  }
+
+  /**
+   * Build a versioned file from raw manifest content. Returns `null` for a manifest with no
+   * `version` (a `package.json` without one, or a versionless Deno workspace-root `deno.json`).
+   */
+  static parse(type: VersionedFileType, filepath: string, content: string): VersionedFile | null {
+    switch (type) {
       case 'package.json': {
         const pkg = PackageJson.create(filepath, content);
         return pkg == null ? null : new VersionedFile('package.json', pkg);
       }
       case 'Cargo.toml':
         return new VersionedFile('Cargo.toml', new Cargo(filepath, content));
-      default:
-        throw new Error(`unrecognized file: ${filepath}`);
+      case 'deno.json': {
+        const deno = DenoJson.create(filepath, content);
+        return deno == null ? null : new VersionedFile('deno.json', deno);
+      }
     }
   }
 
@@ -103,26 +128,14 @@ export class VersionedFile {
   }
 
   get registry(): VersionedFileRegistry {
+    const registry = registryOf(toRegisterType(this.type));
     const version = this.nextVersion.toString();
-
-    switch (this.type) {
-      case 'package.json':
-        return {
-          name: this.name,
-          type: 'npm',
-          version,
-          url: `https://www.npmjs.com/package/${this.name}/v/${version}`,
-        };
-      case 'Cargo.toml':
-        return {
-          name: this.name,
-          type: 'cargo',
-          version,
-          url: `https://crates.io/crates/${this.name}/${version}`,
-        };
-      default:
-        return never();
-    }
+    return {
+      name: this.name,
+      type: registry.type,
+      version,
+      url: registry.url(this.name, version),
+    };
   }
 
   bumpVersion(rule: BumpRule): void {
@@ -143,24 +156,24 @@ export class VersionedFile {
     return this.pkgManager.write(this.nextVersion);
   }
 
-  publish(distTag?: string): Action[] {
-    if (!this.hasChanged || !this.canPublish) {
-      return [];
-    }
-    return this.pkgManager.publish(this.nextVersion, distTag);
-  }
-
-  /**
-   * Publish actions for the file's *current* version, regardless of `hasChanged`.
-   *
-   * Used by the tag-based `publish` command, where version files were already bumped by a
-   * merged Release PR (so there is no pending bump in this run).
-   */
-  publishCurrent(distTag?: string): Action[] {
-    if (!this.canPublish) {
-      return [];
-    }
-    return this.pkgManager.publish(this.version, distTag);
+  /** The action publishing `version` of this manifest to its registry. */
+  publishAction(version: Version, distTag?: string): Action {
+    const registry = registryOf(toRegisterType(this.type));
+    const command = registry.publishCommand({
+      name: this.name,
+      dir: path.dirname(this.path),
+      version,
+      distTag,
+    });
+    return {
+      type: 'publish',
+      registry: registry.type,
+      manifest: this.name,
+      version: version.toString(),
+      cmd: command.cmd,
+      args: command.args,
+      path: command.path,
+    };
   }
 }
 
@@ -171,7 +184,6 @@ interface PackageManager {
   readonly canPublish: boolean;
   readonly dependencyNames: string[];
   write(nextVersion: Version): Action[];
-  publish(version: Version, distTag?: string): Action[];
 }
 
 class PackageJson implements PackageManager {
@@ -232,28 +244,6 @@ class PackageJson implements PackageManager {
         path: this.path,
         content,
         prevContent: this.raw,
-      },
-    ];
-  }
-
-  publish(version: Version, distTag?: string): Action[] {
-    const args = ['npm', 'publish', '--access=public', '--provenance'];
-    const prerelease = version.prerelease;
-    if (prerelease != null) {
-      // Prereleases publish under their channel id (e.g. `next`).
-      args.push(`--tag=${prerelease.id}`);
-    } else if (distTag != null) {
-      // Maintenance lines publish under a line tag so `latest` never moves backward.
-      args.push(`--tag=${distTag}`, '--staged');
-    } else {
-      args.push('--staged');
-    }
-    return [
-      {
-        type: 'command',
-        cmd: 'yarn',
-        args,
-        path: path.dirname(this.path),
       },
     ];
   }
@@ -319,14 +309,96 @@ class Cargo implements PackageManager {
       },
     ];
   }
+}
 
-  publish(_nextVersion: Version): Action[] {
+interface DenoJsonShape {
+  name?: string;
+  version?: string;
+  imports?: Record<string, string>;
+  private?: boolean;
+}
+
+/**
+ * Deno workspace members import siblings by package name (e.g. `@wvb/deno`), not through the
+ * `imports` map, so the source is scanned for bare specifiers to see those edges in the dependency
+ * graph. Only specifiers matching a workspace package feed the graph; the rest (e.g. `@std/path`)
+ * are ignored downstream.
+ */
+function scanDenoSourceImports(denoJsonPath: string): string[] {
+  const dir = path.dirname(path.join(ROOT_DIR, denoJsonPath));
+  const files = globSync('**/*.{ts,tsx,mts,cts,js,mjs,cjs}', {
+    cwd: dir,
+    onlyFiles: true,
+    ignore: ['**/node_modules/**', '**/dist/**', '**/target/**'],
+  });
+  const specifiers = new Set<string>();
+  const re = /(?:\bfrom|\bimport\b\s*\(?)\s*['"]([^'"\n]+)['"]/g;
+  for (const file of files) {
+    for (const match of readFileSync(path.join(dir, file), 'utf8').matchAll(re)) {
+      const spec = match[1];
+      if (spec != null && !spec.startsWith('.') && !spec.startsWith('/')) {
+        specifiers.add(spec);
+      }
+    }
+  }
+  return [...specifiers];
+}
+
+class DenoJson implements PackageManager {
+  private readonly json: DenoJsonShape;
+  private readonly _path: string;
+  private readonly raw: string;
+
+  static create(path: string, raw: string): DenoJson | null {
+    const parsed: DenoJsonShape = JSON.parse(raw);
+    // A versionless deno.json (e.g. a Deno workspace-root config with only a `workspace` field) is
+    // not a release target.
+    if (parsed.version == null) {
+      return null;
+    }
+    if (parsed.name == null) {
+      throw new Error('"name" field is required in deno.json');
+    }
+    return new DenoJson(path, parsed, raw);
+  }
+
+  private constructor(path: string, json: DenoJsonShape, raw: string) {
+    this.json = json;
+    this._path = path;
+    this.raw = raw;
+  }
+
+  get name(): string {
+    return this.json.name!;
+  }
+
+  get path(): string {
+    return this._path;
+  }
+
+  get version(): Version {
+    return Version.parse(this.json.version!);
+  }
+
+  get canPublish(): boolean {
+    return this.json.private !== true;
+  }
+
+  get dependencyNames(): string[] {
+    return [...Object.keys(this.json.imports ?? {}), ...scanDenoSourceImports(this._path)];
+  }
+
+  write(nextVersion: Version): Action[] {
+    const json = { ...this.json };
+    json.version = nextVersion.toString();
+
+    const content = `${JSON.stringify(json, null, 2)}\n`;
     return [
       {
-        type: 'command',
-        cmd: 'cargo',
-        args: ['publish', '--allow-dirty', '-p', this.name],
-        path: '',
+        type: 'write',
+        path: this.path,
+        content,
+        prevContent: this.raw,
       },
     ];
   }
