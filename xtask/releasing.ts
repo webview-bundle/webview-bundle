@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Commit, Repository, Tree } from 'es-git';
 import { isNotNil, uniq } from 'es-toolkit';
 import type { PackageJson } from 'type-fest';
-import { type Action, type RunActionResult, runActions } from './action.ts';
+import { type Action, runActions } from './action.ts';
 import { editCargoTomlVersion, formatCargoToml, parseCargoToml } from './cargo-toml.ts';
 import { Changelog } from './changelog.ts';
 import type { Changes } from './changes.ts';
@@ -12,7 +12,7 @@ import { c } from './console.ts';
 import { ROOT_DIR } from './consts.ts';
 import { commitsTouchingPaths } from './git.ts';
 import { Package, type PackageGraph } from './package.ts';
-import { isAlreadyPublishedRejection } from './registry.ts';
+import { defaultPorts, type Ports } from './ports.ts';
 import { Version } from './version.ts';
 import type { VersionedFile, VersionedFileRegistry } from './versioned-file.ts';
 
@@ -80,6 +80,8 @@ function versionAtTree(repo: Repository, tree: Tree, file: VersionedFile): strin
         return (JSON.parse(content) as PackageJson)?.version ?? null;
       case 'Cargo.toml':
         return parseCargoToml(content).package?.version ?? null;
+      case 'deno.json':
+        return (JSON.parse(content) as { version?: string })?.version ?? null;
     }
   } catch {
     return null;
@@ -193,89 +195,126 @@ export interface PublishPackageOptions {
   current?: boolean;
   distTag?: string;
   dryRun?: boolean;
+  ports?: Ports;
+}
+
+/** A publishable manifest's target version and whether it is already live in its registry. */
+export interface ManifestPublishState {
+  file: VersionedFile;
+  version: Version;
+  exists: boolean | null;
 }
 
 /**
- * Publish one package's manifests, skipping any whose version is already live in its registry.
- * This is what makes `release`/`prerelease` retryable: re-running after a partial failure
- * publishes only what is still missing instead of failing on "version already exists". The
- * `beforePublish` scripts run only when at least one manifest actually needs publishing.
+ * Observe which of `pkg`'s publishable manifest versions are already live in their registry.
+ * Dry runs stay offline (every version is reported missing, so the plan shows every publish).
  */
-export async function publishPackage(
+export async function observePublishState(
   pkg: Package,
   opts: PublishPackageOptions = {}
-): Promise<PublishOutcome> {
-  const { current = false, distTag, dryRun = false } = opts;
+): Promise<ManifestPublishState[]> {
+  const { current = false, dryRun = false, ports = defaultPorts } = opts;
   const files = pkg.versionedFiles.filter(file => file.canPublish && (current || file.hasChanged));
-  if (files.length === 0) {
-    // Nothing goes to a registry (e.g. a private package that is only tagged + GitHub-released).
-    return { package: pkg, status: 'published' };
-  }
-  const pending: VersionedFile[] = [];
+  const states: ManifestPublishState[] = [];
   for (const file of files) {
     const version = current ? file.version : file.nextVersion;
-    // Dry runs stay offline and show every publish that would run.
-    const exists = dryRun ? false : await file.existsInRegistry(version);
+    const exists = dryRun
+      ? false
+      : await ports.registry.exists(file.type, file.name, version.toString());
     if (exists === true) {
       console.log(
         `${c.warn(`[${pkg.name}]`)} ${file.name}@${version.toString()} already published. skip.`
       );
-    } else {
-      pending.push(file);
     }
+    states.push({ file, version, exists });
   }
-  if (pending.length === 0) {
+  return states;
+}
+
+/** What publishing one package still requires. */
+export interface PackagePublishPlan {
+  pkg: Package;
+  /** The `beforePublish` scripts; empty when nothing needs publishing. */
+  scripts: Action[];
+  /** The publishes still missing from their registry. */
+  publishes: Action[];
+  /** Publishable manifests exist, but every version is already live (pure retry no-op). */
+  alreadyPublished: boolean;
+}
+
+/**
+ * Decide what publishing `pkg` still requires, from the observed registry state. Pure. Skipping
+ * already-live versions is what makes `release`/`prerelease` retryable: re-running after a
+ * partial failure publishes only what is still missing instead of failing on "version already
+ * exists". The `beforePublish` scripts are planned only when at least one publish remains.
+ */
+export function planPackagePublish(
+  pkg: Package,
+  manifests: ManifestPublishState[],
+  opts: { distTag?: string } = {}
+): PackagePublishPlan {
+  const pending = manifests.filter(manifest => manifest.exists !== true);
+  const publishes = pending.map(manifest =>
+    manifest.file.publishAction(manifest.version, opts.distTag)
+  );
+  const scripts: Action[] =
+    pending.length === 0
+      ? []
+      : pkg.beforePublishScripts.map(script => ({
+          type: 'command',
+          cmd: script.command,
+          args: (script.args ?? []) as string[],
+          path: script.cwd ?? pkg.path,
+        }));
+  return {
+    pkg,
+    scripts,
+    publishes,
+    alreadyPublished: manifests.length > 0 && pending.length === 0,
+  };
+}
+
+/** Execute a package's publish plan; duplicate-version rejections count as already published. */
+export async function applyPackagePublish(
+  plan: PackagePublishPlan,
+  opts: { dryRun?: boolean; ports?: Ports } = {}
+): Promise<PublishOutcome> {
+  const { pkg, scripts, publishes, alreadyPublished } = plan;
+  const { dryRun = false, ports = defaultPorts } = opts;
+  if (alreadyPublished) {
     return { package: pkg, status: 'already-published' };
   }
-  if (!(await runBeforePublishScripts(pkg, dryRun))) {
-    return { package: pkg, status: 'failed', reason: 'beforePublish scripts failed' };
+  if (publishes.length === 0) {
+    return { package: pkg, status: 'published' };
   }
-  const actions = pending.flatMap(file =>
-    current ? file.publishCurrent(distTag) : file.publish(distTag)
-  );
-  const result = await runActions(actions, {
+  if (scripts.length > 0) {
+    const result = await runActions(scripts, { name: pkg.name, dryRun, ports, reject: false });
+    if (!result.allSucceed) {
+      console.error(`${c.error(`[${pkg.name}]`)} beforePublish scripts failed`);
+      return { package: pkg, status: 'failed', reason: 'beforePublish scripts failed' };
+    }
+  }
+  const result = await runActions(publishes, {
     name: pkg.name,
     dryRun,
+    ports,
     failFast: false,
     reject: false,
   });
-  const items: RunActionResult[] = result.items;
-  const failed = items.filter(
-    (item): item is Extract<RunActionResult, { succeed: false }> => !item.succeed
-  );
-  // A duplicate-version rejection means the version is already published — notably npm's *staged*
-  // publishes, which stay invisible to the registry check above until approved.
-  const rejected = failed.filter(item => isAlreadyPublishedRejection(item.output));
-  if (rejected.length > 0) {
-    console.log(
-      `${c.warn(`[${pkg.name}]`)} registry rejected ${rejected.length} publish(es) as duplicates. treating as already published.`
-    );
-  }
-  if (failed.length > rejected.length) {
+  if (!result.allSucceed) {
     return { package: pkg, status: 'failed', reason: 'publish failed' };
   }
   return { package: pkg, status: 'published' };
 }
 
-async function runBeforePublishScripts(pkg: Package, dryRun: boolean): Promise<boolean> {
-  if (pkg.beforePublishScripts.length === 0) {
-    return true;
-  }
-  const result = await runActions(
-    pkg.beforePublishScripts.map(
-      (script): Action => ({
-        type: 'command',
-        cmd: script.command,
-        args: (script.args ?? []) as string[],
-        path: script.cwd ?? pkg.path,
-      })
-    ),
-    { name: pkg.name, dryRun, reject: false }
-  );
-  if (!result.allSucceed) {
-    console.error(`${c.error(`[${pkg.name}]`)} beforePublish scripts failed`);
-  }
-  return result.allSucceed;
+/** Observe → plan → apply one package's publish. */
+export async function publishPackage(
+  pkg: Package,
+  opts: PublishPackageOptions = {}
+): Promise<PublishOutcome> {
+  const manifests = await observePublishState(pkg, opts);
+  const plan = planPackagePublish(pkg, manifests, opts);
+  return applyPackagePublish(plan, opts);
 }
 
 /** The status cell shown for a package in the GitHub step summary. */

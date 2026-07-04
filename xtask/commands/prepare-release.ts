@@ -49,7 +49,8 @@ export class PrepareReleaseCommand extends Command {
   async execute() {
     setColorMode(this.colorMode);
     const repo = await openRepository(ROOT_DIR);
-    await this.fetchTags(repo);
+    const baseTip = await this.fetchTagsAndBase(repo);
+    this.ensureOnBase(repo, baseTip);
 
     const plan = await planRelease(repo);
     if (plan.candidates.length === 0) {
@@ -70,15 +71,45 @@ export class PrepareReleaseCommand extends Command {
     return 0;
   }
 
-  /** Fetch tags (so "commits since last tag" is accurate) and make sure `HEAD` exists. */
-  private async fetchTags(repo: Repository): Promise<void> {
+  /**
+   * Fetch tags (so "commits since last tag" is accurate) and the `--base` branch, and return the
+   * fetched base tip. `HEAD` must exist; whether it matches the base tip is checked separately by
+   * {@link ensureOnBase}.
+   */
+  private async fetchTagsAndBase(repo: Repository): Promise<string> {
     const remote = repo.getRemote('origin');
-    await remote.fetch([], {
+    await remote.fetch([`+refs/heads/${this.base}:refs/remotes/origin/${this.base}`], {
       fetch: { downloadTags: 'All', credential: { type: 'SSHKeyFromAgent' } },
     });
     if (repo.head().target() == null) {
       throw new Error('cannot find git `HEAD` target');
     }
+    try {
+      return repo.revparseSingle(`refs/remotes/origin/${this.base}`);
+    } catch {
+      throw new Error(`cannot resolve base branch "origin/${this.base}" after fetch`);
+    }
+  }
+
+  /**
+   * The release commit is built from the working tree and parented on `HEAD`, so `HEAD` has to be
+   * the up-to-date tip of `--base`. Otherwise local commits ahead of the base (or a `--base` other
+   * than the checked-out branch) would leak into the release PR, and the bumps would be computed off
+   * the wrong base. Refuse when they diverge — a dry run only warns so it can still preview.
+   */
+  private ensureOnBase(repo: Repository, baseTip: string): void {
+    const head = repo.head().target();
+    if (head === baseTip) {
+      return;
+    }
+    const message =
+      `local \`HEAD\` (${head?.slice(0, 7)}) is not the tip of origin/${this.base} ` +
+      `(${baseTip.slice(0, 7)}). switch to ${this.base} and pull before preparing a release.`;
+    if (this.dryRun) {
+      console.log(`${c.warn('[root]')} ${message}`);
+      return;
+    }
+    throw new Error(message);
   }
 
   /** Walk the candidates in order, prompting the maintainer for each, and collect the targets. */
@@ -224,11 +255,13 @@ export class PrepareReleaseCommand extends Command {
       console.log(`${c.info('[root]')} will commit to "${headBranch}": ${message}`);
       return;
     }
+    const pathspecs = releasePathspecs(targets);
     const index = repo.index();
-    index.addAll(releasePathspecs(targets));
+    index.addAll(pathspecs);
     const treeId = index.writeTree();
     const tree = repo.getTree(treeId);
-    // Parent is the base branch tip, so the release branch is always "base + one release commit".
+    // `HEAD` is the up-to-date base tip (enforced by `ensureOnBase`), so the release branch is
+    // always "base + one release commit".
     const parent = repo.head().target()!;
     const commitId = repo.commit(tree, message, {
       updateRef: `refs/heads/${headBranch}`,
@@ -236,6 +269,12 @@ export class PrepareReleaseCommand extends Command {
       committer: GIT_SIGNATURE,
       parents: [parent],
     });
+    // The bumps + changelogs now live on the release branch; restore them in the working tree so a
+    // refresh re-reads the clean base versions instead of double-bumping off a dirtied tree. Only
+    // the release pathspecs are touched, so any unrelated local edits are left alone.
+    for (const spec of pathspecs) {
+      repo.checkoutHead({ path: spec, force: true, disablePathspecMatch: true });
+    }
     console.log(
       `${c.success('[root]')} committed release changes to "${headBranch}" (${commitId.slice(0, 7)})`
     );

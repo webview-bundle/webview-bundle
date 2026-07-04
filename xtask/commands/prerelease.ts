@@ -1,17 +1,14 @@
 import fs from 'node:fs/promises';
 import { Command, Option } from 'clipanion';
 import { type Commit, openRepository } from 'es-git';
+import { type Action, runActions } from '../action.ts';
 import { Changelog } from '../changelog.ts';
 import { Change, Changes } from '../changes.ts';
 import { ColorModeOption, c, setColorMode } from '../console.ts';
-import { GITHUB_REPO, ROOT_DIR } from '../consts.ts';
-import {
-  createGitHubClient,
-  findReleaseByTag,
-  resolveAssets,
-  uploadReleaseAssets,
-} from '../github.ts';
+import { ROOT_DIR } from '../consts.ts';
+import { resolveAssets } from '../github.ts';
 import type { Package, PackageGraph } from '../package.ts';
+import { createPorts, type GitHubRelease, type Ports } from '../ports.ts';
 import {
   describeReleasedPackage,
   formatPublishStatus,
@@ -73,6 +70,7 @@ export class PrereleaseCommand extends Command {
     }
     const sha = head.slice(0, 7);
     const tag = `prerelease/${sha}`;
+    const ports = createPorts({ repo, githubToken: this.githubToken });
 
     // 1) Registry prereleases: bump + publish only packages that publish to a registry.
     const publishable = plan.candidates.filter(pkg => pkg.canPublish);
@@ -82,27 +80,19 @@ export class PrereleaseCommand extends Command {
     }
     // Write bumped versions + changelogs so the publish carries them. Not committed.
     await writeReleaseTargets(targets, { dryRun: this.dryRun });
-    const outcomes = await this.publishTargets(targets);
+    const outcomes = await this.publishTargets(targets, ports);
     const published = outcomes.filter(x => x.status !== 'failed').map(x => x.package);
 
     // 2) One aggregated GitHub prerelease hosting every affected package's assets. A failure here
     // must not prevent the report below.
-    let assetsFailed = false;
-    let assetReleaseUrl: string | null = null;
-    try {
-      assetReleaseUrl = await this.uploadPrereleaseAssets(
-        plan.candidates,
-        head,
-        sha,
-        tag,
-        published
-      );
-    } catch (e) {
-      assetsFailed = true;
-      console.error(
-        `${c.error('[root]')} failed to upload prerelease assets: ${(e as Error).message}`
-      );
-    }
+    const { url: assetReleaseUrl, failed: assetsFailed } = await this.ensurePrereleaseAssets(
+      plan.candidates,
+      head,
+      sha,
+      tag,
+      published,
+      ports
+    );
 
     await this.report(outcomes, assetReleaseUrl);
     const allPublished = outcomes.every(x => x.status !== 'failed');
@@ -150,10 +140,10 @@ export class PrereleaseCommand extends Command {
   }
 
   /** Publish each target idempotently (see {@link publishPackage}); returns every outcome. */
-  private async publishTargets(targets: ReleaseTarget[]): Promise<PublishOutcome[]> {
+  private async publishTargets(targets: ReleaseTarget[], ports: Ports): Promise<PublishOutcome[]> {
     const outcomes: PublishOutcome[] = [];
     for (const { package: pkg } of targets) {
-      const outcome = await publishPackage(pkg, { dryRun: this.dryRun });
+      const outcome = await publishPackage(pkg, { dryRun: this.dryRun, ports });
       if (outcome.status === 'failed') {
         console.error(`${c.error(`[${pkg.name}]`)} prerelease publish failed`);
       }
@@ -167,59 +157,54 @@ export class PrereleaseCommand extends Command {
    * `prerelease/<sha>` (marked `prerelease: true`), so prerelease builds — notably the Android/Swift
    * FFI artifacts that aren't published to a registry — can be downloaded. A release left by a
    * previous run is reused: its body is refreshed and only the missing assets are uploaded.
-   * Returns the release URL, or `null` when there is nothing to upload (or no token / dry-run).
+   * Returns the release URL (`null` when there is nothing to upload, or no token / dry-run).
    */
-  private async uploadPrereleaseAssets(
+  private async ensurePrereleaseAssets(
     candidates: Package[],
     commitish: string,
     sha: string,
     tag: string,
-    published: Package[]
-  ): Promise<string | null> {
-    const assets = (await Promise.all(candidates.map(pkg => resolveAssets(pkg)))).flat();
-    if (assets.length === 0) {
-      console.log(`${c.warn('[root]')} no assets found. skip prerelease release.`);
-      return null;
-    }
-    if (this.dryRun || this.githubToken == null) {
-      console.log(
-        `${c.info('[root]')} will create prerelease "${tag}" with ${assets.length} asset(s):`
-      );
-      for (const asset of assets) {
-        console.log(c.dim(`  ${asset.name}`));
+    published: Package[],
+    ports: Ports
+  ): Promise<{ url: string | null; failed: boolean }> {
+    try {
+      const assets = (await Promise.all(candidates.map(pkg => resolveAssets(pkg)))).flat();
+      if (assets.length === 0) {
+        console.log(`${c.warn('[root]')} no assets found. skip prerelease release.`);
+        return { url: null, failed: false };
       }
-      return null;
-    }
-
-    const client = createGitHubClient(this.githubToken);
-    const repo = { owner: GITHUB_REPO.owner, repo: GITHUB_REPO.name };
-    const existing = await findReleaseByTag(client, tag);
-    let releaseId: number;
-    let releaseUrl: string;
-    if (existing != null) {
-      console.log(`${c.warn('[root]')} prerelease release "${tag}" already exists. reusing it.`);
-      await client.rest.repos.updateRelease({
-        ...repo,
-        release_id: existing.id,
-        body: this.prereleaseBody(sha, published),
+      const actions: Action[] = [
+        {
+          type: 'ensureRelease',
+          tag,
+          name: `prerelease ${sha}`,
+          body: this.prereleaseBody(sha, published),
+          prerelease: true,
+          targetCommitish: commitish,
+          updateBody: true,
+        },
+        { type: 'uploadAssets', tag, assets },
+      ];
+      const result = await runActions(actions, {
+        dryRun: this.dryRun,
+        ports,
+        failFast: true,
+        reject: false,
       });
-      releaseId = existing.id;
-      releaseUrl = existing.htmlUrl;
-    } else {
-      const release = await client.rest.repos.createRelease({
-        ...repo,
-        tag_name: tag,
-        target_commitish: commitish,
-        name: `prerelease ${sha}`,
-        body: this.prereleaseBody(sha, published),
-        prerelease: true,
-      });
-      console.log(`${c.success('[root]')} prerelease release: ${release.data.tag_name}`);
-      releaseId = release.data.id;
-      releaseUrl = release.data.html_url;
+      // Only surface the release URL when the whole phase succeeded, so a failed run never points
+      // the `assets` output / summary at a release with an incomplete asset set.
+      if (!result.allSucceed) {
+        return { url: null, failed: true };
+      }
+      const release = result.items.find(item => item.action.type === 'ensureRelease');
+      const data = release?.succeed === true ? (release.data as GitHubRelease | undefined) : null;
+      return { url: data?.htmlUrl ?? null, failed: false };
+    } catch (e) {
+      console.error(
+        `${c.error('[root]')} failed to upload prerelease assets: ${(e as Error).message}`
+      );
+      return { url: null, failed: true };
     }
-    await uploadReleaseAssets(client, releaseId, assets);
-    return releaseUrl;
   }
 
   private prereleaseBody(sha: string, published: Package[]): string {
