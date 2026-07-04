@@ -1,14 +1,22 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { CallbackBag } from './callback.js';
-import { BridgeError, unknownPlatform } from './error.js';
+import { BridgeError, type BridgeErrorData, unknownPlatform } from './error.js';
 import { INVOKE_MOCK_KEY, type InvokeMockFn } from './invoke-mock.js';
-import { type AndroidWindow, type ElectronWindow, type IosWindow, platform } from './platform.js';
+import {
+  type AndroidWindow,
+  type DenoWindow,
+  type ElectronWindow,
+  type IosWindow,
+  platform,
+} from './platform.js';
 import { snakeCase } from './utils.js';
 import { getWindow } from './window.js';
 
 export interface InvokeParams {
   [key: string | number]: any;
 }
+
+type DenoInvokeResult = { ok: true; value: unknown } | { ok: false; error: BridgeErrorData };
 
 /**
  * Invokes a native bridge command and resolves its result.
@@ -35,6 +43,10 @@ function invokeInner<T>(name: string, params?: InvokeParams): Promise<T> {
       return getWindow<ElectronWindow>().wvbElectron.invoke<T>(name, params);
     case 'tauri':
       return tauriInvoke<T>(toTauriCommand(name), params);
+    case 'deno':
+      return getWindow<DenoWindow>()
+        .bindings.wvbInvoke<DenoInvokeResult>(name, params)
+        .then(result => (result.ok ? (result.value as T) : Promise.reject(result.error)));
     case 'android':
     case 'ios': {
       const bridge = getMobileBridge(platform.type);

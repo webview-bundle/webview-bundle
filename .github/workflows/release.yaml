@@ -211,11 +211,69 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+  build-deno:
+    name: build-deno (${{ matrix.settings.target }})
+    runs-on: ${{ matrix.settings.host }}
+    needs: [detect]
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'deno')
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          - host: macos-15-intel
+            target: x86_64-apple-darwin
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            zigbuild: true
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - name: Setup Rust
+        uses: ./.github/actions/rust-setup
+        with:
+          targets: ${{ matrix.settings.target }}
+          cache-key: deno-${{ matrix.settings.target }}-${{ matrix.settings.host }}
+      - name: Setup Deno
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        with:
+          install_args: "deno"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # 2.2.1
+        if: ${{ matrix.settings.zigbuild }}
+        with:
+          version: 0.14.1
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@288875dd3d64326724fa6d9593062d9f8ba0b131 # 2.67.30
+        if: ${{ matrix.settings.zigbuild }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tool: cargo-zigbuild
+      - run: yarn install --immutable
+      - name: Build deno cdylib
+        run: deno run --allow-read --allow-write --allow-run --allow-env ./deno/scripts/build.ts --target ${{ matrix.settings.target }} ${{ matrix.settings.zigbuild && '--zigbuild' || '' }}
+        working-directory: packages
+        shell: bash
+      - name: Merge artifacts
+        run: node ./xtask/cli.ts artifacts merge
+        shell: bash
+      - name: Upload artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: artifacts-${{ github.ref_name }}-deno-${{ matrix.settings.target }}
+          path: artifacts-merged
+          if-no-files-found: error
+
   release:
     runs-on: ubuntu-latest
-    needs: [detect, build-napi, build-ffi-android, build-ffi-apple]
-    # The ffi builds may be skipped (release without ffi); a skipped `needs` job would skip this job
-    # too, so use `!cancelled()` and accept ffi results that are either `success` or `skipped`.
+    needs: [detect, build-napi, build-ffi-android, build-ffi-apple, build-deno]
     if: >-
       !cancelled() &&
       github.event_name == 'push' &&
@@ -223,7 +281,8 @@ jobs:
       needs.detect.outputs.release_commit == 'true' &&
       needs.build-napi.result == 'success' &&
       (needs.build-ffi-android.result == 'success' || needs.build-ffi-android.result == 'skipped') &&
-      (needs.build-ffi-apple.result == 'success' || needs.build-ffi-apple.result == 'skipped')
+      (needs.build-ffi-apple.result == 'success' || needs.build-ffi-apple.result == 'skipped') &&
+      (needs.build-deno.result == 'success' || needs.build-deno.result == 'skipped')
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
@@ -237,6 +296,10 @@ jobs:
       - run: yarn install --immutable
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
+      - name: Setup Deno
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        with:
+          install_args: "deno"
       - name: Download artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
         with:
@@ -254,7 +317,7 @@ jobs:
 
   prerelease:
     runs-on: ubuntu-latest
-    needs: [detect, build-napi, build-ffi-android, build-ffi-apple]
+    needs: [detect, build-napi, build-ffi-android, build-ffi-apple, build-deno]
     if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Git checkout
@@ -269,6 +332,10 @@ jobs:
       - run: yarn install --immutable
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
+      - name: Setup Deno
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        with:
+          install_args: "deno"
       - name: Download artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
         with:

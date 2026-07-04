@@ -2,7 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { PLATFORM_MOCK_KEY } from './platform-mock.js';
 import { getWindow } from './window.js';
 
-export type PlatformType = 'electron' | 'tauri' | 'android' | 'ios';
+export type PlatformType = 'electron' | 'tauri' | 'deno' | 'android' | 'ios';
 
 export interface ElectronWindow {
   readonly wvbElectron: {
@@ -12,6 +12,16 @@ export interface ElectronWindow {
 
 function isElectron(): boolean {
   return getWindow<ElectronWindow>()?.wvbElectron != null;
+}
+
+export interface DenoWindow {
+  readonly bindings: {
+    readonly wvbInvoke: <T = unknown>(name: string, params?: any) => Promise<T>;
+  };
+}
+
+function isDeno(): boolean {
+  return getWindow<DenoWindow>()?.bindings != null;
 }
 
 export interface AndroidWindow {
@@ -49,6 +59,9 @@ function resolveType(): PlatformType | undefined {
   if (isTauri()) {
     return 'tauri';
   }
+  if (isDeno()) {
+    return 'deno';
+  }
   if (isAndroid()) {
     return 'android';
   }
@@ -67,6 +80,9 @@ export const platform = {
   },
   get isTauri(): boolean {
     return resolveType() === 'tauri';
+  },
+  get isDeno(): boolean {
+    return resolveType() === 'deno';
   },
   get isAndroid(): boolean {
     return resolveType() === 'android';

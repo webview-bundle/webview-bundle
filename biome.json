@@ -69,7 +69,12 @@
   },
   "overrides": [
     {
-      "includes": ["xtask/**/*.ts", "packages/ffi/cli/**/*.ts"],
+      "includes": [
+        "xtask/**/*.ts",
+        "packages/ffi/cli/**/*.ts",
+        "packages/deno/**/*.ts",
+        "packages/deno-desktop/**/*.ts"
+      ],
       "linter": {
         "rules": {
           "correctness": {

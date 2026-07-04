@@ -1,0 +1,16 @@
+{
+  "$schema": "../../xtask.$schema.json",
+  "artifacts": [
+    {
+      "src": ".output",
+      "patterns": ["libwvb_deno-*.dylib", "libwvb_deno-*.so", "wvb_deno-*.dll", "*.sha256"],
+      "dest": ".output"
+    }
+  ],
+  "assets": [
+    ".output/libwvb_deno-*.dylib",
+    ".output/libwvb_deno-*.so",
+    ".output/wvb_deno-*.dll",
+    ".output/*.sha256"
+  ]
+}

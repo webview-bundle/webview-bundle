@@ -1,0 +1,13 @@
+{
+  "name": "@wvb/deno-desktop",
+  "version": "0.0.0",
+  "license": "MIT",
+  "exports": "./lib/mod.ts",
+  "tasks": {
+    "check": "deno check lib/**/*.ts",
+    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write"
+  },
+  "publish": {
+    "exclude": ["fixtures", "**/*.test.ts"]
+  }
+}

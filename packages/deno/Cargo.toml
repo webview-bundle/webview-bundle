@@ -1,0 +1,29 @@
+[package]
+description = "Deno FFI binding for webview bundle"
+edition     = { workspace = true }
+license     = { workspace = true }
+name        = "wvb-deno"
+publish     = false
+repository  = { workspace = true }
+version     = "0.0.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+base64ct = { workspace = true, features = ["alloc"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+wvb = { workspace = true, features = [
+  "protocol",
+  "protocol-local",
+  "remote",
+  "updater",
+  "integrity",
+  "signature",
+  "signature-ecdsa_secp256r1",
+  "signature-ecdsa_secp384r1",
+  "signature-edd25519",
+  "signature-rsa_pkcs1_v1_5",
+  "signature-rsa_pss",
+] }
