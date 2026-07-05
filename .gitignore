@@ -29,3 +29,6 @@ xtask.$schema.json
 /Package.swift
 /.swiftpm
 .wvb/
+
+# AI
+.claude/*.local.json
