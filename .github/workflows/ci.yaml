@@ -144,7 +144,7 @@ jobs:
         run: yarn vitest run --config vitest.workspace.ts
         shell: bash
       - name: Build wvb-deno cdylib (for deno FFI tests)
-        run: cargo build -p wvb-deno
+        run: cargo build -p wvb-deno --release
         shell: bash
       - name: Run deno test
         run: deno task test
