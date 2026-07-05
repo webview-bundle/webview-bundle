@@ -14,7 +14,7 @@ import {
 const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';
 const prefix = Deno.build.os === 'windows' ? '' : 'lib';
 const DYLIB = fromFileUrl(
-  new URL(`../../../target/debug/${prefix}wvb_deno.${ext}`, import.meta.url)
+  new URL(`../../../target/release/${prefix}wvb_deno.${ext}`, import.meta.url)
 );
 const BUILTIN_DIR = fromFileUrl(new URL('../fixtures/builtin', import.meta.url));
 

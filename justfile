@@ -7,7 +7,6 @@ alias l := lint
 alias b := build
 alias x := xtask
 alias tsc := typecheck
-alias bench := benchmark
 
 # Setup development environment
 setup:
@@ -24,31 +23,31 @@ setup:
     just build
 
 # Test all files
-test: test-rs test-js test-e2e test-ffi test-ffi-e2e test-deno
-
-# Test JS files
-test-js: build-napi build-js
-    yarn vitest run --config vitest.workspace.ts
+test: test-rs test-js test-ffi test-deno test-e2e test-e2e-ffi
 
 # Test Rust files
 test-rs:
     cargo test --workspace --no-fail-fast --all-features
 
-# Test E2E
-test-e2e:
-    yarn vitest run --config vitest.e2e.workspace.ts
+# Test JS files
+test-js: build-napi build-js
+    yarn vitest run --config vitest.workspace.ts
 
 # Test FFI
 test-ffi: build-ffi
     yarn workspace wvb-ffi run test-ffi
 
+# Test E2E
+test-e2e:
+    yarn vitest run --config vitest.e2e.workspace.ts
+
 # Test FFI-E2E
-test-ffi-e2e:
+test-e2e-ffi:
     yarn workspace wvb-ffi run e2e-ffi
 
 # Test deno files
 [working-directory: 'packages']
-test-deno:
+test-deno: build-deno
     deno task test
 
 # Format all files
@@ -89,27 +88,27 @@ typecheck-deno:
     deno task check
 
 # Build as release mode
-build: build-rs build-napi build-js build-ffi
+build: build-rs build-napi build-js build-ffi build-deno
 
 # Build NAPI modules
 build-napi:
-    yarn workspaces foreach -Apt --include='@wvb/*' run build-napi
+    yarn workspaces foreach -Apt run build-napi
 
 # Build Rust workspaces
 build-rs:
-    cargo build --workspace --exclude=wvb-ffi
+    cargo build --workspace --release --exclude=wvb-ffi --exclude=wvb-deno
 
 # Build JS packages
 build-js:
-    yarn workspaces foreach -Apt --include='@wvb/*' run build
+    yarn workspaces foreach -Apt run build
 
 # Build FFI packages
 build-ffi:
-    yarn workspaces foreach -Apt --include='@wvb/*' run build-ffi
+    yarn workspaces foreach -Apt run build-ffi
 
-# Run benchmarks
-benchmark: build
-    yarn workspaces foreach -Apt --include='@benchmark/*' run bench
+# Build Deno crate
+build-deno:
+    cargo build -p wvb-deno --release
 
 # Run xtask
 xtask *ARGS:
