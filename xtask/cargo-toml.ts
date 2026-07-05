@@ -80,7 +80,56 @@ export function formatCargoToml(toml: CargoToml): string {
     const prevLine = content[i - 1];
     return !(prevLine?.startsWith('[') === true && line === '');
   });
-  return taplo
-    .format(content.join('\n'), { options: taploConfig.formatting })
-    .replaceAll(/'/g, '"');
+  const formatted = taplo.format(content.join('\n'), { options: taploConfig.formatting });
+  return preferDoubleQuotes(formatted);
+}
+
+/**
+ * j-toml renders every string as a single-quoted TOML *literal* string, but this repo's
+ * Cargo.toml style (double-quoted *basic* strings) is what `taplo` and the source files use.
+ * A blanket `'` → `"` replacement is unsafe: a literal string whose content contains a `"` —
+ * e.g. the `[target.'cfg(target_os = "android")'.dependencies]` key — becomes invalid TOML
+ * (`unclosed table, expected ]`) once its delimiters flip to double quotes.
+ *
+ * This walks the document token by token: basic strings are copied verbatim (so apostrophes
+ * inside them are never touched), and a literal string is converted to a basic string only when
+ * its content has no `"` or `\` that would require escaping. Otherwise it is left as a literal.
+ */
+function preferDoubleQuotes(toml: string): string {
+  let out = '';
+  for (let i = 0; i < toml.length; ) {
+    const ch = toml[i];
+    if (ch === '"') {
+      // Basic string: copy through the matching close quote, honoring backslash escapes.
+      out += ch;
+      i++;
+      while (i < toml.length) {
+        const c = toml[i];
+        out += c;
+        i++;
+        if (c === '\\' && i < toml.length) {
+          out += toml[i];
+          i++;
+        } else if (c === '"') {
+          break;
+        }
+      }
+    } else if (ch === "'") {
+      // Literal string: content runs to the next single quote on the same line.
+      const end = toml.indexOf("'", i + 1);
+      const newline = toml.indexOf('\n', i + 1);
+      if (end !== -1 && (newline === -1 || end < newline)) {
+        const inner = toml.slice(i + 1, end);
+        out += inner.includes('"') || inner.includes('\\') ? `'${inner}'` : `"${inner}"`;
+        i = end + 1;
+      } else {
+        out += ch;
+        i++;
+      }
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
 }
