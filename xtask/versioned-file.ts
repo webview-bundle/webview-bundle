@@ -53,6 +53,13 @@ export class VersionedFile {
         ignore: ['**/node_modules/**', '**/target', '**/dist'],
       }
     );
+    // Glob result order is nondeterministic; sort shallowest-first so the package's own manifest
+    // (not a nested one, e.g. a napi platform package) deterministically leads the list — the
+    // first file is the package's representative for `version`/`hasChanged`.
+    files.sort((a, b) => {
+      const depth = a.split('/').length - b.split('/').length;
+      return depth !== 0 ? depth : a.localeCompare(b);
+    });
     const versionedFiles = await Promise.all(files.map(x => VersionedFile.load(x)));
     return versionedFiles.filter((x): x is VersionedFile => x != null);
   }
