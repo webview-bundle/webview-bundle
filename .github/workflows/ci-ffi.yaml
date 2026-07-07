@@ -32,6 +32,17 @@ jobs:
     if: needs.detect-changes.outputs.ffi == 'true'
     runs-on: ubuntu-latest
     steps:
+      # The NDK build, cargo target dir, own Android SDK (install-sdk puts it in ~/android-sdk)
+      # and the emulator system image only fit on the runner when the preinstalled toolchains
+      # this job never uses are removed first; without this the emulator-runner step dies
+      # intermittently with "No space left on device".
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL &
+          sudo docker image prune --all --force > /dev/null 2>&1 &
+          wait
+          df -h /
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
       - name: Setup Rust
