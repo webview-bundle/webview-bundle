@@ -1,4 +1,4 @@
-import type { Remote, Updater } from '@wvb/node';
+import { isWebviewBundleError, type Remote, type Updater } from '@wvb/node';
 import { ipcMain } from 'electron';
 import {
   type BridgeErrorData,
@@ -10,17 +10,16 @@ import {
 } from './invoke-spec.js';
 import type { WebviewBundle } from './webview-bundle.js';
 
-const ErrorCode = {
-  RemoteNotInitialized: 'remote_not_initialized',
-  UpdaterNotInitialized: 'updater_not_initialized',
-  HandlerNotFound: 'handler_not_found',
-} as const;
+export type BridgeErrorCode =
+  | 'remote_not_initialized'
+  | 'updater_not_initialized'
+  | 'handler_not_found';
 
 class BridgeError extends Error {
   override readonly name = 'BridgeError';
 
   constructor(
-    readonly code: string,
+    readonly code: BridgeErrorCode,
     message: string
   ) {
     super(message);
@@ -36,22 +35,27 @@ type InvokeHandlers = {
   [K in InvokeName]: InvokeHandler<K>;
 };
 
-function requireRemote(wvb: WebviewBundle): Remote {
+function ensureRemote(wvb: WebviewBundle): Remote {
   if (wvb.remote == null) {
-    throw new BridgeError(ErrorCode.RemoteNotInitialized, 'remote is not initialized.');
+    throw new BridgeError('remote_not_initialized', 'remote is not initialized.');
   }
   return wvb.remote;
 }
 
-function requireUpdater(wvb: WebviewBundle): Updater {
+function ensureUpdater(wvb: WebviewBundle): Updater {
   if (wvb.updater == null) {
-    throw new BridgeError(ErrorCode.UpdaterNotInitialized, 'updater is not initialized.');
+    throw new BridgeError('updater_not_initialized', 'updater is not initialized.');
   }
   return wvb.updater;
 }
 
 function toBridgeErrorData(error: unknown): BridgeErrorData {
   if (error instanceof BridgeError) {
+    return { code: error.code, message: error.message };
+  }
+  // `@wvb/node` errors already carry a stable `core.*` / `binding.*` code — forward it so the
+  // renderer's `BridgeError` identifies the failure the same way the native side did.
+  if (isWebviewBundleError(error)) {
     return { code: error.code, message: error.message };
   }
   if (error instanceof Error) {
@@ -83,24 +87,24 @@ const handlers: InvokeHandlers = {
   sourcePruneRemoteBundles: async (wvb, { bundleName }) =>
     wvb.source.pruneRemoteBundles(bundleName),
   // remote
-  remoteListBundles: async (wvb, { channel }) => requireRemote(wvb).listBundles(channel),
+  remoteListBundles: async (wvb, { channel }) => ensureRemote(wvb).listBundles(channel),
   remoteGetInfo: async (wvb, { bundleName, channel }) =>
-    requireRemote(wvb).getInfo(bundleName, channel),
+    ensureRemote(wvb).getInfo(bundleName, channel),
   remoteDownload: async (wvb, { bundleName, channel }) => {
-    const [info] = await requireRemote(wvb).download(bundleName, channel);
+    const [info] = await ensureRemote(wvb).download(bundleName, channel);
     return info;
   },
   remoteDownloadVersion: async (wvb, { bundleName, version }) => {
-    const [info] = await requireRemote(wvb).downloadVersion(bundleName, version);
+    const [info] = await ensureRemote(wvb).downloadVersion(bundleName, version);
     return info;
   },
   // updater
-  updaterListRemotes: async wvb => requireUpdater(wvb).listRemotes(),
-  updaterGetUpdate: async (wvb, { bundleName }) => requireUpdater(wvb).getUpdate(bundleName),
+  updaterListRemotes: async wvb => ensureUpdater(wvb).listRemotes(),
+  updaterGetUpdate: async (wvb, { bundleName }) => ensureUpdater(wvb).getUpdate(bundleName),
   updaterDownload: async (wvb, { bundleName, version }) =>
-    requireUpdater(wvb).download(bundleName, version),
+    ensureUpdater(wvb).download(bundleName, version),
   updaterInstall: async (wvb, { bundleName, version }) => {
-    await requireUpdater(wvb).install(bundleName, version);
+    await ensureUpdater(wvb).install(bundleName, version);
   },
 };
 
@@ -116,10 +120,9 @@ export function registerIpc(wvb: WebviewBundle): void {
       if (handler == null) {
         return {
           ok: false,
-          error: {
-            code: ErrorCode.HandlerNotFound,
-            message: `no invoke handler registered for "${name}"`,
-          },
+          error: toBridgeErrorData(
+            new BridgeError('handler_not_found', `no invoke handler registered for "${name}"`)
+          ),
         };
       }
       try {
