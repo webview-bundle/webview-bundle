@@ -1,10 +1,13 @@
 package dev.wvb.testapp
 
 import android.graphics.Color
+import android.graphics.Rect
 import android.os.Bundle
 import android.text.SpannableStringBuilder
 import android.text.style.ForegroundColorSpan
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import dev.wvb.testapp.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
@@ -19,7 +22,29 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        applyWindowInsets()
         binding.btnRun.setOnClickListener { runTests() }
+    }
+
+    /**
+     * targetSdk 35 makes Android 15+ draw the window edge-to-edge, so without this the button sits
+     * under the status bar / camera cutout and taps on its centre never reach it.
+     */
+    private fun applyWindowInsets() {
+        val root = binding.root
+        val base = Rect(root.paddingLeft, root.paddingTop, root.paddingRight, root.paddingBottom)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
+            val insets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.setPadding(
+                base.left + insets.left,
+                base.top + insets.top,
+                base.right + insets.right,
+                base.bottom + insets.bottom
+            )
+            windowInsets
+        }
     }
 
     private fun runTests() {
