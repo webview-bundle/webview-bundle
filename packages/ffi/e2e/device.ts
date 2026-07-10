@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { execa } from 'execa';
+import { execa, type ResultPromise } from 'execa';
+
+const BOOT_TIMEOUT_MS = 180_000;
 
 export interface AndroidDevice {
   udid: string;
@@ -20,6 +22,16 @@ async function listAndroidDevices(): Promise<string[]> {
     .filter(Boolean);
 }
 
+async function listAvds(emulatorBin: string): Promise<string[]> {
+  const { stdout } = await execa(emulatorBin, ['-list-avds'], { reject: false });
+  // Some emulator builds interleave INFO/WARNING banners with the names; AVD names themselves are
+  // restricted to `[A-Za-z0-9._-]`, so anything else is a banner.
+  return stdout
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => /^[A-Za-z0-9._-]+$/.test(line));
+}
+
 export async function ensureAndroidDevice(avd: string): Promise<AndroidDevice> {
   const existing = await listAndroidDevices();
   if (existing.length > 0) {
@@ -31,6 +43,18 @@ export async function ensureAndroidDevice(avd: string): Promise<AndroidDevice> {
     throw new Error('ANDROID_HOME / ANDROID_SDK_ROOT is not set; cannot launch an emulator.');
   }
   const emulatorBin = path.join(sdk, 'emulator', 'emulator');
+
+  // Check up front: a bad AVD name makes the emulator die instantly, which would otherwise only
+  // surface 180s later as an `adb wait-for-device` timeout pointing at the wrong step.
+  const avds = await listAvds(emulatorBin);
+  if (!avds.includes(avd)) {
+    const available = avds.length > 0 ? avds.join(', ') : '(none)';
+    throw new Error(
+      `Android AVD "${avd}" does not exist. Available AVDs: ${available}. ` +
+        'Set ANDROID_AVD to one of them, or create it with `avdmanager create avd`.'
+    );
+  }
+
   console.log(`[device] booting Android emulator: ${avd}`);
   const proc = execa(
     emulatorBin,
@@ -44,20 +68,28 @@ export async function ensureAndroidDevice(avd: string): Promise<AndroidDevice> {
       '-gpu',
       'swiftshader_indirect',
     ],
-    { detached: true, stdio: 'ignore' }
+    // stderr is piped (not ignored) so an early exit can report *why* the emulator refused to boot.
+    // `reject: false` keeps that exit from becoming an unhandled rejection.
+    { detached: true, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', reject: false }
   );
   proc.unref();
 
+  // Aborts the boot polling if `watchEmulatorExit` wins the race below, so we don't leave an `adb`
+  // child running for the rest of the timeout.
+  const controller = new AbortController();
   try {
     // Bound the wait so a wedged emulator surfaces a clear error instead of hanging the caller's
-    // hook until its (long) timeout fires.
-    await execa('adb', ['wait-for-device'], { timeout: 180_000 });
-    await waitForAndroidBoot(180_000);
+    // hook until its (long) timeout fires. Racing against the emulator process means a crash is
+    // reported immediately rather than as a timeout.
+    await Promise.race([watchEmulatorExit(proc, avd), waitForBoot(controller.signal)]);
 
     const udid = (await listAndroidDevices())[0];
     if (!udid) {
       throw new Error('Android emulator booted but no device is attached.');
     }
+    // `subprocess.unref()` detaches only the process handle — the piped stderr socket would still
+    // hold the event loop open, hanging vitest whenever WVB_E2E_KEEP leaves the emulator running.
+    (proc.stderr as { unref?: () => void } | null)?.unref?.();
     return {
       udid,
       bootedByUs: true,
@@ -67,23 +99,53 @@ export async function ensureAndroidDevice(avd: string): Promise<AndroidDevice> {
     };
   } catch (err) {
     // Boot failed/timed out before we could hand back a handle — don't leak the emulator we spawned.
-    proc.kill('SIGKILL');
+    controller.abort();
+    killProcessGroup(proc);
     throw err;
   }
 }
 
-async function waitForAndroidBoot(timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+/** Resolves never: rejects as soon as the emulator exits, whatever its exit code. */
+async function watchEmulatorExit(proc: ResultPromise, avd: string): Promise<never> {
+  const result = await proc;
+  const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : '';
+  const code = result.exitCode != null ? ` (exit code ${result.exitCode})` : '';
+  throw new Error(
+    `Android emulator for "${avd}" exited before finishing boot${code}.` +
+      (stderr ? `\n${stderr}` : '')
+  );
+}
+
+async function waitForBoot(signal: AbortSignal): Promise<void> {
+  await execa('adb', ['wait-for-device'], { timeout: BOOT_TIMEOUT_MS, cancelSignal: signal });
+  const deadline = Date.now() + BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const { stdout } = await execa('adb', ['shell', 'getprop', 'sys.boot_completed'], {
       reject: false,
+      cancelSignal: signal,
     });
     if (stdout.trim() === '1') {
       return;
     }
-    await delay(2000);
+    await delay(2000, undefined, { signal });
   }
   throw new Error('Android emulator did not finish booting in time.');
+}
+
+function killProcessGroup(proc: ResultPromise): void {
+  const { pid } = proc;
+  if (pid == null) {
+    return;
+  }
+  try {
+    // `detached: true` makes the emulator its own process-group leader (pgid === pid). Signalling
+    // the negative pid also takes down the helpers it spawns (netsimd, crash handler), which a
+    // plain `proc.kill()` would orphan.
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    // Already reaped, or no such group — fall back to the direct kill.
+    proc.kill('SIGKILL');
+  }
 }
 
 export interface IosSimulator extends AndroidDevice {
