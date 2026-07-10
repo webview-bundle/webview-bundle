@@ -16,9 +16,6 @@ setup:
     yarn
     yarn lefthook install
 
-    # Setup xtask
-    yarn workspace xtask run setup
-
     # Run build
     just build
 

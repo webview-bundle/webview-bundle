@@ -2,6 +2,16 @@
 
 A command-line tool for managing and automating tasks in a project.
 
+## Configuration
+
+Packages are declared in the root [`xtask.config.ts`](../xtask.config.ts), loaded with a native
+`import()` and validated strictly (unknown fields are an error). Each `packages` entry is either a
+glob of package directories (released with the default config) or an object with a `path` plus
+per-package config (`artifacts`, `assets`, `beforePublishScripts`, …) — the object form wins when
+both match the same directory. A directory counts as a package only when it directly holds a
+`package.json`/`Cargo.toml`/`deno.json`; manifests below it (e.g. napi platform packages under
+`packages/node/npm/*`) are versioned as part of that package.
+
 ## Features
 
 Which packages changed is determined from the `package.json`/`Cargo.toml` **dependency graph**,

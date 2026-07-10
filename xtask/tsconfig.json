@@ -5,5 +5,5 @@
     "allowImportingTsExtensions": true,
     "isolatedDeclarations": false
   },
-  "include": ["**/*.ts", ".scripts/**/*.ts"]
+  "include": ["**/*.ts", "../xtask.config.ts"]
 }

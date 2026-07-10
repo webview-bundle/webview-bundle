@@ -1,22 +1,39 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { uniq } from 'es-toolkit';
 import { glob } from 'tinyglobby';
 import type { Action } from './action.ts';
-import { ROOT_DIR } from './consts.ts';
 import {
   type Artifact,
-  loadPackageConfig,
+  CONFIG_FILE,
+  loadXtaskConfig,
   type PackageConfig,
   type Script,
-} from './package-config.ts';
+} from './config.ts';
+import { ROOT_DIR } from './consts.ts';
 import type { BumpRule, Version } from './version.ts';
-import { VersionedFile } from './versioned-file.ts';
+import { VersionedFile, VersionedFileTypeSchema } from './versioned-file.ts';
 import { VersionedGitTag } from './versioned-git-tag.ts';
 
 type NonEmptyArray<T> = readonly [T, ...T[]];
 
 function isNonEmptyArray<T>(x: readonly T[]): x is NonEmptyArray<T> {
   return x.length > 0;
+}
+
+/** Whether `dir` itself (not a subdirectory) holds a versioned manifest. */
+async function hasDirectManifest(dir: string): Promise<boolean> {
+  const checks = await Promise.all(
+    VersionedFileTypeSchema.options.map(async fileType => {
+      try {
+        await fs.access(path.join(ROOT_DIR, dir, fileType));
+        return true;
+      } catch {
+        return false;
+      }
+    })
+  );
+  return checks.some(Boolean);
 }
 
 export class Package {
@@ -26,27 +43,51 @@ export class Package {
   private readonly config: PackageConfig;
 
   static async loadAll(): Promise<Package[]> {
+    const config = await loadXtaskConfig();
+
+    // Resolve entries to package dirs. Glob entries only discover dirs (with the default config);
+    // object entries always win, so a dir both matched by a glob and configured explicitly gets
+    // the explicit config regardless of entry order.
+    const dirs = new Map<string, PackageConfig>();
+    for (const entry of config.packages) {
+      if (typeof entry === 'string') {
+        // Globs (and the paths derived from them) are POSIX: `pkg.path` feeds glob patterns and
+        // git pathspecs, both of which require forward slashes.
+        const matched = await glob(entry, {
+          cwd: ROOT_DIR,
+          onlyDirectories: true,
+          ignore: ['**/node_modules/**', '**/target', '**/dist'],
+        });
+        for (const dir of matched) {
+          const pkgPath = dir.replace(/\/+$/, '');
+          // A dir without a manifest of its own is not a package (e.g. `packages/remote` only
+          // groups packages); skip it instead of absorbing its children.
+          if (!(await hasDirectManifest(pkgPath))) {
+            continue;
+          }
+          if (!dirs.has(pkgPath)) {
+            dirs.set(pkgPath, {});
+          }
+        }
+      } else {
+        const { path: pkgPath, ...pkgConfig } = entry;
+        if (!(await hasDirectManifest(pkgPath))) {
+          throw new Error(`No manifest found in "${pkgPath}" (from "${CONFIG_FILE}")`);
+        }
+        dirs.set(pkgPath, pkgConfig);
+      }
+    }
+
     const packages: Package[] = [];
-    const configFiles = await glob('packages/**/xtask.config.json', {
-      cwd: ROOT_DIR,
-      onlyFiles: true,
-    });
-
-    for (const configFile of configFiles) {
-      const config = await loadPackageConfig(path.join(ROOT_DIR, configFile));
-
-      // Normalize to POSIX separators: `pkg.path` feeds glob patterns and git pathspecs, both of
-      // which require forward slashes (`path.relative` yields `\` on Windows).
-      const pkgPath = path.relative(ROOT_DIR, path.dirname(configFile)).replaceAll('\\', '/');
-      const dirName = path.basename(path.dirname(configFile));
-      const pkgName = config.name ?? dirName;
+    for (const [pkgPath, pkgConfig] of [...dirs.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      const pkgName = pkgConfig.name ?? path.posix.basename(pkgPath);
 
       const versionedFiles = await VersionedFile.loadAll(pkgPath);
       if (!isNonEmptyArray(versionedFiles)) {
         throw new Error(`Cannot load versioned files from "${pkgPath}"`);
       }
 
-      packages.push(new Package(pkgName, pkgPath, versionedFiles, config));
+      packages.push(new Package(pkgName, pkgPath, versionedFiles, pkgConfig));
     }
 
     return packages;

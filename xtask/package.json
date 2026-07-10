@@ -3,8 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "yarn create-schema",
-    "create-schema": "node ./.scripts/create-schema.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

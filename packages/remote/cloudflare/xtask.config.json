@@ -1,4 +1,0 @@
-{
-  "$schema": "../../../xtask.$schema.json",
-  "scopes": ["remote"]
-}

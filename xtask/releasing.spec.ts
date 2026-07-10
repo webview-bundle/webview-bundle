@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { PackageConfig } from './config.ts';
 import { Package } from './package.ts';
-import type { PackageConfig } from './package-config.ts';
 import type { Ports } from './ports.ts';
 import { observePublishState, planPackagePublish, publishPackage } from './releasing.ts';
 import { VersionedFile } from './versioned-file.ts';
