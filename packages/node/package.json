@@ -18,10 +18,11 @@
     "directory": "packages/node"
   },
   "files": [
-    "index.js",
-    "index.cjs",
-    "index.d.ts",
-    "index.d.cts",
+    "dist/",
+    "binding.js",
+    "binding.cjs",
+    "binding.d.ts",
+    "binding.d.cts",
     "README.md",
     "CHANGELOG.md",
     "*.node",
@@ -29,20 +30,34 @@
     "!npm/**/*"
   ],
   "type": "module",
-  "main": "./index.js",
-  "types": "./index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./index.js",
-      "require": "./index.cjs"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     },
     "./package.json": "./package.json"
   },
+  "imports": {
+    "#binding": {
+      "import": {
+        "types": "./binding.d.ts",
+        "default": "./binding.js"
+      },
+      "require": {
+        "types": "./binding.d.cts",
+        "default": "./binding.cjs"
+      }
+    }
+  },
   "scripts": {
+    "prepack": "yarn build",
     "artifacts": "node scripts/artifacts.ts",
+    "build": "tsdown",
     "build-napi": "yarn build-napi-esm && yarn build-napi-cjs",
-    "build-napi-esm": "napi build --platform --release --js=index.js --dts=index.d.ts --esm --no-const-enum --no-dts-cache",
-    "build-napi-cjs": "napi build --platform --release --js=index.cjs --dts=index.d.cts --no-const-enum --no-dts-cache",
+    "build-napi-cjs": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
+    "build-napi-esm": "napi build --platform --release --js=binding.js --dts=binding.d.ts --esm --no-const-enum --no-dts-cache",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -52,6 +67,7 @@
     "get-port": "^7.1.0",
     "hono": "^4.12.25",
     "tinyglobby": "^0.2.14",
+    "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

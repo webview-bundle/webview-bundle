@@ -165,8 +165,9 @@ impl FromNapiValue for SignatureVerifier {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> napi::Result<Self> {
     unsafe {
       let value = NapiVerifier::from_napi_value(env, napi_val)?;
-      let unsupported_key_format =
-        napi::Error::new(napi::Status::InvalidArg, "unsupported key format");
+      let unsupported_key_format = napi::Error::from(crate::Error::invalid_signature_options(
+        "unsupported key format",
+      ));
       let value = match value {
         Either::A(inner) => match &inner.algorithm {
           SignatureAlgorithm::EcdsaSecp256r1 => {
@@ -241,7 +242,9 @@ impl FromNapiValue for SignatureVerifier {
                   .get(..32)
                   .and_then(|s| s.try_into().ok())
                   .ok_or_else(|| {
-                    napi::Error::new(napi::Status::InvalidArg, "Expect 32 bytes for key pair")
+                    napi::Error::from(crate::Error::invalid_signature_options(
+                      "Expect 32 bytes for key pair",
+                    ))
                   })?;
                 Ok(
                   signature::Ed25519Verifier::from_public_key_bytes(bytes)

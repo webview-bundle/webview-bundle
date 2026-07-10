@@ -217,7 +217,7 @@ private let indexJsData = Data("console.log('hello')".utf8)
         var didThrow = false
         do {
             _ = try await remote.downloadVersion(bundleName: "bundle1", version: "1.0.0")
-        } catch {
+        } catch WebviewBundleError.CoreRemoteForbidden {
             didThrow = true
         }
         #expect(didThrow)
@@ -230,7 +230,7 @@ private let indexJsData = Data("console.log('hello')".utf8)
         var didThrow = false
         do {
             _ = try await remote.download(bundleName: "not_found", channel: nil)
-        } catch {
+        } catch WebviewBundleError.CoreRemoteBundleNotFound {
             didThrow = true
         }
         #expect(didThrow)
