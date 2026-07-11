@@ -54,7 +54,7 @@
   "scripts": {
     "prepack": "yarn build",
     "artifacts": "node scripts/artifacts.ts",
-    "build": "tsdown",
+    "build": "tsdown && node scripts/fix-binding-dts.mjs",
     "build-napi": "yarn build-napi-esm && yarn build-napi-cjs",
     "build-napi-cjs": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
     "build-napi-esm": "napi build --platform --release --js=binding.js --dts=binding.d.ts --esm --no-const-enum --no-dts-cache",
@@ -103,6 +103,6 @@
     ]
   },
   "engines": {
-    "node": ">= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0"
+    "node": ">= 18"
   }
 }

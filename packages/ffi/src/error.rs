@@ -1,11 +1,12 @@
 //! Top-level error type exposed across the FFI boundary.
 //!
-//! The variants mirror [`wvb::ErrorCode`] one-for-one, so a failure is identified by the same
-//! category here.
+//! The `Core*` variants mirror [`wvb::ErrorCode`] one-for-one, so a core failure is identified by
+//! the same category here. The `Binding*` variants (invalid HTTP headers, malformed
+//! signature-verifier options) originate in this FFI layer and have no `ErrorCode` counterpart.
 //!
-//! The Rust `CoreIo` variant is the Kotlin
-//! `WebviewBundleException.CoreIo` / Swift `WebviewBundleError.CoreIo`, and corresponds to the
-//! `core.io` code the JavaScript bindings expose.
+//! The Rust `CoreIo` variant is the Kotlin `WebviewBundleException.CoreIo` / Swift
+//! `WebviewBundleError.CoreIo`, and corresponds to the `core.io` code the JavaScript bindings
+//! expose.
 
 use wvb::ErrorCode;
 
@@ -94,46 +95,48 @@ pub enum Error {
 }
 
 impl Error {
-  /// The wire code for this error, matching the JavaScript bindings (e.g. `core.io`).
+  /// The wire code for this error, matching the JavaScript bindings: core failures are namespaced
+  /// under `core.` (e.g. `core.io`); binding-local failures are unprefixed (e.g.
+  /// `invalid_header_name`).
   pub fn code(&self) -> &'static str {
     match self {
-      Self::CoreIo(_) => ErrorCode::Io.as_str(),
-      Self::CoreCompress(_) => ErrorCode::Compress.as_str(),
-      Self::CoreDecompress(_) => ErrorCode::Decompress.as_str(),
-      Self::CoreEncode(_) => ErrorCode::Encode.as_str(),
-      Self::CoreDecode(_) => ErrorCode::Decode.as_str(),
-      Self::CoreHttp(_) => ErrorCode::Http.as_str(),
-      Self::CoreInvalidMagicNum(_) => ErrorCode::InvalidMagicNum.as_str(),
-      Self::CoreInvalidVersion(_) => ErrorCode::InvalidVersion.as_str(),
-      Self::CoreInvalidHeaderChecksum(_) => ErrorCode::InvalidHeaderChecksum.as_str(),
-      Self::CoreInvalidIndexChecksum(_) => ErrorCode::InvalidIndexChecksum.as_str(),
-      Self::CoreChecksumMismatch(_) => ErrorCode::ChecksumMismatch.as_str(),
-      Self::CoreBundleNotFound(_) => ErrorCode::BundleNotFound.as_str(),
-      Self::CoreBundleEntryNotExists(_) => ErrorCode::BundleEntryNotExists.as_str(),
-      Self::CoreBundleCannotBeRemoved(_) => ErrorCode::BundleCannotBeRemoved.as_str(),
-      Self::CoreInvalidFilepath(_) => ErrorCode::InvalidFilepath.as_str(),
-      Self::CoreSerdeJson(_) => ErrorCode::SerdeJson.as_str(),
-      Self::CoreCannotResolveLocalHost(_) => ErrorCode::CannotResolveLocalHost.as_str(),
-      Self::CoreReqwest(_) => ErrorCode::Reqwest.as_str(),
-      Self::CoreInvalidRemoteUrl(_) => ErrorCode::InvalidRemoteUrl.as_str(),
-      Self::CoreInvalidRemoteBundle(_) => ErrorCode::InvalidRemoteBundle.as_str(),
-      Self::CoreRemoteBundleNotFound(_) => ErrorCode::RemoteBundleNotFound.as_str(),
-      Self::CoreRemoteForbidden(_) => ErrorCode::RemoteForbidden.as_str(),
-      Self::CoreRemoteHttp(_) => ErrorCode::RemoteHttp.as_str(),
-      Self::CoreInvalidRemoteConfig(_) => ErrorCode::InvalidRemoteConfig.as_str(),
-      Self::CoreInvalidIntegrity(_) => ErrorCode::InvalidIntegrity.as_str(),
-      Self::CoreIntegrityRequired(_) => ErrorCode::IntegrityRequired.as_str(),
-      Self::CoreIntegrityVerifyFailed(_) => ErrorCode::IntegrityVerifyFailed.as_str(),
-      Self::CoreInvalidSignature(_) => ErrorCode::InvalidSignature.as_str(),
-      Self::CoreInvalidSigningKey(_) => ErrorCode::InvalidSigningKey.as_str(),
-      Self::CoreSignatureSignFailed(_) => ErrorCode::SignatureSignFailed.as_str(),
-      Self::CoreInvalidVerifyingKey(_) => ErrorCode::InvalidVerifyingKey.as_str(),
-      Self::CoreSignatureNotExists(_) => ErrorCode::SignatureNotExists.as_str(),
-      Self::CoreSignatureVerifyFailed(_) => ErrorCode::SignatureVerifyFailed.as_str(),
-      Self::CoreGeneric(_) => ErrorCode::Generic.as_str(),
-      Self::BindingInvalidHeaderName(_) => "binding.invalid_header_name",
-      Self::BindingInvalidHeaderValue(_) => "binding.invalid_header_value",
-      Self::BindingInvalidSignatureOptions(_) => "binding.invalid_signature_options",
+      Self::CoreIo(_) => "core.io",
+      Self::CoreCompress(_) => "core.compress",
+      Self::CoreDecompress(_) => "core.decompress",
+      Self::CoreEncode(_) => "core.encode",
+      Self::CoreDecode(_) => "core.decode",
+      Self::CoreHttp(_) => "core.http",
+      Self::CoreInvalidMagicNum(_) => "core.invalid_magic_num",
+      Self::CoreInvalidVersion(_) => "core.invalid_version",
+      Self::CoreInvalidHeaderChecksum(_) => "core.invalid_header_checksum",
+      Self::CoreInvalidIndexChecksum(_) => "core.invalid_index_checksum",
+      Self::CoreChecksumMismatch(_) => "core.checksum_mismatch",
+      Self::CoreBundleNotFound(_) => "core.bundle_not_found",
+      Self::CoreBundleEntryNotExists(_) => "core.bundle_entry_not_exists",
+      Self::CoreBundleCannotBeRemoved(_) => "core.bundle_cannot_be_removed",
+      Self::CoreInvalidFilepath(_) => "core.invalid_filepath",
+      Self::CoreSerdeJson(_) => "core.serde_json",
+      Self::CoreCannotResolveLocalHost(_) => "core.cannot_resolve_local_host",
+      Self::CoreReqwest(_) => "core.reqwest",
+      Self::CoreInvalidRemoteUrl(_) => "core.invalid_remote_url",
+      Self::CoreInvalidRemoteBundle(_) => "core.invalid_remote_bundle",
+      Self::CoreRemoteBundleNotFound(_) => "core.remote_bundle_not_found",
+      Self::CoreRemoteForbidden(_) => "core.remote_forbidden",
+      Self::CoreRemoteHttp(_) => "core.remote_http",
+      Self::CoreInvalidRemoteConfig(_) => "core.invalid_remote_config",
+      Self::CoreInvalidIntegrity(_) => "core.invalid_integrity",
+      Self::CoreIntegrityRequired(_) => "core.integrity_required",
+      Self::CoreIntegrityVerifyFailed(_) => "core.integrity_verify_failed",
+      Self::CoreInvalidSignature(_) => "core.invalid_signature",
+      Self::CoreInvalidSigningKey(_) => "core.invalid_signing_key",
+      Self::CoreSignatureSignFailed(_) => "core.signature_sign_failed",
+      Self::CoreInvalidVerifyingKey(_) => "core.invalid_verifying_key",
+      Self::CoreSignatureNotExists(_) => "core.signature_not_exists",
+      Self::CoreSignatureVerifyFailed(_) => "core.signature_verify_failed",
+      Self::CoreGeneric(_) => "core.generic",
+      Self::BindingInvalidHeaderName(_) => "invalid_header_name",
+      Self::BindingInvalidHeaderValue(_) => "invalid_header_value",
+      Self::BindingInvalidSignatureOptions(_) => "invalid_signature_options",
     }
   }
 

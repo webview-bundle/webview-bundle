@@ -333,22 +333,25 @@ impl FromNapiValue for SignatureVerifier {
   }
 }
 
+// A key whose data type doesn't match its declared format is an invalid verifier option, so it
+// surfaces the same `invalid_signature_options` code as every other verifier-construction failure
+// (rather than the generic `napi` code an untagged `napi::Error` would yield).
 fn into_string_data(d: Either<String, Buffer>) -> napi::Result<String> {
   match d {
     Either::A(s) => Ok(s),
-    Either::B(_) => Err(napi::Error::new(
-      napi::Status::StringExpected,
-      "Expect a string value",
-    )),
+    Either::B(_) => Err(
+      crate::Error::invalid_signature_options("verifying key must be a string for this format")
+        .into(),
+    ),
   }
 }
 
 fn into_buffer_data(d: Either<String, Buffer>) -> napi::Result<Buffer> {
   match d {
-    Either::A(_) => Err(napi::Error::new(
-      napi::Status::ArrayBufferExpected,
-      "Expect a array buffer value",
-    )),
+    Either::A(_) => Err(
+      crate::Error::invalid_signature_options("verifying key must be a Buffer for this format")
+        .into(),
+    ),
     Either::B(b) => Ok(b),
   }
 }

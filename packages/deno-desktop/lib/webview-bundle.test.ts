@@ -48,7 +48,7 @@ Deno.test('webviewBundle.fetch forwards Range (206) and returns 404', async () =
   assertEquals(missing.status, 404);
 });
 
-Deno.test('webviewBundle exposes source + protocolSchemes', () => {
+Deno.test('webviewBundle exposes source, remote, updater', () => {
   const app = makeApp();
   assert(app.source != null);
   assertEquals(app.remote, null);

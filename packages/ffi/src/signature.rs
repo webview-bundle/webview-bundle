@@ -14,7 +14,7 @@ pub enum SignatureAlgorithm {
 /// Encoding format of the public key provided in [`SignatureVerifyingKey`].
 ///
 /// Not all combinations of algorithm + format are valid; unsupported pairs
-/// return [`Error::Signature`] at construction time.
+/// return [`Error::BindingInvalidSignatureOptions`] at construction time.
 #[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
 pub enum VerifyingKeyFormat {
   SpkiDer,

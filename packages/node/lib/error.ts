@@ -69,11 +69,13 @@ export class WebviewBundleError extends Error {
 }
 
 export function isWebviewBundleError(value: unknown): value is WebviewBundleError {
+  // Structural (not `instanceof WebviewBundleError`) so an error from another copy of this module
+  // still matches, but tight enough that a plain `{ name: 'WebviewBundleError' }` object does not:
+  // it must be a real `Error` carrying a string `code`.
   return (
-    value != null &&
-    typeof value === 'object' &&
-    'name' in value &&
-    value.name === 'WebviewBundleError'
+    value instanceof Error &&
+    value.name === 'WebviewBundleError' &&
+    typeof (value as { code?: unknown }).code === 'string'
   );
 }
 

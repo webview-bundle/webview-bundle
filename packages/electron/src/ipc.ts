@@ -53,8 +53,9 @@ function toBridgeErrorData(error: unknown): BridgeErrorData {
   if (error instanceof BridgeError) {
     return { code: error.code, message: error.message };
   }
-  // `@wvb/node` errors already carry a stable `core.*` / `binding.*` code — forward it so the
-  // renderer's `BridgeError` identifies the failure the same way the native side did.
+  // `@wvb/node` errors already carry a stable code (`core.*` for core failures; binding-local ones
+  // like `napi`/`null_handle` are unprefixed) — forward it so the renderer's `BridgeError`
+  // identifies the failure the same way the native side did.
   if (isWebviewBundleError(error)) {
     return { code: error.code, message: error.message };
   }
