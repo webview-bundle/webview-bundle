@@ -1,16 +1,15 @@
-// @wvb/deno — webview-bundle core API bound to the Deno runtime via Deno FFI.
-//
-// The Deno peer of `@wvb/node` (napi): it re-exports the core API as Deno-native classes, backed by
-// the `wvb-deno` cdylib through `Deno.dlopen`. Load the native library first (`loadLib` /
-// `loadLibViaPlug`), then use the bindings. For Deno desktop apps, see `@wvb/deno-desktop`.
+export {
+  isWebviewBundleError,
+  WebviewBundleError,
+} from './error.ts';
 export {
   type HttpResponse,
   type LoadLibViaPlugOptions,
+  libFileName,
   loadLib,
   loadLibViaPlug,
-  platformLibFileName,
 } from './ffi.ts';
-export { BundleProtocol, type HttpMethod, LocalProtocol, toResponse } from './protocol.ts';
+export { BundleProtocol, type HttpMethod, LocalProtocol } from './protocol.ts';
 export {
   type HttpOptions,
   type ListRemoteBundleInfo,

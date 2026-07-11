@@ -1,7 +1,6 @@
-// Remote — HTTP client for a remote bundle server (list / get metadata / download).
+import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
 
-/** HTTP client options (mirrors `@wvb/node`'s `HttpOptions`; `defaultHeaders` not yet supported). */
 export interface HttpOptions {
   userAgent?: string;
   timeout?: number;
@@ -18,13 +17,11 @@ export interface RemoteOptions {
   http?: HttpOptions;
 }
 
-/** Bundle info from list operations. */
 export interface ListRemoteBundleInfo {
   name: string;
   version: string;
 }
 
-/** Complete bundle info from the remote server. */
 export interface RemoteBundleInfo {
   name: string;
   version: string;
@@ -34,14 +31,13 @@ export interface RemoteBundleInfo {
   lastModified?: string;
 }
 
-/** Result of a remote bundle download: info + raw `.wvb` bytes. */
 export interface RemoteDownload {
   info: RemoteBundleInfo;
   data: Uint8Array<ArrayBuffer>;
 }
 
 /**
- * HTTP client for a remote bundle server — list, get metadata, and download bundles.
+ * HTTP client for a remote bundle server
  */
 export class Remote {
   #ptr: Deno.PointerValue;
@@ -53,13 +49,13 @@ export class Remote {
       cstr(options?.http != null ? JSON.stringify(options.http) : '')
     );
     if (this.#ptr === null) {
-      throw new Error('wvb: failed to create Remote');
+      throw new WebviewBundleError('unknown', 'wvb: failed to create Remote');
     }
   }
 
   get pointer(): Deno.PointerValue {
     if (this.#ptr === null) {
-      throw new Error('wvb: Remote has been freed');
+      throw new WebviewBundleError('null_handle', 'wvb: Remote has been freed');
     }
     return this.#ptr;
   }

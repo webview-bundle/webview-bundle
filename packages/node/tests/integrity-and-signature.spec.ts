@@ -8,7 +8,13 @@ import { makeIntegrity, signSignature } from '@wvb/config/remote';
 import getPort from 'get-port';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { BundleBuilder, BundleSource, Remote, Updater, writeBundleIntoBuffer } from '../index.js';
+import {
+  BundleBuilder,
+  BundleSource,
+  Remote,
+  Updater,
+  writeBundleIntoBuffer,
+} from '../dist/index.js';
 
 const { subtle } = webcrypto as unknown as Crypto;
 

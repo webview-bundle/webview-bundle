@@ -1,18 +1,12 @@
 export { type HttpResponse, loadLib, loadLibViaPlug } from '@wvb/deno';
 export {
-  BridgeErrorCode,
   type BridgeErrorData,
-  type DenoBrowserWindow,
-  dispatch,
-  handlerNames,
-  INVOKE_BINDING,
-  type InvokeResult,
   registerBindings,
 } from './bindings.ts';
 export type {
   BundleProtocolConfig,
   LocalProtocolConfig,
-  Protocol,
+  ProtocolConfig,
   ProtocolHandler,
   ProtocolHandlerBuild,
   ProtocolHandlerBuildContext,

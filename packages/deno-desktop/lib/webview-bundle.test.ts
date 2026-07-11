@@ -17,8 +17,11 @@ loadLib(DYLIB);
 
 function makeApp() {
   return webviewBundle({
-    source: { builtinDir: BUILTIN_DIR, remoteDir: Deno.makeTempDirSync({ prefix: 'wvb-test-' }) },
-    protocols: [bundleProtocol('app')],
+    source: {
+      builtinDir: BUILTIN_DIR,
+      remoteDir: Deno.makeTempDirSync({ prefix: 'wvb-test-' }),
+    },
+    protocol: bundleProtocol('app'),
   });
 }
 
@@ -34,7 +37,9 @@ Deno.test('webviewBundle.fetch forwards Range (206) and returns 404', async () =
   const app = makeApp();
 
   const ranged = await app.fetch(
-    new Request('http://127.0.0.1/build.png', { headers: { Range: 'bytes=0-99' } })
+    new Request('http://127.0.0.1/build.png', {
+      headers: { Range: 'bytes=0-99' },
+    })
   );
   assertEquals(ranged.status, 206);
   assertEquals((await ranged.arrayBuffer()).byteLength, 100);
@@ -46,7 +51,6 @@ Deno.test('webviewBundle.fetch forwards Range (206) and returns 404', async () =
 Deno.test('webviewBundle exposes source + protocolSchemes', () => {
   const app = makeApp();
   assert(app.source != null);
-  assertEquals(app.protocolSchemes, ['app']);
   assertEquals(app.remote, null);
   assertEquals(app.updater, null);
 });

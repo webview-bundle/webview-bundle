@@ -3,7 +3,7 @@ import { type ServerType, serve } from '@hono/node-server';
 import getPort from 'get-port';
 import { Hono } from 'hono';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BundleBuilder, Remote, WebviewBundleError, writeBundleIntoBuffer } from '../index.js';
+import { BundleBuilder, Remote, WebviewBundleError, writeBundleIntoBuffer } from '../dist/index.js';
 
 let port: number;
 let server: ServerType;

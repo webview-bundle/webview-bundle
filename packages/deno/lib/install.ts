@@ -8,33 +8,44 @@
 // binary targets one platform. Then: `deno desktop --allow-ffi --include <out>/<file> main.ts`.
 //
 // Downloaded bytes are verified against the asset's `.sha256` sidecar before being written, unless
-// `--no-integrity` is passed. See `release.ts` for the asset/checksum scheme.
+// `--no-integrity` is passed.
 
+import { libFileName } from './ffi.ts';
 import {
-  localFileName,
-  type Os,
   osOfTarget,
   releaseAssetName,
   releaseBaseUrl,
-  SUPPORTED_TARGETS,
   VERSION,
   verifyChecksum,
 } from './release.ts';
 
-export type { Os };
-export { localFileName, osOfTarget, releaseAssetName, releaseBaseUrl, SUPPORTED_TARGETS, VERSION };
-
 export interface InstallOptions {
+  /**
+   * Build target triple, which is the combination of `${arch}-${vendor}-${os}`.
+   * @default Deno.build.target
+   */
   target?: string;
+  /**
+   * Output directory.
+   * @default vendor/wvb
+   */
   out?: string;
+  /**
+   * Specify version to use.
+   */
   version?: string;
-  /** Release base URL; defaults to `<repo>/releases/download/deno/<version>`. */
+  /**
+   * Release base URL
+   * @default https://github.com/webview-bundle/webview-bundle/releases/download/deno/<version>
+   */
   url?: string;
-  /** Verify the download against its release `.sha256` sidecar. Defaults to `true` (fail closed). */
+  /**
+   * Verify integrity with checksum
+   * @default true
+   */
   integrity?: boolean;
 }
 
-/** Download the cdylib for `target` into `out`, returning the saved file path. */
 export async function install(options: InstallOptions = {}): Promise<string> {
   const target = options.target ?? Deno.build.target;
   const out = options.out ?? 'vendor/wvb';
@@ -52,7 +63,7 @@ export async function install(options: InstallOptions = {}): Promise<string> {
     await verifyChecksum(bytes, base, assetName);
   }
   await Deno.mkdir(out, { recursive: true });
-  const dest = `${out}/${localFileName(target)}`;
+  const dest = `${out}/${libFileName(osOfTarget(target))}`;
   await Deno.writeFile(dest, bytes);
   return dest;
 }
