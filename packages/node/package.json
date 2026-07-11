@@ -40,7 +40,9 @@
   "scripts": {
     "artifacts": "node scripts/artifacts.ts",
     "build": "tsdown",
-    "build-napi": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
+    "build-napi": "yarn build-napi-host && yarn build-napi-cross",
+    "build-napi-cross": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
+    "build-napi-host": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
     "prepack": "yarn build",
     "typecheck": "tsc --noEmit"
   },
