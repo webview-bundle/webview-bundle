@@ -45,9 +45,8 @@ jobs:
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: windows-latest
             target: i686-pc-windows-msvc
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target i686-pc-windows-msvc
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: windows-latest
@@ -57,9 +56,8 @@ jobs:
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: windows-latest
             target: aarch64-pc-windows-msvc
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-pc-windows-msvc
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
@@ -69,44 +67,38 @@ jobs:
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target x86_64-unknown-linux-musl -x
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-unknown-linux-gnu --use-napi-cross
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-unknown-linux-musl -x
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target armv7-unknown-linux-gnueabihf --use-napi-cross
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: aarch64-linux-android
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-linux-android
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: armv7-linux-androideabi
+            build_only: true
             build: |
-              # cross target: also build a host binary so the host-run tests can load one
-              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target armv7-linux-androideabi
               yarn workspaces foreach -Apt --include='@wvb/*' run build
     runs-on: ${{ matrix.settings.host }}
@@ -157,23 +149,26 @@ jobs:
         run: ${{ matrix.settings.build }}
         shell: bash
       - name: Run test
+        if: ${{ !matrix.settings.build_only }}
         run: yarn vitest run --config vitest.workspace.ts
         shell: bash
       - name: Build wvb-deno cdylib (for deno FFI tests)
+        if: ${{ !matrix.settings.build_only }}
         run: cargo build -p wvb-deno --release
         shell: bash
       - name: Run deno test
+        if: ${{ !matrix.settings.build_only }}
         run: deno task test
         working-directory: packages
         shell: bash
       - name: Install tauri-driver
-        if: matrix.settings.host == 'ubuntu-latest'
+        if: ${{ !matrix.settings.build_only && matrix.settings.host == 'ubuntu-latest' }}
         run: cargo install tauri-driver --locked
       - name: Run e2e test with xvfb (Linux)
-        if: matrix.settings.host == 'ubuntu-latest'
+        if: ${{ !matrix.settings.build_only && matrix.settings.host == 'ubuntu-latest' }}
         run: xvfb-run -a --server-args="-screen 0 1280x1024x24" yarn vitest run --config vitest.e2e.workspace.ts
       - name: Run e2e test
-        if: matrix.settings.host != 'ubuntu-latest'
+        if: ${{ !matrix.settings.build_only && matrix.settings.host != 'ubuntu-latest' }}
         run: yarn vitest run --config vitest.e2e.workspace.ts
         shell: bash
   lint-rust:
