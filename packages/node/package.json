@@ -19,9 +19,7 @@
   },
   "files": [
     "dist/",
-    "binding.js",
     "binding.cjs",
-    "binding.d.ts",
     "binding.d.cts",
     "README.md",
     "CHANGELOG.md",
@@ -39,25 +37,11 @@
     },
     "./package.json": "./package.json"
   },
-  "imports": {
-    "#binding": {
-      "import": {
-        "types": "./binding.d.ts",
-        "default": "./binding.js"
-      },
-      "require": {
-        "types": "./binding.d.cts",
-        "default": "./binding.cjs"
-      }
-    }
-  },
   "scripts": {
-    "prepack": "yarn build",
     "artifacts": "node scripts/artifacts.ts",
-    "build": "tsdown && node scripts/fix-binding-dts.mjs",
-    "build-napi": "yarn build-napi-esm && yarn build-napi-cjs",
-    "build-napi-cjs": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
-    "build-napi-esm": "napi build --platform --release --js=binding.js --dts=binding.d.ts --esm --no-const-enum --no-dts-cache",
+    "build": "tsdown",
+    "build-napi": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
+    "prepack": "yarn build",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

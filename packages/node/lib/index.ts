@@ -1,16 +1,11 @@
-import * as binding from '#binding';
+/** biome-ignore-all lint/correctness/useImportExtensions: allow .cjs */
+import * as binding from '../binding.cjs';
 import { patchBinding, wrapClass, wrapFunction } from './wrap.js';
 
 patchBinding(binding as unknown as Record<string, unknown>);
 
-export * from '#binding';
-export {
-  isWebviewBundleError,
-  isWebviewBundleErrorCode,
-  WEBVIEW_BUNDLE_ERROR_CODES,
-  WebviewBundleError,
-  type WebviewBundleErrorCode,
-} from './error.js';
+export * from '../binding.cjs';
+export { isWebviewBundleError, WebviewBundleError } from './error.js';
 
 export const readBundle: typeof binding.readBundle = wrapFunction(binding.readBundle);
 export const readBundleFromBuffer: typeof binding.readBundleFromBuffer = wrapFunction(

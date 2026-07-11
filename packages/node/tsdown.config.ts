@@ -11,8 +11,7 @@ const config: UserConfig = defineConfig({
   outExtensions: ({ format }) =>
     format === 'es' ? { js: '.js', dts: '.d.ts' } : { js: '.cjs', dts: '.d.cts' },
   deps: {
-    // `#binding` is a subpath import resolved per-format (binding.js / binding.cjs) by Node itself.
-    neverBundle: [/^#/],
+    neverBundle: [/binding\.cjs$/],
   },
 });
 
