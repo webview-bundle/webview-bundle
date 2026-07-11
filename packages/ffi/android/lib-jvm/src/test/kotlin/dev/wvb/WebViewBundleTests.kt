@@ -246,7 +246,7 @@ class WebViewBundleTests {
     fun remoteDownloadVersionForbidden(): Unit = runBlocking {
         withMockServer(allowOnlyLatest = true) { port ->
             val remote = Remote("http://localhost:$port")
-            val ex = assertFailsWith<Exception> {
+            val ex = assertFailsWith<WebviewBundleException.CoreRemoteForbidden> {
                 remote.downloadVersion("bundle1", "1.0.0")
             }
             assertTrue(
@@ -260,7 +260,7 @@ class WebViewBundleTests {
     fun remoteBundleNotFound(): Unit = runBlocking {
         withMockServer { port ->
             val remote = Remote("http://localhost:$port")
-            val ex = assertFailsWith<Exception> {
+            val ex = assertFailsWith<WebviewBundleException.CoreRemoteBundleNotFound> {
                 remote.download("not_found", null)
             }
             assertTrue(

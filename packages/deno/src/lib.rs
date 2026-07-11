@@ -24,17 +24,14 @@ fn runtime() -> &'static Runtime {
   })
 }
 
-/// Opaque handle wrapping a core `BundleSource`.
 pub struct WvbSource {
   inner: Arc<BundleSource>,
 }
 
-/// Opaque handle wrapping any core `Protocol` (bundle or local).
 pub struct WvbProtocol {
   inner: Arc<dyn Protocol>,
 }
 
-/// Opaque handle holding a finished response. Owns its data until `wvb_response_free`.
 pub struct WvbResponse {
   status: u16,
   headers_json: CString,
@@ -244,25 +241,16 @@ pub unsafe extern "C" fn wvb_response_free(resp: *mut WvbResponse) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Remote / Updater (data API)
-//
-// These return an opaque `WvbResult`: on success `json` is a JSON payload (+ `body` bytes for
-// downloads); on failure `ok` is false and `json` holds the error message. All network methods
-// should be invoked from `nonblocking` Deno symbols (they run on the internal tokio runtime).
-// ---------------------------------------------------------------------------
-
-/// Opaque handle wrapping a core `Remote`.
 pub struct WvbRemote {
   inner: Arc<CoreRemote>,
 }
 
-/// Opaque handle wrapping a core `Updater`.
 pub struct WvbUpdater {
   inner: CoreUpdater,
 }
 
-/// Result of a data-API call: `json` (payload on success / message on error) + optional `body` bytes.
+/// Result of a data-API call: `json` (payload on success / `{ code, message }` on error) +
+/// optional `body` bytes.
 pub struct WvbResult {
   ok: bool,
   json: CString,
@@ -278,12 +266,26 @@ fn ok_result(json: serde_json::Value, body: Vec<u8>) -> *mut WvbResult {
   }))
 }
 
-fn err_result(message: String) -> *mut WvbResult {
+/// An error result carrying the stable code alongside the message, so `@wvb/deno` can rebuild a
+/// `WebviewBundleError` with the same code the other bindings use.
+fn err_result(code: &str, message: String) -> *mut WvbResult {
+  let json = serde_json::json!({ "code": code, "message": message });
+  let text = serde_json::to_string(&json).unwrap_or_else(|_| "null".to_string());
   Box::into_raw(Box::new(WvbResult {
     ok: false,
-    json: CString::new(message).unwrap_or_default(),
+    json: CString::new(text).unwrap_or_default(),
     body: Vec::new(),
   }))
+}
+
+/// A `wvb` core error, tagged with its [`wvb::ErrorCode`] as the `core.<code>` wire code.
+fn core_err(e: wvb::Error) -> *mut WvbResult {
+  err_result(&format!("core.{}", e.code()), e.to_string())
+}
+
+/// A handle argument was null, or had already been freed.
+fn null_handle_err(what: &str) -> *mut WvbResult {
+  err_result("null_handle", format!("{what} handle is null"))
 }
 
 fn list_info_json(info: &wvb::remote::ListRemoteBundleInfo) -> serde_json::Value {
@@ -334,7 +336,6 @@ fn source_version_json(v: &source::BundleSourceVersion) -> serde_json::Value {
   serde_json::json!({ "type": source_kind_str(&v.kind), "version": v.version })
 }
 
-// Flat shape, matching `@wvb/node`'s `ListBundleItem` (the established host contract).
 fn list_bundle_item_json(it: &source::ListBundleItem) -> serde_json::Value {
   serde_json::json!({
     "type": source_kind_str(&it.kind),
@@ -345,8 +346,7 @@ fn list_bundle_item_json(it: &source::ListBundleItem) -> serde_json::Value {
   })
 }
 
-/// Parse a JSON object of HTTP client options (camelCase, mirroring `@wvb/node`'s `HttpOptions`,
-/// minus `defaultHeaders` for now) into an `HttpConfig`.
+/// Parse a JSON object of HTTP client options into an `HttpConfig`.
 fn parse_http_config(raw: &str) -> Option<HttpConfig> {
   let value: serde_json::Value = serde_json::from_str(raw).ok()?;
   let mut config = HttpConfig::new();
@@ -421,7 +421,7 @@ pub unsafe extern "C" fn wvb_remote_list_bundles(
   channel: *const c_char,
 ) -> *mut WvbResult {
   let Some(remote) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("remote handle is null".to_string());
+    return null_handle_err("remote");
   };
   let channel = unsafe { cstr(channel) };
   match runtime().block_on(async move {
@@ -432,7 +432,7 @@ pub unsafe extern "C" fn wvb_remote_list_bundles(
       serde_json::Value::Array(list.iter().map(list_info_json).collect()),
       Vec::new(),
     ),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -445,7 +445,7 @@ pub unsafe extern "C" fn wvb_remote_get_info(
   channel: *const c_char,
 ) -> *mut WvbResult {
   let Some(remote) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("remote handle is null".to_string());
+    return null_handle_err("remote");
   };
   let name = unsafe { cstr(bundle_name) };
   let channel = unsafe { cstr(channel) };
@@ -454,7 +454,7 @@ pub unsafe extern "C" fn wvb_remote_get_info(
     remote.get_current_info(&name, channel).await
   }) {
     Ok(info) => ok_result(remote_info_json(&info), Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -467,7 +467,7 @@ pub unsafe extern "C" fn wvb_remote_download(
   channel: *const c_char,
 ) -> *mut WvbResult {
   let Some(remote) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("remote handle is null".to_string());
+    return null_handle_err("remote");
   };
   let name = unsafe { cstr(bundle_name) };
   let channel = unsafe { cstr(channel) };
@@ -476,7 +476,7 @@ pub unsafe extern "C" fn wvb_remote_download(
     remote.download(&name, channel).await
   }) {
     Ok((info, _bundle, data)) => ok_result(remote_info_json(&info), data.to_vec()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -489,27 +489,27 @@ pub unsafe extern "C" fn wvb_remote_download_version(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(remote) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("remote handle is null".to_string());
+    return null_handle_err("remote");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
   match runtime().block_on(async move { remote.download_version(&name, &version).await }) {
     Ok((info, _bundle, data)) => ok_result(remote_info_json(&info), data.to_vec()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
 /// Build a core `SignatureVerifier` from a `signatureVerifier` JSON object
-/// (`{ algorithm, key: { format, data } }`, mirroring `@wvb/node`'s `SignatureVerifierOptions`). For
-/// the PEM key formats `data` is the PEM text; for the binary formats (`spkiDer`/`pkcs1Der`/`sec1`/
-/// `raw`) it is standard base64. Returns `None` on any parse, base64-decode, unsupported
+/// (`{ algorithm, key: { format, data } }`.
+///
+/// For the PEM key formats `data` is the PEM text; for the binary formats (`spkiDer`/`pkcs1Der`
+/// /`sec1`/`raw`) it is standard base64. Returns `None` on any parse, base64-decode, unsupported
 /// algorithm/format combination, or key-construction failure, so the caller can fail closed.
 fn build_signature_verifier(sv: &serde_json::Value) -> Option<SignatureVerifier> {
   let algorithm = sv.get("algorithm")?.as_str()?;
   let key = sv.get("key")?;
   let format = key.get("format")?.as_str()?;
   let data = key.get("data")?.as_str()?;
-  // Base64-decoded key bytes, for the binary key formats.
   let bytes = || Base64::decode_vec(data).ok();
   let verifier = match (algorithm, format) {
     ("ecdsaSecp256R1", "sec1") => SignatureVerifier::EcdsaSecp256r1(Arc::new(
@@ -571,11 +571,6 @@ fn build_signature_verifier(sv: &serde_json::Value) -> Option<SignatureVerifier>
   Some(verifier)
 }
 
-/// Create an updater over `source` + `remote`. `options_json` is null/empty or a JSON object with
-/// `channel` (string), `integrityPolicy` ("strict" | "optional" | "none"), and/or `signatureVerifier`
-/// (`{ algorithm, key: { format, data } }`). A malformed options object, or a `signatureVerifier`
-/// that can't be built, returns null (fail closed) rather than an unverified updater.
-///
 /// # Safety
 /// `source`/`remote` must be valid handles; `options_json` null or a valid C string.
 #[unsafe(no_mangle)]
@@ -604,8 +599,6 @@ pub unsafe extern "C" fn wvb_updater_new(
         "strict" => IntegrityPolicy::Strict,
         "optional" => IntegrityPolicy::Optional,
         "none" => IntegrityPolicy::None,
-        // Unknown value (e.g. a typo) → fail closed with strict verification rather than
-        // silently weakening integrity checks.
         _ => IntegrityPolicy::Strict,
       };
       config = config.integrity_policy(policy);
@@ -639,14 +632,14 @@ pub unsafe extern "C" fn wvb_updater_free(handle: *mut WvbUpdater) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wvb_updater_list_remotes(handle: *const WvbUpdater) -> *mut WvbResult {
   let Some(updater) = (unsafe { handle.as_ref() }) else {
-    return err_result("updater handle is null".to_string());
+    return null_handle_err("updater");
   };
   match runtime().block_on(updater.inner.list_remotes()) {
     Ok(list) => ok_result(
       serde_json::Value::Array(list.iter().map(list_info_json).collect()),
       Vec::new(),
     ),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -658,12 +651,12 @@ pub unsafe extern "C" fn wvb_updater_get_update(
   bundle_name: *const c_char,
 ) -> *mut WvbResult {
   let Some(updater) = (unsafe { handle.as_ref() }) else {
-    return err_result("updater handle is null".to_string());
+    return null_handle_err("updater");
   };
   let name = unsafe { cstr(bundle_name) };
   match runtime().block_on(updater.inner.get_update(&name)) {
     Ok(info) => ok_result(update_info_json(&info), Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -676,14 +669,14 @@ pub unsafe extern "C" fn wvb_updater_download(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(updater) = (unsafe { handle.as_ref() }) else {
-    return err_result("updater handle is null".to_string());
+    return null_handle_err("updater");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
   let version = (!version.is_empty()).then_some(version);
   match runtime().block_on(updater.inner.download(name, version)) {
     Ok(info) => ok_result(remote_info_json(&info), Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -696,37 +689,29 @@ pub unsafe extern "C" fn wvb_updater_install(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(updater) = (unsafe { handle.as_ref() }) else {
-    return err_result("updater handle is null".to_string());
+    return null_handle_err("updater");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
   match runtime().block_on(updater.inner.install(name, version)) {
     Ok(()) => ok_result(serde_json::Value::Null, Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
-
-// ---------------------------------------------------------------------------
-// BundleSource data API
-//
-// These mirror `@wvb/node`'s `BundleSource` methods so `@wvb/deno-desktop` can serve the
-// `@wvb/bridge` `source.*` commands. Each returns a `WvbResult` (JSON payload on success). The async
-// methods run on the internal tokio runtime and should be invoked from `nonblocking` Deno symbols.
-// ---------------------------------------------------------------------------
 
 /// # Safety
 /// `handle` must be a valid `WvbSource`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wvb_source_list_bundles(handle: *const WvbSource) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   match runtime().block_on(async move { source.list_bundles().await }) {
     Ok(items) => ok_result(
       serde_json::Value::Array(items.iter().map(list_bundle_item_json).collect()),
       Vec::new(),
     ),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -738,13 +723,13 @@ pub unsafe extern "C" fn wvb_source_load_version(
   bundle_name: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   match runtime().block_on(async move { source.load_version(&name).await }) {
     Ok(Some(v)) => ok_result(source_version_json(&v), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -757,13 +742,13 @@ pub unsafe extern "C" fn wvb_source_update_version(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
   match runtime().block_on(async move { source.update_remote_version(&name, &version).await }) {
     Ok(()) => ok_result(serde_json::Value::Null, Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -775,7 +760,7 @@ pub unsafe extern "C" fn wvb_source_resolve_filepath(
   bundle_name: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   match runtime().block_on(async move { source.resolve_filepath(&name).await }) {
@@ -783,7 +768,7 @@ pub unsafe extern "C" fn wvb_source_resolve_filepath(
       serde_json::Value::String(path.to_string_lossy().into_owned()),
       Vec::new(),
     ),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -796,7 +781,7 @@ pub unsafe extern "C" fn wvb_source_get_builtin_filepath(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
@@ -805,7 +790,7 @@ pub unsafe extern "C" fn wvb_source_get_builtin_filepath(
       serde_json::Value::String(path.to_string_lossy().into_owned()),
       Vec::new(),
     ),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -818,7 +803,7 @@ pub unsafe extern "C" fn wvb_source_get_remote_filepath(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
@@ -827,7 +812,7 @@ pub unsafe extern "C" fn wvb_source_get_remote_filepath(
       serde_json::Value::String(path.to_string_lossy().into_owned()),
       Vec::new(),
     ),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -840,14 +825,14 @@ pub unsafe extern "C" fn wvb_source_load_builtin_metadata(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
   match runtime().block_on(async move { source.load_builtin_metadata(&name, &version).await }) {
     Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -860,14 +845,14 @@ pub unsafe extern "C" fn wvb_source_load_remote_metadata(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
   match runtime().block_on(async move { source.load_remote_metadata(&name, &version).await }) {
     Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -879,7 +864,7 @@ pub unsafe extern "C" fn wvb_source_unload_descriptor(
   bundle_name: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   ok_result(
@@ -897,13 +882,13 @@ pub unsafe extern "C" fn wvb_source_remove_remote_bundle(
   version: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
   match runtime().block_on(async move { source.remove_remote_bundle(&name, &version).await }) {
     Ok(removed) => ok_result(serde_json::Value::Bool(removed), Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -915,12 +900,12 @@ pub unsafe extern "C" fn wvb_source_remote_retained_versions(
   bundle_name: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   match runtime().block_on(async move { source.remote_retained_versions(&name).await }) {
     Ok(versions) => ok_result(serde_json::json!(versions), Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 
@@ -932,12 +917,12 @@ pub unsafe extern "C" fn wvb_source_prune_remote_bundles(
   bundle_name: *const c_char,
 ) -> *mut WvbResult {
   let Some(source) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return err_result("source handle is null".to_string());
+    return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
   match runtime().block_on(async move { source.prune_remote_bundles(&name).await }) {
     Ok(removed) => ok_result(serde_json::json!(removed), Vec::new()),
-    Err(e) => err_result(e.to_string()),
+    Err(e) => core_err(e),
   }
 }
 

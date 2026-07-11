@@ -9,7 +9,8 @@
 // `--target` defaults to the host (`Deno.build.target`). Pass `--zigbuild` to cross-compile via
 // `cargo zigbuild` (used for the aarch64 Linux target in CI); otherwise plain `cargo build` is used.
 import { fromFileUrl } from '@std/path';
-import { localFileName, releaseAssetName, sha256Hex } from '../lib/release.ts';
+import { libFileName } from '../lib/ffi.ts';
+import { osOfTarget, releaseAssetName, sha256Hex } from '../lib/release.ts';
 
 const PKG_DIR = fromFileUrl(new URL('../', import.meta.url));
 const ROOT_DIR = fromFileUrl(new URL('../../../', import.meta.url));
@@ -40,7 +41,7 @@ async function main(): Promise<void> {
   }
 
   const assetName = releaseAssetName(target);
-  const src = `${ROOT_DIR}target/${target}/release/${localFileName(target)}`;
+  const src = `${ROOT_DIR}target/${target}/release/${libFileName(osOfTarget(target))}`;
   const outDir = `${PKG_DIR}.output`;
   const dest = `${outDir}/${assetName}`;
   await Deno.mkdir(outDir, { recursive: true });

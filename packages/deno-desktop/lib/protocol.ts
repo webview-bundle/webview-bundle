@@ -1,13 +1,8 @@
 // Protocol handlers (mirrors @wvb/electron's protocol.ts). Deno desktop serves over local HTTP
 // (single origin), so a protocol's `scheme` is used as the bundle name / local host, and each
 // handler maps the incoming `http://127.0.0.1/<path>` request to the binding's URI form.
-import {
-  BundleProtocol,
-  type BundleSource,
-  type HttpMethod,
-  LocalProtocol,
-  toResponse,
-} from '@wvb/deno';
+import { BundleProtocol, type BundleSource, type HttpMethod, LocalProtocol } from '@wvb/deno';
+import { toResponse } from './http.ts';
 
 export interface ProtocolHandler {
   handle(req: Request): Promise<Response>;
@@ -24,7 +19,7 @@ export interface ProtocolOptions {
   onError?: (e: Error) => void;
 }
 
-export interface Protocol {
+export interface ProtocolConfig {
   /** In Deno desktop (single-origin HTTP) this is the bundle name / local host served at the root. */
   scheme: string;
   handler: ProtocolHandler | ProtocolHandlerBuild;
@@ -60,7 +55,7 @@ const METHOD_NOT_ALLOWED = (): Response => new Response('Method Not Allowed', { 
 export interface BundleProtocolConfig extends ProtocolOptions {}
 
 /** Serve a builtin bundle (named `scheme`) at the HTTP root. */
-export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): Protocol {
+export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): ProtocolConfig {
   return {
     scheme,
     handler: ({ source }) => {
@@ -92,7 +87,7 @@ export interface LocalProtocolConfig extends ProtocolOptions {
 }
 
 /** Proxy to a local dev server (hot reload), mapping `scheme` host → URL. */
-export function localProtocol(scheme: string, config: LocalProtocolConfig): Protocol {
+export function localProtocol(scheme: string, config: LocalProtocolConfig): ProtocolConfig {
   const { hosts, ...options } = config;
   return {
     scheme,

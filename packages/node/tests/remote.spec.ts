@@ -3,7 +3,7 @@ import { type ServerType, serve } from '@hono/node-server';
 import getPort from 'get-port';
 import { Hono } from 'hono';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BundleBuilder, Remote, writeBundleIntoBuffer } from '../index.js';
+import { BundleBuilder, Remote, WebviewBundleError, writeBundleIntoBuffer } from '../dist/index.js';
 
 let port: number;
 let server: ServerType;
@@ -100,13 +100,32 @@ describe('remote', () => {
     expect(bundle.getData('/index.html')).toEqual(Buffer.from('<h1>Hello World</h1>', 'utf8'));
 
     allowOnlyLatest = true;
-    await expect(remote.downloadVersion('bundle1', '1.0.0')).rejects.toThrowError(
-      /remote forbidden/
+    await expect(remote.downloadVersion('bundle1', '1.0.0')).rejects.toThrow(
+      expect.objectContaining({
+        name: 'WebviewBundleError',
+        code: 'core.remote_forbidden',
+        message: 'remote forbidden',
+      })
     );
   });
 
   it('bundle not found', async () => {
     const remote = new Remote(`http://localhost:${port}`);
-    await expect(remote.download('not_found')).rejects.toThrowError(/bundle not found/);
+    await expect(remote.download('not_found')).rejects.toThrow(
+      expect.objectContaining({ code: 'core.remote_bundle_not_found' })
+    );
+  });
+
+  it('reject with WebviewBundleError', async () => {
+    const remote = new Remote(`http://localhost:${port}`);
+    const error = await remote.download('not_found').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WebviewBundleError);
+    expect((error as WebviewBundleError).message).not.toMatch(/^\[/);
+  });
+
+  it('an invalid endpoint rejects from the constructor', () => {
+    expect(() => new Remote('')).toThrow(
+      expect.objectContaining({ code: 'core.invalid_remote_config' })
+    );
   });
 });
