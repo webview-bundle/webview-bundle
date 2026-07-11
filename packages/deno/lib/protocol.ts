@@ -1,3 +1,4 @@
+import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, type HttpResponse, readResponse } from './ffi.ts';
 import type { BundleSource } from './source.ts';
 
@@ -73,7 +74,7 @@ export class BundleProtocol {
       cstr(options != null ? JSON.stringify(options) : '')
     );
     if (this.#ptr === null) {
-      throw new Error('wvb: failed to create BundleProtocol');
+      throw new WebviewBundleError('unknown', 'wvb: failed to create BundleProtocol');
     }
   }
 
@@ -105,7 +106,7 @@ export class ProxyProtocol {
     const lib = getLib();
     this.#ptr = lib.symbols.wvb_proxy_protocol_new(cstr(JSON.stringify(hosts)));
     if (this.#ptr === null) {
-      throw new Error('wvb: failed to create ProxyProtocol');
+      throw new WebviewBundleError('unknown', 'wvb: failed to create ProxyProtocol');
     }
   }
 

@@ -6,6 +6,7 @@ import {
   type PathResolver,
   ProxyProtocol,
 } from '@wvb/deno';
+import { toResponse } from './http.ts';
 
 /** Serves a bundle from the source. */
 export interface BundleRoute {
@@ -76,15 +77,6 @@ function normalizeHeaders(headers: Headers): Record<string, string> {
     map[key] = value;
   }
   return map;
-}
-
-function makeResponse(resp: HttpResponse): Response {
-  const { status, headers: respHeaders, body } = resp;
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(respHeaders)) {
-    headers.set(name, value);
-  }
-  return new Response(body, { status, headers });
 }
 
 /** A route with its mount path normalized (`'/'`, or `'/docs'` without a trailing slash). */
@@ -179,7 +171,7 @@ export function createHandler(
         return new Response('Method Not Allowed', { status: 405 });
       }
       try {
-        return makeResponse(await handler.handle(req, method, `${path}${search}`));
+        return toResponse(await handler.handle(req, method, `${path}${search}`));
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
         handler.onError?.(error);

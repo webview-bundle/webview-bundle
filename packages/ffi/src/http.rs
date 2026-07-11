@@ -116,6 +116,6 @@ pub(crate) fn request(
   }
   let req = req
     .body(vec![])
-    .map_err(|e| crate::Error::Core(wvb::Error::from(e).to_string()))?;
+    .map_err(|e| crate::Error::from(wvb::Error::from(e)))?;
   Ok(req)
 }

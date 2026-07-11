@@ -1,7 +1,7 @@
-// Low-level Deno FFI loader for the `wvb-deno` cdylib. Internal to the package.
 import { fromFileUrl } from '@std/path';
+import { errorFromNativePayload, WebviewBundleError } from './error.ts';
 import {
-  fetchExpectedChecksum,
+  fetchChecksum,
   releaseAssetName,
   releaseAssetSuffixes,
   releaseBaseUrl,
@@ -29,7 +29,6 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
-  // Filepath getters + unload are synchronous in core.
   wvb_source_get_builtin_filepath: {
     parameters: ['pointer', 'buffer', 'buffer'],
     result: 'pointer',
@@ -64,10 +63,10 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
+  // Protocol
   wvb_bundle_protocol_new: { parameters: ['pointer', 'buffer'], result: 'pointer' },
   wvb_proxy_protocol_new: { parameters: ['buffer'], result: 'pointer' },
   wvb_protocol_free: { parameters: ['pointer'], result: 'void' },
-  // nonblocking: runs on a dedicated thread (Rust block_on) so the event loop never stalls.
   wvb_protocol_handle: {
     parameters: ['pointer', 'buffer', 'buffer', 'buffer'],
     result: 'pointer',
@@ -78,7 +77,7 @@ const SYMBOLS = {
   wvb_response_body_ptr: { parameters: ['pointer'], result: 'pointer' },
   wvb_response_body_len: { parameters: ['pointer'], result: 'usize' },
   wvb_response_free: { parameters: ['pointer'], result: 'void' },
-  // Remote (network → nonblocking)
+  // Remote
   wvb_remote_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
   wvb_remote_free: { parameters: ['pointer'], result: 'void' },
   wvb_remote_list_bundles: {
@@ -101,7 +100,7 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
-  // Updater (network → nonblocking)
+  // Updater
   wvb_updater_new: { parameters: ['pointer', 'pointer', 'buffer'], result: 'pointer' },
   wvb_updater_free: { parameters: ['pointer'], result: 'void' },
   wvb_updater_list_remotes: { parameters: ['pointer'], result: 'pointer', nonblocking: true },
@@ -132,27 +131,32 @@ export type WvbLib = Deno.DynamicLibrary<typeof SYMBOLS>;
 
 let lib: WvbLib | null = null;
 
-/** Platform cdylib filename: `libwvb_deno.dylib` (macOS) / `libwvb_deno.so` (Linux) / `wvb_deno.dll` (Windows). */
-export function platformLibFileName(os: typeof Deno.build.os = Deno.build.os): string {
-  const ext = os === 'windows' ? 'dll' : os === 'darwin' ? 'dylib' : 'so';
-  const prefix = os === 'windows' ? '' : 'lib';
-  return `${prefix}wvb_deno.${ext}`;
+/** Platform cdylib filename
+ * - macOS : `libwvb_deno.dylib`
+ * - Linux :`libwvb_deno.so` (Linux)
+ * - Windows : `wvb_deno.dll` (Windows)
+ */
+export function libFileName(os: typeof Deno.build.os = Deno.build.os): string {
+  switch (os) {
+    case 'darwin':
+      return 'libwvb_deno.dylib';
+    case 'windows':
+      return 'wvb_deno.dll';
+    default:
+      return 'libwvb_deno.so';
+  }
 }
 
 function resolveLibFile(libPath: string | URL): string {
   const p = libPath instanceof URL ? fromFileUrl(libPath) : libPath;
-  // Already a dylib file → use as-is; a directory (or trailing slash) → append the platform filename.
-  // Case-insensitive so explicit paths with uppercase extensions (e.g. `.DLL`) aren't mangled.
   if (/\.(dylib|so|dll)$/i.test(p)) {
     return p;
   }
-  return p.endsWith('/') || p.endsWith('\\')
-    ? `${p}${platformLibFileName()}`
-    : `${p}/${platformLibFileName()}`;
+  return p.endsWith('/') || p.endsWith('\\') ? `${p}${libFileName()}` : `${p}/${libFileName()}`;
 }
 
 /**
- * Load the native library from an explicit path and cache it
+ * Load the native library from an explicit path.
  */
 export function loadLib(libPath: string | URL): WvbLib {
   lib ??= Deno.dlopen(resolveLibFile(libPath), SYMBOLS);
@@ -160,27 +164,28 @@ export function loadLib(libPath: string | URL): WvbLib {
 }
 
 export interface LoadLibViaPlugOptions {
-  /** Release base URL (a directory). Defaults to `<repo>/releases/download/deno/<version>/`. */
+  /** Release base URL (a directory) */
   url?: string;
-  /** Release version, used to build the default `url`. Defaults to this package's version. */
+  /** Release version, used to build the default `url` */
   version?: string;
-  /** Verify the download against its release `.sha256` sidecar. Defaults to `true` (fail closed). */
+  /**
+   * Verify the download against its release `.sha256` sidecar
+   * @default true
+   */
   integrity?: boolean;
 }
 
 /**
- * Download the platform cdylib from a release via `@denosaurs/plug`, verify it, cache it, and load
- * it. For `deno run` / library use where the dylib isn't bundled. NOT for self-contained
- * `deno desktop` builds — there, vendor + `--include` the dylib and use {@link loadLib}.
+ * Download the platform cdylib from a release via `@denosaurs/plug`.
+ * For `deno run` / library use where the dylib isn't bundled.
  *
  * Requires `--allow-net --allow-read --allow-write --allow-env --allow-ffi`.
  */
+// deno-lint-ignore require-await
 export async function loadLibViaPlug(options: LoadLibViaPlugOptions = {}): Promise<WvbLib> {
   if (lib != null) {
     return lib;
   }
-  // Single-flight: concurrent callers share one in-flight load so the dylib is opened exactly once.
-  // On failure, reset the slot so a later call can retry instead of replaying the cached rejection.
   loadingPromise ??= loadViaPlug(options).catch(e => {
     loadingPromise = null;
     throw e;
@@ -190,26 +195,19 @@ export async function loadLibViaPlug(options: LoadLibViaPlugOptions = {}): Promi
 
 async function loadViaPlug(options: LoadLibViaPlugOptions): Promise<WvbLib> {
   const target = Deno.build.target;
-  // plug treats `url` as a directory; normalize to exactly one trailing slash.
   const base = `${(options.url ?? `${releaseBaseUrl(options.version ?? VERSION)}/`).replace(/\/+$/, '')}/`;
   const { download } = await import('@denosaurs/plug');
-  // Use `download` (not `dlopen`) so we get the cached file path and can verify the bytes before
-  // `Deno.dlopen` — plug itself performs no integrity check. `name` + `suffixes` resolve our
-  // `<prefix>wvb_deno-<target>.<ext>` asset and cache it with the correct platform extension.
   const path = await download({ name: 'wvb_deno', url: base, suffixes: releaseAssetSuffixes() });
   if (options.integrity !== false) {
-    // Fetch the expected hash first; a failure here (e.g. offline) must NOT evict a valid cached
-    // dylib — only a genuine content mismatch (tampering/corruption) does.
-    const expected = await fetchExpectedChecksum(base, releaseAssetName(target));
+    const checksum = await fetchChecksum(base, releaseAssetName(target));
     const actual = await sha256Hex(await Deno.readFile(path));
-    if (actual !== expected) {
+    if (actual !== checksum) {
       await Deno.remove(path).catch(() => {});
       throw new Error(
-        `wvb: checksum mismatch for ${releaseAssetName(target)}\n  expected ${expected}\n  actual   ${actual}`
+        `wvb: checksum mismatch for ${releaseAssetName(target)}\n  expected ${checksum}\n  actual   ${actual}`
       );
     }
   }
-  // Re-check after the awaits: an explicit loadLib() may have set `lib` while we were downloading.
   if (lib != null) {
     return lib;
   }
@@ -219,7 +217,6 @@ async function loadViaPlug(options: LoadLibViaPlugOptions): Promise<WvbLib> {
 
 let loadingPromise: Promise<WvbLib> | null = null;
 
-/** The cached native library. Falls back to `WVB_DENO_LIB` if set; otherwise throws. */
 export function getLib(): WvbLib {
   if (lib != null) {
     return lib;
@@ -250,8 +247,7 @@ export function cstr(value: string): Uint8Array<ArrayBuffer> {
 
 /**
  * Copy `len` bytes from a native pointer into a fresh JS-owned `Uint8Array`. Uses `copyInto` (not
- * `getArrayBuffer`) so the result never aliases Rust-owned memory — the native buffer is freed right
- * after this returns, so a view would be a use-after-free.
+ * `getArrayBuffer`) so the result never aliases Rust-owned memory.
  */
 function copyBytes(ptr: Deno.PointerValue, len: number): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(len);
@@ -261,7 +257,6 @@ function copyBytes(ptr: Deno.PointerValue, len: number): Uint8Array<ArrayBuffer>
   return out;
 }
 
-/** A served HTTP response (mirrors `@wvb/node`'s `HttpResponse`, with `Uint8Array` for the body). */
 export interface HttpResponse {
   status: number;
   headers: Record<string, string>;
@@ -280,14 +275,14 @@ export interface WvbResultData {
  */
 export function readResult(l: WvbLib, resultPtr: Deno.PointerValue): WvbResultData {
   if (resultPtr === null) {
-    throw new Error('wvb: native call returned a null result');
+    throw new WebviewBundleError('null_handle', 'wvb: native call returned a null result');
   }
   try {
     const ok = l.symbols.wvb_result_ok(resultPtr) !== 0;
     const jsonPtr = l.symbols.wvb_result_json(resultPtr);
     const text = jsonPtr === null ? '' : new Deno.UnsafePointerView(jsonPtr).getCString();
     if (!ok) {
-      throw new Error(text.length > 0 ? text : 'wvb: operation failed');
+      throw errorFromNativePayload(text);
     }
     const len = Number(l.symbols.wvb_result_body_len(resultPtr));
     const body = copyBytes(l.symbols.wvb_result_body_ptr(resultPtr), len);
@@ -297,10 +292,9 @@ export function readResult(l: WvbLib, resultPtr: Deno.PointerValue): WvbResultDa
   }
 }
 
-/** Read a `WvbResponse` pointer into a plain object, then free the native response. */
 export function readResponse(l: WvbLib, respPtr: Deno.PointerValue): HttpResponse {
   if (respPtr === null) {
-    throw new Error('wvb: native handler returned a null response');
+    throw new WebviewBundleError('null_handle', 'wvb: native handler returned a null response');
   }
   try {
     const status = l.symbols.wvb_response_status(respPtr);

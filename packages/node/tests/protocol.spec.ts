@@ -22,7 +22,7 @@ import {
   type BundleResolverOptions,
   BundleSource,
   ProxyProtocol,
-} from '../index.js';
+} from '../dist/index.js';
 
 describe('bundle protocol', () => {
   let tmpdir: string;

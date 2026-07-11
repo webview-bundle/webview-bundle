@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BundleBuilder, BundleSource } from '../index.js';
+import { BundleBuilder, BundleSource } from '../dist/index.js';
 
 function buildBundle(html: string) {
   const builder = new BundleBuilder();

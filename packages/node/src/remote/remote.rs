@@ -1,7 +1,6 @@
 use crate::bundle::Bundle;
 use crate::js::{JsCallback, JsCallbackExt};
 use crate::remote::HttpOptions;
-use napi::Status;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::sync::Arc;
@@ -162,9 +161,7 @@ impl Remote {
     let mut builder = remote::Remote::builder().endpoint(endpoint);
     if let Some(options) = options {
       if let Some(http) = options.http {
-        builder = builder.http(
-          HttpConfig::try_from(http).map_err(|e| Error::new(Status::InvalidArg, e.to_string()))?,
-        );
+        builder = builder.http(HttpConfig::try_from(http)?);
       }
       if let Some(on_download) = options.on_download {
         builder = builder.on_download(move |downloaded_bytes, total_bytes, endpoint| {

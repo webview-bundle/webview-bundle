@@ -1,14 +1,9 @@
-// Host-side @wvb/bridge transport for Deno desktop. Registers a single `wvbInvoke` binding on a
-// `Deno.BrowserWindow` (mirrors @wvb/electron's `registerIpc` + `window.wvbElectron.invoke`) that
-// dispatches @wvb/bridge `source.*` / `remote.*` / `updater.*` commands to a WebviewBundle.
-// See https://docs.deno.com/runtime/desktop/bindings/.
-import type { Remote, Updater } from '@wvb/deno';
+import { isWebviewBundleError, type Remote, type Updater } from '@wvb/deno';
 import type { WebviewBundle } from './webview-bundle.ts';
 
-/** The single binding name the `@wvb/bridge` `deno` transport calls. */
 export const INVOKE_BINDING = 'wvbInvoke';
 
-/** Error payload returned to `@wvb/bridge` (becomes a `BridgeError` there, preserving `code`). */
+/** Error payload returned to `@wvb/bridge`. */
 export interface BridgeErrorData {
   code?: string;
   message: string;
@@ -16,16 +11,9 @@ export interface BridgeErrorData {
 
 /**
  * Result envelope. Deno desktop delivers a thrown handler error as `{ name, message, stack }`
- * (dropping our `code`), so handlers never throw across the binding — they return this instead and
- * `@wvb/bridge` unwraps it (mirrors @wvb/electron's preload).
+ * (dropping our `code`), so handlers never throw across the binding.
  */
 export type InvokeResult = { ok: true; value: unknown } | { ok: false; error: BridgeErrorData };
-
-export const BridgeErrorCode = {
-  RemoteNotInitialized: 'remote_not_initialized',
-  UpdaterNotInitialized: 'updater_not_initialized',
-  HandlerNotFound: 'handler_not_found',
-} as const;
 
 class BridgeError extends Error {
   override readonly name = 'BridgeError';
@@ -38,16 +26,16 @@ class BridgeError extends Error {
   }
 }
 
-function requireRemote(wvb: WebviewBundle): Remote {
+function ensureRemote(wvb: WebviewBundle): Remote {
   if (wvb.remote == null) {
-    throw new BridgeError(BridgeErrorCode.RemoteNotInitialized, 'remote is not initialized.');
+    throw new BridgeError('remote_not_initialized', 'remote is not initialized.');
   }
   return wvb.remote;
 }
 
-function requireUpdater(wvb: WebviewBundle): Updater {
+function ensureUpdater(wvb: WebviewBundle): Updater {
   if (wvb.updater == null) {
-    throw new BridgeError(BridgeErrorCode.UpdaterNotInitialized, 'updater is not initialized.');
+    throw new BridgeError('updater_not_initialized', 'updater is not initialized.');
   }
   return wvb.updater;
 }
@@ -77,24 +65,27 @@ const handlers: Record<string, Handler> = {
     wvb.source.remoteRetainedVersions(bundleName),
   sourcePruneRemoteBundles: (wvb, { bundleName }) => wvb.source.pruneRemoteBundles(bundleName),
   // remote
-  remoteListBundles: (wvb, { channel }) => requireRemote(wvb).listBundles(channel),
-  remoteGetInfo: (wvb, { bundleName, channel }) => requireRemote(wvb).getInfo(bundleName, channel),
+  remoteListBundles: (wvb, { channel }) => ensureRemote(wvb).listBundles(channel),
+  remoteGetInfo: (wvb, { bundleName, channel }) => ensureRemote(wvb).getInfo(bundleName, channel),
   remoteDownload: async (wvb, { bundleName, channel }) =>
-    (await requireRemote(wvb).download(bundleName, channel)).info,
+    (await ensureRemote(wvb).download(bundleName, channel)).info,
   remoteDownloadVersion: async (wvb, { bundleName, version }) =>
-    (await requireRemote(wvb).downloadVersion(bundleName, version)).info,
+    (await ensureRemote(wvb).downloadVersion(bundleName, version)).info,
   // updater
-  updaterListRemotes: wvb => requireUpdater(wvb).listRemotes(),
-  updaterGetUpdate: (wvb, { bundleName }) => requireUpdater(wvb).getUpdate(bundleName),
+  updaterListRemotes: wvb => ensureUpdater(wvb).listRemotes(),
+  updaterGetUpdate: (wvb, { bundleName }) => ensureUpdater(wvb).getUpdate(bundleName),
   updaterDownload: (wvb, { bundleName, version }) =>
-    requireUpdater(wvb).download(bundleName, version),
+    ensureUpdater(wvb).download(bundleName, version),
   updaterInstall: async (wvb, { bundleName, version }) => {
-    await requireUpdater(wvb).install(bundleName, version);
+    await ensureUpdater(wvb).install(bundleName, version);
   },
 };
 
 function toErrorData(error: unknown): BridgeErrorData {
   if (error instanceof BridgeError) {
+    return { code: error.code, message: error.message };
+  }
+  if (isWebviewBundleError(error)) {
     return { code: error.code, message: error.message };
   }
   if (error instanceof Error) {
@@ -106,45 +97,37 @@ function toErrorData(error: unknown): BridgeErrorData {
 /** Names of every command this host can serve. */
 export const handlerNames: readonly string[] = Object.keys(handlers);
 
-/** Run one `@wvb/bridge` command and return its JSON-serializable result envelope (never throws). */
-export async function dispatch(
-  wvb: WebviewBundle,
-  name: string,
-  params?: Params
-): Promise<InvokeResult> {
+async function dispatch(wvb: WebviewBundle, name: string, params?: Params): Promise<InvokeResult> {
   const handler = handlers[name];
   if (handler == null) {
     return {
       ok: false,
       error: {
-        code: BridgeErrorCode.HandlerNotFound,
+        code: 'handler_not_found',
         message: `no invoke handler registered for "${name}"`,
       },
     };
   }
   try {
-    // `?? null` so void handlers (update/install) return a JSON value rather than dropped `undefined`.
     return { ok: true, value: (await handler(wvb, params ?? {})) ?? null };
   } catch (error) {
     return { ok: false, error: toErrorData(error) };
   }
 }
 
-/** A `Deno.BrowserWindow` (only the binding methods we use; the full type ships with Deno desktop). */
 export interface DenoBrowserWindow {
   bind(name: string, handler: (...args: any[]) => unknown): void;
   unbind?(name: string): void;
 }
 
 /**
- * Register the `@wvb/bridge` transport on a Deno desktop window: a single `wvbInvoke(name, params)`
- * binding that dispatches to `wvb`. Call after creating the window and the app, e.g.
+ * Register the `@wvb/bridge` transport on a Deno desktop window.
  *
  * ```ts
  * const win = new Deno.BrowserWindow();
- * const app = webviewBundle({ source: { appName: 'myapp' }, routes: { '/': { bundle: 'app' } } });
- * registerBindings(win, app);
- * Deno.serve(app.fetch);
+ * const wvb = webviewBundle({ source: { appName: 'myapp' }, routes: { '/': { bundle: 'app' } } });
+ * registerBindings(win, wvb);
+ * Deno.serve(wvb.fetch);
  * ```
  */
 export function registerBindings(win: DenoBrowserWindow, wvb: WebviewBundle): void {

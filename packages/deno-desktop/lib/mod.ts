@@ -1,14 +1,5 @@
 export { type HttpResponse, loadLib, loadLibViaPlug, type PathResolver } from '@wvb/deno';
-export {
-  BridgeErrorCode,
-  type BridgeErrorData,
-  type DenoBrowserWindow,
-  dispatch,
-  handlerNames,
-  INVOKE_BINDING,
-  type InvokeResult,
-  registerBindings,
-} from './bindings.ts';
+export { type BridgeErrorData, registerBindings } from './bindings.ts';
 export type { RemoteOptions } from './remote.ts';
 export { remote } from './remote.ts';
 export type { BundleRoute, ProxyRoute, Route, Routes } from './routes.ts';

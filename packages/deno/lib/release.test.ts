@@ -1,6 +1,5 @@
 import { assertEquals } from '@std/assert';
 import {
-  localFileName,
   osOfTarget,
   parseChecksums,
   releaseAssetName,
@@ -18,17 +17,13 @@ Deno.test('osOfTarget classifies the supported triples', () => {
   assertEquals(osOfTarget('x86_64-pc-windows-msvc'), 'windows');
 });
 
-Deno.test('releaseAssetName / localFileName follow the per-os prefix + extension', () => {
+Deno.test('releaseAssetName follow the per-os prefix + extension', () => {
   assertEquals(releaseAssetName('aarch64-apple-darwin'), 'libwvb_deno-aarch64-apple-darwin.dylib');
   assertEquals(
     releaseAssetName('x86_64-unknown-linux-gnu'),
     'libwvb_deno-x86_64-unknown-linux-gnu.so'
   );
   assertEquals(releaseAssetName('x86_64-pc-windows-msvc'), 'wvb_deno-x86_64-pc-windows-msvc.dll');
-
-  assertEquals(localFileName('aarch64-apple-darwin'), 'libwvb_deno.dylib');
-  assertEquals(localFileName('x86_64-unknown-linux-gnu'), 'libwvb_deno.so');
-  assertEquals(localFileName('x86_64-pc-windows-msvc'), 'wvb_deno.dll');
 });
 
 Deno.test('releaseBaseUrl uses the slash-separated `deno/<version>` tag', () => {

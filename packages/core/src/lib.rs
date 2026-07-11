@@ -121,7 +121,7 @@ pub(crate) type Result<T> = std::result::Result<T, Error>;
 pub use builder::*;
 pub use bundle::*;
 pub use consts::*;
-pub use error::Error;
+pub use error::{Error, ErrorCode};
 pub use header::*;
 pub use index::*;
 pub use reader::*;

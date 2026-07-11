@@ -1,13 +1,11 @@
-// Updater — coordinates updates between a BundleSource and a Remote.
 import { encodeBase64 } from '@std/encoding/base64';
+import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
 import type { ListRemoteBundleInfo, Remote, RemoteBundleInfo } from './remote.ts';
 import type { BundleSource } from './source.ts';
 
-/** Integrity verification policy. */
 export type IntegrityPolicy = 'strict' | 'optional' | 'none';
 
-/** Digital signature algorithm for bundle verification (mirrors `@wvb/node`). */
 export type SignatureAlgorithm =
   | 'ecdsaSecp256R1'
   | 'ecdsaSecp384R1'
@@ -15,18 +13,13 @@ export type SignatureAlgorithm =
   | 'rsaPkcs1V15'
   | 'rsaPss';
 
-/** Format of the public key. Binary formats (`spkiDer`/`pkcs1Der`/`sec1`/`raw`) take `Uint8Array`
- * data; the PEM formats take the PEM text. `pkcs1*` is RSA-only, `sec1` is ECDSA-only, `raw` is
- * Ed25519-only (32 bytes). */
 export type VerifyingKeyFormat = 'spkiDer' | 'spkiPem' | 'pkcs1Der' | 'pkcs1Pem' | 'sec1' | 'raw';
 
-/** Public key configuration: `data` is the PEM text for PEM formats, or the key bytes otherwise. */
 export interface SignatureVerifyingKeyOptions {
   format: VerifyingKeyFormat;
   data: string | Uint8Array;
 }
 
-/** Declarative signature verifier: an algorithm + the public key to verify bundle signatures with. */
 export interface SignatureVerifierOptions {
   algorithm: SignatureAlgorithm;
   key: SignatureVerifyingKeyOptions;
@@ -36,13 +29,11 @@ export interface UpdaterOptions {
   channel?: string;
   integrityPolicy?: IntegrityPolicy;
   /**
-   * Verify bundle signatures against a public key. Mirrors `@wvb/node`'s declarative
-   * `signatureVerifier`; the custom-function form is not yet supported over FFI.
+   * Verify bundle signatures against a public key.
    */
   signatureVerifier?: SignatureVerifierOptions;
 }
 
-/** Serialize options for the FFI: binary key data is base64-encoded so it survives the JSON wire. */
 function serializeOptions(options: UpdaterOptions): string {
   const { signatureVerifier, ...rest } = options;
   if (signatureVerifier == null) {
@@ -60,7 +51,6 @@ function serializeOptions(options: UpdaterOptions): string {
   });
 }
 
-/** Information about an available update. */
 export interface BundleUpdateInfo {
   name: string;
   version: string;
@@ -72,14 +62,6 @@ export interface BundleUpdateInfo {
   lastModified?: string;
 }
 
-/**
- * Coordinates updates between a {@link BundleSource} and a {@link Remote}: check, download to the
- * remote dir, and activate.
- *
- * Supports `channel`, `integrityPolicy`, and a declarative `signatureVerifier`. The custom-function
- * callback options of `@wvb/node` (`integrityChecker`, custom `signatureVerifier`) are not yet
- * supported over FFI.
- */
 export class Updater {
   #ptr: Deno.PointerValue;
 
@@ -92,7 +74,10 @@ export class Updater {
     );
     if (this.#ptr === null) {
       // A null updater also means a provided `signatureVerifier` couldn't be built (fail closed).
-      throw new Error('wvb: failed to create Updater (check signatureVerifier algorithm/key)');
+      throw new WebviewBundleError(
+        'invalid_signature_options',
+        'wvb: failed to create Updater (check signatureVerifier algorithm/key)'
+      );
     }
   }
 

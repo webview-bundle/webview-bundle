@@ -14,7 +14,7 @@ pub enum SignatureAlgorithm {
 /// Encoding format of the public key provided in [`SignatureVerifyingKey`].
 ///
 /// Not all combinations of algorithm + format are valid; unsupported pairs
-/// return [`Error::Signature`] at construction time.
+/// return [`Error::BindingInvalidSignatureOptions`] at construction time.
 #[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
 pub enum VerifyingKeyFormat {
   SpkiDer,
@@ -45,20 +45,21 @@ impl TryFrom<SignatureVerifierOptions> for signature::SignatureVerifier {
   type Error = crate::Error;
 
   fn try_from(opts: SignatureVerifierOptions) -> Result<Self, Self::Error> {
-    let unsupported = crate::Error::Signature("unsupported key format for algorithm".to_string());
+    let unsupported =
+      crate::Error::invalid_signature_options("unsupported key format for algorithm");
 
     fn require_pem(key: &SignatureVerifyingKey) -> Result<&str, crate::Error> {
       key
         .pem
         .as_deref()
-        .ok_or_else(|| crate::Error::Signature("PEM key required".to_string()))
+        .ok_or_else(|| crate::Error::invalid_signature_options("PEM key required"))
     }
 
     fn require_der(key: &SignatureVerifyingKey) -> Result<&[u8], crate::Error> {
       key
         .der
         .as_deref()
-        .ok_or_else(|| crate::Error::Signature("DER key required".to_string()))
+        .ok_or_else(|| crate::Error::invalid_signature_options("DER key required"))
     }
 
     let verifier = match opts.algorithm {
@@ -95,9 +96,9 @@ impl TryFrom<SignatureVerifierOptions> for signature::SignatureVerifier {
         )),
         VerifyingKeyFormat::Raw => {
           let bytes = require_der(&opts.key)?;
-          let arr: &[u8; 32] = bytes
-            .try_into()
-            .map_err(|_| crate::Error::Signature("Ed25519 raw key must be 32 bytes".to_string()))?;
+          let arr: &[u8; 32] = bytes.try_into().map_err(|_| {
+            crate::Error::invalid_signature_options("Ed25519 raw key must be 32 bytes")
+          })?;
           signature::SignatureVerifier::Ed25519(Arc::new(
             signature::Ed25519Verifier::from_public_key_bytes(arr)?,
           ))
