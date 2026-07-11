@@ -51,9 +51,9 @@ pub enum Error {
   #[cfg(feature = "_serde")]
   #[error("serde json error: {0}")]
   SerdeJson(#[from] serde_json::Error),
-  #[cfg(feature = "protocol-local")]
-  #[error("cannot resolve local host")]
-  CannotResolveLocalHost,
+  #[cfg(feature = "protocol-proxy")]
+  #[error("cannot resolve proxy server")]
+  CannotResolveProxyServer,
   #[cfg(feature = "_reqwest")]
   #[error("reqwest error: {0}")]
   Reqwest(#[from] reqwest::Error),

@@ -5,7 +5,8 @@ use tauri::{
 };
 
 pub use config::{
-  Config, Http, IntegrityPolicy, Protocol, Remote, SignatureVerifier, Source, Updater,
+  Config, HostnameSegment, Http, IntegrityPolicy, Protocol, ProxyResolver, Remote,
+  SignatureVerifier, Source, Updater, UriBundleResolver, UriPathResolver,
 };
 pub use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,

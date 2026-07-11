@@ -57,7 +57,7 @@ full = [
   "async",
   "source",
   "protocol",
-  "protocol-local",
+  "protocol-proxy",
   "updater",
   "remote",
   "integrity",
@@ -72,7 +72,7 @@ full = [
 ]
 integrity = ["_serde", "sha2", "base64ct", "base64ct/alloc"]
 protocol = ["source", "dep:bytes", "dep:percent-encoding", "dep:http-range", "dep:getrandom"]
-protocol-local = ["protocol", "_reqwest", "reqwest/rustls-tls", "reqwest/macos-system-configuration", "reqwest/charset"]
+protocol-proxy = ["protocol", "_reqwest", "reqwest/rustls-tls", "reqwest/macos-system-configuration", "reqwest/charset"]
 remote = [
   "async",
   "_reqwest",

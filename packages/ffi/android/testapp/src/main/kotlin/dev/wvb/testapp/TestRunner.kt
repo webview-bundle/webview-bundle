@@ -182,9 +182,9 @@ class TestRunner(private val context: Context) {
         }
 
         // ── Protocol ─────────────────────────────────────────────────────
-        testSuspend("BundleUrlHandler: 200 index.html") {
+        testSuspend("BundleProtocolHandler: 200 index.html") {
             withBundleSource { source ->
-                val handler = BundleUrlHandler(source)
+                val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null)
                 check(response.status == 200.toUShort()) { "status=${response.status}" }
                 check(response.body.isNotEmpty()) { "body should not be empty" }
@@ -192,43 +192,90 @@ class TestRunner(private val context: Context) {
             }
         }
 
-        testSuspend("BundleUrlHandler: 200 root redirect") {
+        testSuspend("BundleProtocolHandler: 200 root redirect") {
             withBundleSource { source ->
-                val handler = BundleUrlHandler(source)
+                val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.GET, "https://app.wvb/", null)
                 check(response.status == 200.toUShort()) { "status=${response.status}" }
             }
         }
 
-        testSuspend("BundleUrlHandler: 404 not found") {
+        testSuspend("BundleProtocolHandler: 404 not found") {
             withBundleSource { source ->
-                val handler = BundleUrlHandler(source)
+                val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.GET, "https://app.wvb/not_found.html", null)
                 check(response.status == 404.toUShort()) { "status=${response.status}" }
             }
         }
 
-        testSuspend("BundleUrlHandler: HEAD 200") {
+        testSuspend("BundleProtocolHandler: HEAD 200") {
             withBundleSource { source ->
-                val handler = BundleUrlHandler(source)
+                val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.HEAD, "https://app.wvb/index.html", null)
                 check(response.status == 200.toUShort()) { "status=${response.status}" }
                 check(response.body.isEmpty()) { "HEAD response body must be empty" }
             }
         }
 
-        test("LocalUrlHandler: init") {
-            LocalUrlHandler(mapOf("myapp" to "http://localhost:9999"))
+        testSuspend("BundleProtocolHandler: exact path resolver does not rewrite to index.html") {
+            withBundleSource { source ->
+                val options = BundleProtocolOptions(pathResolver = PathResolver.EXACT)
+                val handler = BundleProtocolHandler(source, options)
+                check(handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null).status == 200.toUShort())
+                val response = handler.handle(HttpMethod.GET, "https://app.wvb/", null)
+                check(response.status == 404.toUShort()) { "status=${response.status}" }
+            }
         }
 
-        testSuspend("LocalUrlHandler: unknown host error") {
-            val handler = LocalUrlHandler(mapOf("known" to "http://localhost:9999"))
+        testSuspend("BundleProtocolHandler: allowWvbSuffixOnly rejects other hosts") {
+            withBundleSource { source ->
+                val options = BundleProtocolOptions(
+                    bundleResolver = BundleResolver.Hostname(
+                        segment = HostnameSegment.First,
+                        allowWvbSuffixOnly = true,
+                    ),
+                )
+                val handler = BundleProtocolHandler(source, options)
+                check(handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null).status == 200.toUShort())
+                try {
+                    handler.handle(HttpMethod.GET, "https://app.example.com/index.html", null)
+                    error("expected exception for a host without the .wvb suffix")
+                } catch (e: Exception) {
+                    // expected: the bundle name is not resolved, so no bundle is found
+                }
+            }
+        }
+
+        test("ProxyProtocolHandler: init") {
+            ProxyProtocolHandler(mapOf("myapp" to "http://localhost:9999"))
+        }
+
+        testSuspend("ProxyProtocolHandler: unknown host error") {
+            val handler = ProxyProtocolHandler(mapOf("known" to "http://localhost:9999"))
             try {
                 handler.handle(HttpMethod.GET, "https://unknown.wvb/index.html", null)
                 error("expected exception for unknown host")
             } catch (e: Exception) {
-                // expected: no localhost mapping for "unknown.wvb"
+                // expected: no proxy target for "unknown.wvb"
             }
+        }
+
+        testSuspend("ProxyProtocolHandler: custom resolver receives the uri") {
+            var seen: String? = null
+            val resolver = object : ProxyResolver {
+                override suspend fun resolve(uri: String): String? {
+                    seen = uri
+                    return null // do not proxy
+                }
+            }
+            val handler = ProxyProtocolHandler.custom(resolver)
+            try {
+                handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null)
+                error("expected exception when the resolver returns null")
+            } catch (e: Exception) {
+                // expected: the target is unresolved
+            }
+            check(seen == "https://app.wvb/index.html") { "resolver saw uri=$seen" }
         }
 
         results

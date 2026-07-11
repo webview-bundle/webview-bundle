@@ -1,8 +1,8 @@
 mod bundle;
 #[cfg(feature = "tracing")]
 mod http_ext;
-#[cfg(feature = "protocol-local")]
-mod local;
+#[cfg(feature = "protocol-proxy")]
+mod proxy;
 mod uri;
 
 use async_trait::async_trait;
@@ -16,5 +16,7 @@ pub trait Protocol: Send + Sync {
 }
 
 pub use bundle::*;
-#[cfg(feature = "protocol-local")]
-pub use local::*;
+pub use uri::*;
+
+#[cfg(feature = "protocol-proxy")]
+pub use proxy::*;

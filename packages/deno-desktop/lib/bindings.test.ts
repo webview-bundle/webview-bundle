@@ -2,7 +2,6 @@ import { assert, assertEquals } from '@std/assert';
 import { fromFileUrl } from '@std/path';
 import { loadLib } from '@wvb/deno';
 import {
-  bundleProtocol,
   type DenoBrowserWindow,
   dispatch,
   INVOKE_BINDING,
@@ -26,7 +25,7 @@ function makeApp(): WebviewBundle {
       builtinDir: BUILTIN_DIR,
       remoteDir: Deno.makeTempDirSync({ prefix: 'wvb-bindings-' }),
     },
-    protocols: [bundleProtocol('app')],
+    routes: { '/': { bundle: 'app' } },
   });
 }
 

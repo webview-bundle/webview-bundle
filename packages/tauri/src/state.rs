@@ -47,8 +47,17 @@ impl<R: Runtime> WebviewBundle<R> {
     for protocol_config in &config.protocols {
       let scheme = protocol_config.scheme().to_string();
       let protocol: Arc<dyn protocol::Protocol> = match protocol_config {
-        Protocol::Bundle(_) => Arc::new(protocol::BundleProtocol::new(source.clone())),
-        Protocol::Local(config) => Arc::new(protocol::LocalProtocol::new(config.hosts.clone())),
+        Protocol::Bundle(config) => {
+          let mut bundle = protocol::BundleProtocol::new(source.clone());
+          if let Some(resolver) = config.bundle_resolver.clone() {
+            bundle = bundle.with_bundle_resolver(resolver);
+          }
+          if let Some(resolver) = config.path_resolver.clone() {
+            bundle = bundle.with_path_resolver(resolver);
+          }
+          Arc::new(bundle)
+        }
+        Protocol::Proxy(config) => Arc::new(protocol::ProxyProtocol::new(config.resolver.clone())),
       };
       if protocols.contains_key(&scheme) {
         return Err(crate::Error::ProtocolSchemeDuplicated { scheme });

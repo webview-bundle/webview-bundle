@@ -64,8 +64,8 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
-  wvb_bundle_protocol_new: { parameters: ['pointer'], result: 'pointer' },
-  wvb_local_protocol_new: { parameters: ['buffer'], result: 'pointer' },
+  wvb_bundle_protocol_new: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_proxy_protocol_new: { parameters: ['buffer'], result: 'pointer' },
   wvb_protocol_free: { parameters: ['pointer'], result: 'void' },
   // nonblocking: runs on a dedicated thread (Rust block_on) so the event loop never stalls.
   wvb_protocol_handle: {

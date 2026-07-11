@@ -1,10 +1,12 @@
 import { Buffer } from 'node:buffer';
 import {
   BundleProtocol,
+  type BundleResolverOptions,
   type BundleSource,
   type HttpMethod,
   type HttpResponse,
-  LocalProtocol,
+  type PathResolver,
+  ProxyProtocol,
 } from '@wvb/node';
 import type { Protocol as ElectronProtocol, Privileges } from 'electron';
 import { app, protocol as electronProtocol } from 'electron';
@@ -93,21 +95,22 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
 
 type Hosts = Record<string, string>;
 
-export interface LocalProtocolConfig extends ProtocolOptions {
+export interface ProxyProtocolConfig extends ProtocolOptions {
   hosts: Hosts | (() => Hosts | Promise<Hosts>);
 }
 
-export function localProtocol(scheme: string, config: LocalProtocolConfig): Protocol {
+/** Proxy the scheme to another server (a dev server with hot reload), mapping host → URL. */
+export function proxyProtocol(scheme: string, config: ProxyProtocolConfig): Protocol {
   const { hosts, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: async () => {
       const h = typeof hosts === 'function' ? await hosts() : hosts;
-      const local = new LocalProtocol(h);
+      const proxy = new ProxyProtocol(h);
       return {
         handle: async req => {
           const method = req.method.toLowerCase() as HttpMethod;
-          const resp = await local.handle(method, req.url, normalizeHeaders(req.headers));
+          const resp = await proxy.handle(method, req.url, normalizeHeaders(req.headers));
           return makeResponse(resp);
         },
       };
@@ -117,14 +120,26 @@ export function localProtocol(scheme: string, config: LocalProtocolConfig): Prot
   return protocol;
 }
 
-export interface BundleProtocolConfig extends ProtocolOptions {}
+export interface BundleProtocolConfig extends ProtocolOptions {
+  /**
+   * How the bundle name is resolved from the request uri (default: the first hostname segment,
+   * e.g. `app://my-app/index.html` -> bundle "my-app").
+   */
+  bundleResolver?: BundleResolverOptions;
+  /**
+   * How the file path in the bundle is resolved from the request uri (default: `'directoryIndex'`,
+   * i.e. `/about` -> `/about/index.html`).
+   */
+  pathResolver?: PathResolver;
+}
 
+/** Serve bundles from the source over the scheme. */
 export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): Protocol {
-  const { ...options } = config;
+  const { bundleResolver, pathResolver, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: ({ source }) => {
-      const bundle = new BundleProtocol(source);
+      const bundle = new BundleProtocol(source, { bundleResolver, pathResolver });
       return {
         handle: async req => {
           const method = req.method.toLowerCase() as HttpMethod;

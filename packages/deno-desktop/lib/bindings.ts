@@ -142,7 +142,7 @@ export interface DenoBrowserWindow {
  *
  * ```ts
  * const win = new Deno.BrowserWindow();
- * const app = webviewBundle({ source: { appName: 'myapp' }, protocols: [bundleProtocol('app')] });
+ * const app = webviewBundle({ source: { appName: 'myapp' }, routes: { '/': { bundle: 'app' } } });
  * registerBindings(win, app);
  * Deno.serve(app.fetch);
  * ```
