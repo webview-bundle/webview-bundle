@@ -46,6 +46,8 @@ jobs:
           - host: windows-latest
             target: i686-pc-windows-msvc
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target i686-pc-windows-msvc
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: windows-latest
@@ -56,6 +58,8 @@ jobs:
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-pc-windows-msvc
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
@@ -66,31 +70,43 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target x86_64-unknown-linux-musl -x
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-unknown-linux-gnu --use-napi-cross
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-unknown-linux-musl -x
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target armv7-unknown-linux-gnueabihf --use-napi-cross
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: aarch64-linux-android
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target aarch64-linux-android
               yarn workspaces foreach -Apt --include='@wvb/*' run build
           - host: ubuntu-latest
             target: armv7-linux-androideabi
             build: |
+              # cross target: also build a host binary so the host-run tests can load one
+              yarn workspaces foreach -At run build-napi
               yarn workspaces foreach -At run build-napi --target armv7-linux-androideabi
               yarn workspaces foreach -Apt --include='@wvb/*' run build
     runs-on: ${{ matrix.settings.host }}
