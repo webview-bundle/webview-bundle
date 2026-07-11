@@ -136,8 +136,8 @@ impl ProxyProtocol {
   ///
   /// # Arguments
   ///
-  /// * `resolver` - Resolver that matches to local server when the
-  /// request uri given.
+  /// * `resolver` - Resolves the proxy target for a request uri (a static host mapping, or a
+  ///   custom resolver).
   ///
   /// # Example
   ///

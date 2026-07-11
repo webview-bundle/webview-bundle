@@ -149,10 +149,10 @@ impl UriPathResolver {
     };
     match self {
       Self::Custom(resolve_fn) => resolve_fn(uri),
-      Self::Exact => decode_path(&uri.path()),
+      Self::Exact => decode_path(uri.path()),
       // `/` -> `/index.html`, `/about` -> `/about/index.html`
       Self::DirectoryIndex => {
-        let mut path = decode_path(&uri.path());
+        let mut path = decode_path(uri.path());
         if path.is_empty() {
           path.push('/');
         }
@@ -165,7 +165,7 @@ impl UriPathResolver {
       }
       // `/` -> `/index.html`, `/about` -> `/about.html`
       Self::HtmlExtension => {
-        let mut path = decode_path(&uri.path());
+        let mut path = decode_path(uri.path());
         if path.is_empty() || path == "/" {
           return "/index.html".to_owned();
         }
