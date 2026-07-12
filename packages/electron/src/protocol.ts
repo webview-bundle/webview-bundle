@@ -10,7 +10,7 @@ import {
 } from '@wvb/node';
 import type { Protocol as ElectronProtocol, Privileges } from 'electron';
 import { app, protocol as electronProtocol } from 'electron';
-import { makeError } from './utils.js';
+import { makeError, uploadDataBody } from './utils.js';
 
 export interface ProtocolHandler {
   handle(req: Request): Promise<Response>;
@@ -83,6 +83,7 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
       const request = new Request(req.url, {
         method: req.method,
         headers: req.headers,
+        body: uploadDataBody(req),
       });
 
       const response = await h.handle(request).catch(e => {
