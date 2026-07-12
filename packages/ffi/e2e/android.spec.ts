@@ -8,7 +8,7 @@ import { type AndroidDevice, ensureAndroidDevice } from './device.js';
 const PKG_DIR = path.join(import.meta.dirname, '..');
 const APP_PACKAGE = 'dev.wvb.testapp';
 const APP_ACTIVITY = 'dev.wvb.testapp.MainActivity';
-const AVD = process.env.ANDROID_AVD ?? 'Pixel_5_API_31';
+const AVD = process.env.ANDROID_AVD;
 
 interface NativeTestResult {
   name: string;
