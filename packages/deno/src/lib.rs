@@ -6,19 +6,19 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::{Arc, OnceLock};
 use tokio::runtime::Runtime;
-use wvb::http;
 use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{
-  BundleProtocol, HostnameSegment, Protocol, ProxyProtocol, ProxyResolver, UriBundleResolver,
-  UriPathResolver,
+  BundleProtocol, BundleProtocolOptions, HostnameSegment, Protocol, ProxyProtocol, ProxyResolver,
+  UriBundleResolver, UriPathResolver,
 };
 use wvb::remote::{HttpConfig, Remote as CoreRemote};
 use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
   RsaPssVerifier, SignatureVerifier,
 };
-use wvb::source::{self, BundleSource};
+use wvb::source::{self, BundleSource, BundleSourceOptions, VerifyOnLoad};
 use wvb::updater::{Updater as CoreUpdater, UpdaterConfig};
+use wvb::{DataReadOptions, http};
 
 fn runtime() -> &'static Runtime {
   static RT: OnceLock<Runtime> = OnceLock::new();
@@ -49,7 +49,8 @@ unsafe fn cstr(ptr: *const c_char) -> String {
     .into_owned()
 }
 
-/// Create a `BundleSource` (`builtin_dir` read-only, `remote_dir` writable).
+/// Create a `BundleSource` (`builtin_dir` read-only, `remote_dir` writable) with the default
+/// options (no load-time verification, no read-time data checksum).
 ///
 /// # Safety
 /// `builtin_dir` and `remote_dir` must be valid NUL-terminated C strings.
@@ -58,15 +59,113 @@ pub unsafe extern "C" fn wvb_source_new(
   builtin_dir: *const c_char,
   remote_dir: *const c_char,
 ) -> *mut WvbSource {
+  unsafe { wvb_source_new_with_options(builtin_dir, remote_dir, std::ptr::null()) }
+}
+
+/// Create a `BundleSource` with options. `options_json` is null/empty or a JSON object with
+/// `verifyOnLoad`, `integrityPolicy`, `signatureVerifier`, `verifyDataChecksum` and/or
+/// `dataChecksumSeed`; an unparsable option returns null rather than silently reading bundles
+/// unverified.
+///
+/// # Safety
+/// `builtin_dir`/`remote_dir` must be valid NUL-terminated C strings; `options_json` must be null
+/// or a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_source_new_with_options(
+  builtin_dir: *const c_char,
+  remote_dir: *const c_char,
+  options_json: *const c_char,
+) -> *mut WvbSource {
   let builtin = unsafe { cstr(builtin_dir) };
   let remote = unsafe { cstr(remote_dir) };
-  let source = BundleSource::builder()
+  let raw = unsafe { cstr(options_json) };
+  let mut builder = BundleSource::builder()
     .builtin_dir(builtin)
-    .remote_dir(remote)
-    .build();
+    .remote_dir(remote);
+  if !raw.is_empty() {
+    // A scalar or array would read as "no options given" below — fail closed instead.
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+      return std::ptr::null_mut();
+    };
+    if !value.is_object() {
+      return std::ptr::null_mut();
+    }
+    let Some(options) = parse_source_options(&value) else {
+      return std::ptr::null_mut();
+    };
+    builder = builder.options(options);
+  }
   Box::into_raw(Box::new(WvbSource {
-    inner: Arc::new(source),
+    inner: Arc::new(builder.build()),
   }))
+}
+
+/// Parse a source `options` JSON object (camelCase, mirroring `BundleSourceOptions` in the other
+/// bindings). Returns `None` for an unknown or ill-typed value, so the caller can fail closed.
+fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions> {
+  let mut options = BundleSourceOptions::new();
+  match value.get("verifyOnLoad") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => {
+      let verify = match x.as_str()? {
+        "none" => VerifyOnLoad::None,
+        "remote" => VerifyOnLoad::Remote,
+        "all" => VerifyOnLoad::All,
+        _ => return None,
+      };
+      options = options.verify_on_load(verify);
+    }
+  }
+  match value.get("integrityPolicy") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => options = options.integrity_policy(parse_integrity_policy(x.as_str()?)),
+  }
+  // A present-but-unbuildable signatureVerifier fails closed (null source) rather than silently
+  // reading bundles unverified.
+  match value.get("signatureVerifier") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(sv) => options = options.signature_verifier(build_signature_verifier(sv)?),
+  }
+  Some(options.data(parse_data_read_options(value)?))
+}
+
+/// `integrityPolicy` string mapping shared by the source and the updater.
+fn parse_integrity_policy(policy: &str) -> IntegrityPolicy {
+  match policy {
+    "optional" => IntegrityPolicy::Optional,
+    "none" => IntegrityPolicy::None,
+    _ => IntegrityPolicy::Strict,
+  }
+}
+
+/// Read the `verifyDataChecksum` / `dataChecksumSeed` keys of `value`, leaving an absent key at
+/// its default (no verification). Returns `None` for an ill-typed value or an out-of-range seed.
+fn parse_data_read_options(value: &serde_json::Value) -> Option<DataReadOptions> {
+  let mut options = DataReadOptions::new();
+  match value.get("verifyDataChecksum") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => options = options.verify_checksum(x.as_bool()?),
+  }
+  match value.get("dataChecksumSeed") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => options = options.checksum_seed(u32::try_from(x.as_u64()?).ok()?),
+  }
+  Some(options)
+}
+
+/// Read the same two data-checksum keys for a protocol, whose defaults differ from a source's:
+/// verification is ON with seed `0` unless the key says otherwise.
+fn parse_protocol_data_options(value: &serde_json::Value) -> Option<BundleProtocolOptions> {
+  let mut options = BundleProtocolOptions::new();
+  match value.get("verifyDataChecksum") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => options = options.verify_data_checksum(x.as_bool()?),
+  }
+  match value.get("dataChecksumSeed") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => options = options.data_checksum_seed(u32::try_from(x.as_u64()?).ok()?),
+  }
+  Some(options)
 }
 
 /// # Safety
@@ -124,8 +223,8 @@ fn parse_path_resolver(value: &serde_json::Value) -> Option<UriPathResolver> {
 }
 
 /// Create a bundle protocol handler serving from `source`. `options_json` is null/empty or a JSON
-/// object with `bundleResolver` and/or `pathResolver`; an unparsable option returns null rather
-/// than silently serving with the default resolvers.
+/// object with `bundleResolver`, `pathResolver`, `verifyDataChecksum` and/or `dataChecksumSeed`;
+/// an unparsable option returns null rather than silently serving with the default resolvers.
 ///
 /// # Safety
 /// `source` must be a valid pointer returned by `wvb_source_new`; `options_json` must be null or a
@@ -161,6 +260,10 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
         Some(resolver) => protocol = protocol.with_path_resolver(resolver),
         None => return std::ptr::null_mut(),
       },
+    }
+    match parse_protocol_data_options(&options) {
+      Some(data) => protocol = protocol.with_options(data),
+      None => return std::ptr::null_mut(),
     }
   }
   let protocol: Arc<dyn Protocol> = Arc::new(protocol);
@@ -632,13 +735,7 @@ pub unsafe extern "C" fn wvb_updater_new(
       config = config.channel(channel.to_string());
     }
     if let Some(policy) = value.get("integrityPolicy").and_then(|x| x.as_str()) {
-      let policy = match policy {
-        "strict" => IntegrityPolicy::Strict,
-        "optional" => IntegrityPolicy::Optional,
-        "none" => IntegrityPolicy::None,
-        _ => IntegrityPolicy::Strict,
-      };
-      config = config.integrity_policy(policy);
+      config = config.integrity_policy(parse_integrity_policy(policy));
     }
     // A present-but-unbuildable signatureVerifier fails closed (null updater) rather than silently
     // serving updates unverified.

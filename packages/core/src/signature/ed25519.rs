@@ -1,4 +1,3 @@
-use crate::Bundle;
 use crate::signature::Verifier as SignatureVerifier;
 use base64ct::{Base64, Encoding};
 use ed25519_dalek::pkcs8::DecodePublicKey;
@@ -28,7 +27,7 @@ impl Ed25519Verifier {
 }
 
 impl SignatureVerifier for Ed25519Verifier {
-  async fn verify(&self, _bundle: &Bundle, data: &[u8], signature: &str) -> crate::Result<bool> {
+  async fn verify(&self, data: &[u8], signature: &str) -> crate::Result<bool> {
     let signature_bytes =
       Base64::decode_vec(signature).map_err(|_| crate::Error::InvalidSignature)?;
     let signature =
@@ -50,27 +49,11 @@ mod tests {
 
     let verifier =
       Ed25519Verifier::from_public_key_bytes(&signing_key.verifying_key().to_bytes()).unwrap();
-    let bundle = Bundle::builder().build().unwrap();
 
-    assert!(
-      verifier
-        .verify(&bundle, message, &signature_b64)
-        .await
-        .unwrap()
-    );
+    assert!(verifier.verify(message, &signature_b64).await.unwrap());
     // Wrong message must not verify.
-    assert!(
-      !verifier
-        .verify(&bundle, b"tampered", &signature_b64)
-        .await
-        .unwrap()
-    );
+    assert!(!verifier.verify(b"tampered", &signature_b64).await.unwrap());
     // Raw (non-base64) signature bytes must fail to decode.
-    assert!(
-      verifier
-        .verify(&bundle, message, "!!!not base64!!!")
-        .await
-        .is_err()
-    );
+    assert!(verifier.verify(message, "!!!not base64!!!").await.is_err());
   }
 }

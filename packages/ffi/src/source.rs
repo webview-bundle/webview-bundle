@@ -1,6 +1,9 @@
 use crate::bundle::{Bundle, BundleDescriptor, BundleDescriptorInner};
+use crate::integrity::IntegrityPolicy;
+use crate::signature::SignatureVerifierOptions;
 use std::sync::Arc;
 use wvb::source;
+use wvb::{DataReadOptions, signature};
 
 /// Whether a bundle was loaded from the builtin (read-only, shipped with the app)
 /// or the remote (writable, downloaded at runtime) directory.
@@ -123,16 +126,14 @@ impl LoadedDescriptor {
   /// source's active version changes meanwhile. Returns `None` if `path` does not
   /// exist in the bundle.
   pub async fn get_data(&self, path: String) -> Result<Option<Vec<u8>>, crate::Error> {
-    let reader = self.inner.reader().await?;
-    let data = self.inner.async_get_data(reader, &path).await?;
+    let data = self.inner.get_data(&path).await?;
     Ok(data)
   }
 
-  /// Reads the CRC-32 checksum for `path`, loading it lazily from disk.
+  /// Reads the xxHash-32 checksum for `path`, loading it lazily from disk.
   /// Returns `None` if `path` does not exist in the bundle.
   pub async fn get_data_checksum(&self, path: String) -> Result<Option<u32>, crate::Error> {
-    let reader = self.inner.reader().await?;
-    let checksum = self.inner.async_get_data_checksum(reader, &path).await?;
+    let checksum = self.inner.get_data_checksum(&path).await?;
     Ok(checksum)
   }
 }
@@ -148,6 +149,49 @@ pub struct BundleSourceConfig {
   pub remote_dir: String,
   pub builtin_manifest_filepath: Option<String>,
   pub remote_manifest_filepath: Option<String>,
+}
+
+/// Which bundles are verified against their manifest metadata when loaded from disk.
+///
+/// A bundle is verified once per version, when it is first read; the result is cached with
+/// the descriptor, so serving a bundle does not re-hash it on every request.
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum VerifyOnLoad {
+  /// Never verify on load. Bundles are still verified when downloaded and installed.
+  None,
+  /// Verify downloaded (remote) bundles only.
+  Remote,
+  /// Verify both builtin and remote bundles. Requires the builtin manifest to carry
+  /// integrity (and, with a signature verifier, signature) metadata for every bundle.
+  All,
+}
+
+impl From<VerifyOnLoad> for source::VerifyOnLoad {
+  fn from(v: VerifyOnLoad) -> Self {
+    match v {
+      VerifyOnLoad::None => source::VerifyOnLoad::None,
+      VerifyOnLoad::Remote => source::VerifyOnLoad::Remote,
+      VerifyOnLoad::All => source::VerifyOnLoad::All,
+    }
+  }
+}
+
+/// Optional verification settings for a [`BundleSource`].
+///
+/// Two independent layers: load-time integrity/signature verification of the whole bundle
+/// file ([`VerifyOnLoad`], paid once per version), and the per-read entry checksum applied
+/// by [`LoadedDescriptor::get_data`].
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct BundleSourceOptions {
+  /// Default: [`VerifyOnLoad::None`].
+  pub verify_on_load: Option<VerifyOnLoad>,
+  pub integrity_policy: Option<IntegrityPolicy>,
+  /// When set, bundles verified on load must also carry a valid signature.
+  pub signature_verifier: Option<SignatureVerifierOptions>,
+  /// Verify each entry's xxHash-32 checksum when its data is read (default: `false`).
+  pub verify_data_checksum: Option<bool>,
+  /// The seed the bundle's data checksums were built with (default: `0`).
+  pub data_checksum_seed: Option<u32>,
 }
 
 /// Unified access point for bundles from both the builtin and remote sources.
@@ -175,6 +219,48 @@ impl BundleSource {
     Arc::new(BundleSource {
       inner: Arc::new(builder.build()),
     })
+  }
+
+  /// Same as [`BundleSource::new`], with verification options applied to every bundle
+  /// this source loads or reads.
+  #[uniffi::constructor(name = "with_options")]
+  pub fn with_options(
+    config: BundleSourceConfig,
+    options: BundleSourceOptions,
+  ) -> Result<Arc<BundleSource>, crate::Error> {
+    let mut builder = source::BundleSource::builder()
+      .builtin_dir(config.builtin_dir)
+      .remote_dir(config.remote_dir);
+    if let Some(p) = config.builtin_manifest_filepath {
+      builder = builder.builtin_manifest_filepath(p);
+    }
+    if let Some(p) = config.remote_manifest_filepath {
+      builder = builder.remote_manifest_filepath(p);
+    }
+
+    let mut source_options = source::BundleSourceOptions::new();
+    if let Some(verify_on_load) = options.verify_on_load {
+      source_options = source_options.verify_on_load(verify_on_load.into());
+    }
+    if let Some(policy) = options.integrity_policy {
+      source_options = source_options.integrity_policy(policy.into());
+    }
+    if let Some(verifier_opts) = options.signature_verifier {
+      let verifier = signature::SignatureVerifier::try_from(verifier_opts)?;
+      source_options = source_options.signature_verifier(verifier);
+    }
+    let mut data = DataReadOptions::new();
+    if let Some(verify) = options.verify_data_checksum {
+      data = data.verify_checksum(verify);
+    }
+    if let Some(seed) = options.data_checksum_seed {
+      data = data.checksum_seed(seed);
+    }
+    source_options = source_options.data(data);
+
+    Ok(Arc::new(BundleSource {
+      inner: Arc::new(builder.options(source_options).build()),
+    }))
   }
 
   /// Resolves the on-disk path of the builtin bundle `bundle_name` at `version`,

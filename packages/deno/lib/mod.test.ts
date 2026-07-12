@@ -5,12 +5,14 @@ import {
   BundleProtocol,
   type BundleProtocolOptions,
   BundleSource,
+  type BundleSourceConfig,
   type HttpResponse,
   loadLib,
   type PathResolver,
   ProxyProtocol,
   Remote,
   Updater,
+  type VerifyOnLoad,
   WebviewBundleError,
 } from './mod.ts';
 
@@ -28,7 +30,9 @@ loadLib(DYLIB);
  * A {@link BundleSource} over the builtin fixture, backed by a temp remote dir. Disposing it frees
  * the handle and removes the temp dir, so tests only need `using source = testSource()`.
  */
-function testSource(): BundleSource {
+function testSource(
+  options: Omit<BundleSourceConfig, 'builtinDir' | 'remoteDir'> = {}
+): BundleSource {
   const remoteDir = Deno.makeTempDirSync({ prefix: 'wvb-deno-test-' });
   const removeRemoteDir = () => Deno.removeSync(remoteDir, { recursive: true });
   try {
@@ -36,7 +40,7 @@ function testSource(): BundleSource {
       `${remoteDir}/manifest.json`,
       JSON.stringify({ manifestVersion: 1, entries: {} })
     );
-    const source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir });
+    const source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir, ...options });
     return Object.assign(source, {
       [Symbol.dispose]: () => {
         try {
@@ -147,6 +151,38 @@ Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', ()
   // Options that are not an object would otherwise read as "no options" and serve with the defaults.
   assertThrows(
     () => new BundleProtocol(source, 'directoryIndex' as unknown as BundleProtocolOptions)
+  );
+});
+
+Deno.test('BundleProtocol verifies the data checksum of what it serves by default', async () => {
+  using source = testSource();
+  using protocol = new BundleProtocol(source);
+  assertEquals((await protocol.handle('get', 'bundle://app/index.html')).status, 200);
+
+  // The seed is part of the checksum, so a seed the bundle was not packed with mismatches.
+  using wrongSeed = new BundleProtocol(source, { dataChecksumSeed: 1 });
+  const error = await assertRejects(
+    () => wrongSeed.handle('get', 'bundle://app/index.html'),
+    WebviewBundleError
+  );
+  assertEquals(error.code, 'core.checksum_mismatch');
+
+  using unverified = new BundleProtocol(source, {
+    verifyDataChecksum: false,
+    dataChecksumSeed: 1,
+  });
+  assertEquals((await unverified.handle('get', 'bundle://app/index.html')).status, 200);
+});
+
+Deno.test('BundleSource accepts verification options and fails closed on a bad one', () => {
+  testSource({ verifyOnLoad: 'remote', verifyDataChecksum: true, dataChecksumSeed: 0 }).free();
+  testSource({ verifyOnLoad: 'none', integrityPolicy: 'optional' }).free();
+  assertThrows(() => testSource({ verifyOnLoad: 'sometimes' as VerifyOnLoad }));
+  assertThrows(() =>
+    testSource({
+      // A key too short to be an ed25519 public key: the source must not fall back to unverified.
+      signatureVerifier: { algorithm: 'ed25519', key: { format: 'raw', data: 'AAAA' } },
+    })
   );
 });
 

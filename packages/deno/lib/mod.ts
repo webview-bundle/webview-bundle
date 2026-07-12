@@ -34,6 +34,7 @@ export {
   type BundleSourceType,
   type BundleSourceVersion,
   type ListBundleItem,
+  type VerifyOnLoad,
 } from './source.ts';
 export {
   type BundleUpdateInfo,

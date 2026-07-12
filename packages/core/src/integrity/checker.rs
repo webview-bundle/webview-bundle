@@ -17,11 +17,21 @@ pub type CustomChecker = dyn Fn(
   + Sync;
 
 #[non_exhaustive]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub enum IntegrityChecker {
   #[default]
   Default,
   Custom(Arc<CustomChecker>),
+}
+
+impl std::fmt::Debug for IntegrityChecker {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let name = match self {
+      Self::Default => "Default",
+      Self::Custom(_) => "Custom",
+    };
+    write!(f, "IntegrityChecker::{name}")
+  }
 }
 
 impl IntegrityChecker {

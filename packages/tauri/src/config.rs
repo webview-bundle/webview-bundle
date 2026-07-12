@@ -3,13 +3,16 @@ use std::sync::Arc;
 use tauri::http;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
-use wvb::remote;
+use wvb::protocol::BundleProtocolOptions;
+use wvb::source::BundleSourceOptions;
 use wvb::updater::UpdaterConfig;
+use wvb::{DataReadOptions, remote};
 
 pub use wvb::integrity::IntegrityPolicy;
 pub use wvb::protocol::{HostnameSegment, ProxyResolver, UriBundleResolver, UriPathResolver};
 pub use wvb::remote::HttpConfig as Http;
 pub use wvb::signature::SignatureVerifier;
+pub use wvb::source::VerifyOnLoad;
 
 type SignatureVerifierBuilder =
   Arc<dyn Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync>;
@@ -87,6 +90,11 @@ impl<R: Runtime> Dir<R> {
 pub struct Source<R: Runtime> {
   pub(crate) builtin_dir: Option<Dir<R>>,
   pub(crate) remote_dir: Option<Dir<R>>,
+  pub(crate) verify_on_load: Option<VerifyOnLoad>,
+  pub(crate) integrity_policy: Option<IntegrityPolicy>,
+  pub(crate) signature_verifier: Option<SignatureVerifierBuilder>,
+  pub(crate) verify_data_checksum: Option<bool>,
+  pub(crate) data_checksum_seed: Option<u32>,
 }
 
 impl<R: Runtime> Source<R> {
@@ -94,6 +102,11 @@ impl<R: Runtime> Source<R> {
     Self {
       builtin_dir: None,
       remote_dir: None,
+      verify_on_load: None,
+      integrity_policy: None,
+      signature_verifier: None,
+      verify_data_checksum: None,
+      data_checksum_seed: None,
     }
   }
 
@@ -115,6 +128,71 @@ impl<R: Runtime> Source<R> {
   pub fn remote_dir_fn(mut self, dir: DynamicDirFn<R>) -> Self {
     self.remote_dir = Some(Dir::Dynamic(dir));
     self
+  }
+
+  /// Which bundles are verified against their manifest integrity/signature metadata when
+  /// they are loaded from disk (default: [`VerifyOnLoad::None`]).
+  ///
+  /// A bundle is verified once per version, not once per request.
+  pub fn verify_on_load(mut self, verify: VerifyOnLoad) -> Self {
+    self.verify_on_load = Some(verify);
+    self
+  }
+
+  /// How a bundle's integrity metadata is treated when verifying on load.
+  pub fn integrity_policy(mut self, policy: IntegrityPolicy) -> Self {
+    self.integrity_policy = Some(policy);
+    self
+  }
+
+  /// Verifies that a bundle's integrity string was signed by the matching key.
+  ///
+  /// Has no effect unless [`Source::verify_on_load`] is set.
+  pub fn signature_verifier<F>(mut self, builder: F) -> Self
+  where
+    F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
+  {
+    self.signature_verifier = Some(Arc::new(builder));
+    self
+  }
+
+  /// Verifies each entry's checksum as its data is read through this source
+  /// (default: `false`).
+  ///
+  /// This covers reads made through the source APIs; the bundle protocol serves requests
+  /// with its own [`BundleProtocolConfig::verify_data_checksum`], which defaults to `true`.
+  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
+    self.verify_data_checksum = Some(verify);
+    self
+  }
+
+  /// The seed the bundle's data checksums were built with (default: `0`).
+  pub fn data_checksum_seed(mut self, seed: u32) -> Self {
+    self.data_checksum_seed = Some(seed);
+    self
+  }
+
+  pub(crate) fn build_options(&self) -> crate::Result<BundleSourceOptions> {
+    let mut options = BundleSourceOptions::default();
+    if let Some(verify) = self.verify_on_load {
+      options = options.verify_on_load(verify);
+    }
+    if let Some(policy) = self.integrity_policy {
+      options = options.integrity_policy(policy);
+    }
+    if let Some(ref builder) = self.signature_verifier {
+      let verifier = builder()?;
+      options = options.signature_verifier(verifier);
+    }
+    let mut data = DataReadOptions::default();
+    if let Some(verify) = self.verify_data_checksum {
+      data = data.verify_checksum(verify);
+    }
+    if let Some(seed) = self.data_checksum_seed {
+      data = data.checksum_seed(seed);
+    }
+    options = options.data(data);
+    Ok(options)
   }
 
   /// Resolves the builtin bundle directory.
@@ -179,7 +257,7 @@ impl Remote {
 /// Builds the response for a request the protocol failed to serve.
 pub type ErrorResponse = Arc<dyn Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync>;
 
-/// A `500` plain-text response, used when a protocol has no [`ErrorResponse`] of its own.
+/// A plain-text error response, used when a protocol has no [`ErrorResponse`] of its own.
 pub fn default_error_response(error: &crate::Error) -> http::Response<Vec<u8>> {
   http::Response::builder()
     .status(http::StatusCode::INTERNAL_SERVER_ERROR)
@@ -198,6 +276,8 @@ pub struct BundleProtocolConfig {
   pub(crate) bundle_resolver: Option<UriBundleResolver>,
   pub(crate) path_resolver: Option<UriPathResolver>,
   pub(crate) error_response: Option<ErrorResponse>,
+  verify_data_checksum: Option<bool>,
+  data_checksum_seed: Option<u32>,
 }
 
 impl BundleProtocolConfig {
@@ -207,6 +287,8 @@ impl BundleProtocolConfig {
       bundle_resolver: None,
       path_resolver: None,
       error_response: None,
+      verify_data_checksum: None,
+      data_checksum_seed: None,
     }
   }
 
@@ -220,6 +302,21 @@ impl BundleProtocolConfig {
   ///   let missing = matches!(e, Error::Core(wvb::Error::BundleNotFound));
   ///   http::Response::builder()
   ///     .status(if missing { 404 } else { 500 })
+  ///     .body(e.to_string().into_bytes())
+  ///     .unwrap()
+  /// });
+  /// ```
+  ///
+  /// A corrupted entry (see [`BundleProtocolConfig::verify_data_checksum`]) arrives here as
+  /// [`wvb::ErrorCode::ChecksumMismatch`], so it can be answered on its own terms:
+  ///
+  /// ```no_run
+  /// # use tauri::http;
+  /// # use wvb_tauri::{Error, Protocol};
+  /// Protocol::bundle("app").error_response(|e| {
+  ///   let corrupted = matches!(e, Error::Core(err) if err.code() == wvb::ErrorCode::ChecksumMismatch);
+  ///   http::Response::builder()
+  ///     .status(if corrupted { 502 } else { 500 })
   ///     .body(e.to_string().into_bytes())
   ///     .unwrap()
   /// });
@@ -255,6 +352,31 @@ impl BundleProtocolConfig {
   pub fn path_resolver(mut self, resolver: UriPathResolver) -> Self {
     self.path_resolver = Some(resolver);
     self
+  }
+
+  /// Verifies each served entry's checksum, failing the request with
+  /// [`wvb::Error::ChecksumMismatch`] instead of handing corrupted bytes to the webview
+  /// (default: `true`).
+  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
+    self.verify_data_checksum = Some(verify);
+    self
+  }
+
+  /// The seed the bundle's data checksums were built with (default: `0`).
+  pub fn data_checksum_seed(mut self, seed: u32) -> Self {
+    self.data_checksum_seed = Some(seed);
+    self
+  }
+
+  pub(crate) fn build_options(&self) -> BundleProtocolOptions {
+    let mut options = BundleProtocolOptions::default();
+    if let Some(verify) = self.verify_data_checksum {
+      options = options.verify_data_checksum(verify);
+    }
+    if let Some(seed) = self.data_checksum_seed {
+      options = options.data_checksum_seed(seed);
+    }
+    options
   }
 }
 

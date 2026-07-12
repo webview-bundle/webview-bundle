@@ -531,6 +531,7 @@ module.exports.readBundle = nativeBinding.readBundle
 module.exports.readBundleFromBuffer = nativeBinding.readBundleFromBuffer
 module.exports.SignatureAlgorithm = nativeBinding.SignatureAlgorithm
 module.exports.VerifyingKeyFormat = nativeBinding.VerifyingKeyFormat
+module.exports.VerifyOnLoad = nativeBinding.VerifyOnLoad
 module.exports.Version = nativeBinding.Version
 module.exports.writeBundle = nativeBinding.writeBundle
 module.exports.writeBundleIntoBuffer = nativeBinding.writeBundleIntoBuffer

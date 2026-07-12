@@ -19,6 +19,20 @@ export interface ProtocolHandler {
 export interface ProtocolOptions {
   protocol?: () => ElectronProtocol;
   privileges?: Privileges;
+  /**
+   * Builds the response when the handler throws (default: `500` with the error message). The error
+   * is a `WebviewBundleError` when it comes from the bundle itself, so it can be routed by code.
+   *
+   * @example
+   * ```typescript
+   * import { isWebviewBundleError } from '@wvb/node';
+   *
+   * errorResponse: e =>
+   *   isWebviewBundleError(e) && e.code === 'core.checksum_mismatch'
+   *     ? new Response('bundle corrupted', { status: 502 })
+   *     : new Response(e.message, { status: 500 });
+   * ```
+   */
   errorResponse?: (e: Error) => Response;
 }
 
@@ -171,14 +185,27 @@ export interface BundleProtocolConfig extends ProtocolOptions {
    * i.e. `/about` -> `/about/index.html`).
    */
   pathResolver?: PathResolver;
+  /**
+   * Whether the xxHash-32 checksum of the served entry is verified against the bundle index
+   * (default: `true`). On mismatch the handler rejects with code `'core.checksum_mismatch'`, which
+   * {@link ProtocolOptions.errorResponse} can turn into a response.
+   */
+  verifyDataChecksum?: boolean;
+  /** Seed for the data checksum (default: `0`). */
+  dataChecksumSeed?: number;
 }
 
 export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): Protocol {
-  const { bundleResolver, pathResolver, ...options } = config;
+  const { bundleResolver, pathResolver, verifyDataChecksum, dataChecksumSeed, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: ({ source }) => {
-      const bundle = new BundleProtocol(source, { bundleResolver, pathResolver });
+      const bundle = new BundleProtocol(source, {
+        bundleResolver,
+        pathResolver,
+        verifyDataChecksum,
+        dataChecksumSeed,
+      });
       return {
         handle: async req => {
           const method = req.method.toLowerCase() as HttpMethod;

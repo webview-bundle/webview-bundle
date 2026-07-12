@@ -1,5 +1,5 @@
 use crate::builder::BundleBuilder;
-use crate::checksum::{CHECKSUM_LEN, parse_checksum};
+use crate::checksum::{CHECKSUM_LEN, make_checksum, parse_checksum};
 use crate::header::{Header, HeaderReader, HeaderWriter};
 use crate::index::{Index, IndexEntry, IndexReader, IndexWriter};
 use crate::reader::Reader;
@@ -14,6 +14,51 @@ use crate::{
 };
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
+
+/// How entry data is read out of a bundle's data section.
+///
+/// Each entry in the data section is stored as its LZ4-compressed bytes followed by a
+/// 4-byte xxHash-32 checksum of those bytes, seeded with the seed the bundle was built
+/// with ([`crate::BundleBuilderOptions::data_checksum_seed`]). With `verify_checksum`
+/// enabled, reading an entry recomputes that checksum and fails with
+/// [`crate::Error::ChecksumMismatch`] when it does not match.
+///
+/// The checksum detects **corruption** (a damaged file, a truncated write). It is not a
+/// security control: the seed is not secret, so anything that can rewrite an entry can
+/// rewrite its checksum too. Use integrity and signature verification
+/// (see [`crate::source::BundleSourceOptions`]) to detect tampering.
+///
+/// # Example
+///
+/// ```
+/// use wvb::DataReadOptions;
+///
+/// let options = DataReadOptions::new().verify_checksum(true).checksum_seed(0);
+/// assert!(options.verify_checksum);
+/// ```
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DataReadOptions {
+  /// Whether to verify each entry's checksum when its data is read.
+  pub verify_checksum: bool,
+  /// The seed the bundle's data checksums were built with.
+  pub checksum_seed: u32,
+}
+
+impl DataReadOptions {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn verify_checksum(mut self, verify: bool) -> Self {
+    self.verify_checksum = verify;
+    self
+  }
+
+  pub fn checksum_seed(mut self, seed: u32) -> Self {
+    self.checksum_seed = seed;
+    self
+  }
+}
 
 /// Bundle metadata including header and index information.
 ///
@@ -66,11 +111,26 @@ impl BundleDescriptor {
   /// * `reader` - A reader positioned at the start of the bundle file
   /// * `path` - File path in the bundle (e.g., "/index.html")
   pub fn get_data<R: Read + Seek>(&self, reader: R, path: &str) -> crate::Result<Option<Vec<u8>>> {
+    self.get_data_with_options(reader, path, DataReadOptions::default())
+  }
+
+  /// Reads the data from the bundle, verifying the entry checksum when
+  /// [`DataReadOptions::verify_checksum`] is set.
+  ///
+  /// Returns `None` if the path doesn't exist in the bundle, and
+  /// [`crate::Error::ChecksumMismatch`] if the entry's data is corrupted.
+  pub fn get_data_with_options<R: Read + Seek>(
+    &self,
+    reader: R,
+    path: &str,
+    options: DataReadOptions,
+  ) -> crate::Result<Option<Vec<u8>>> {
     if !self.index.contains_path(path) {
       return Ok(None);
     }
     let entry = self.index.get_entry(path).unwrap();
-    let mut reader = BundleDataReader::new(reader, self.header.index_end_offset());
+    let mut reader =
+      BundleDataReader::new_with_options(reader, self.header.index_end_offset(), options);
     let data = reader.read_entry_data(entry)?;
     Ok(Some(data))
   }
@@ -101,11 +161,29 @@ impl BundleDescriptor {
     reader: R,
     path: &str,
   ) -> crate::Result<Option<Vec<u8>>> {
+    self
+      .async_get_data_with_options(reader, path, DataReadOptions::default())
+      .await
+  }
+
+  /// Asynchronously reads the data from the bundle, verifying the entry checksum when
+  /// [`DataReadOptions::verify_checksum`] is set.
+  ///
+  /// Returns `None` if the path doesn't exist in the bundle, and
+  /// [`crate::Error::ChecksumMismatch`] if the entry's data is corrupted.
+  #[cfg(feature = "async")]
+  pub async fn async_get_data_with_options<R: AsyncRead + AsyncSeek + Unpin>(
+    &self,
+    reader: R,
+    path: &str,
+    options: DataReadOptions,
+  ) -> crate::Result<Option<Vec<u8>>> {
     if !self.index.contains_path(path) {
       return Ok(None);
     }
     let entry = self.index.get_entry(path).unwrap();
-    let mut reader = AsyncBundleDataReader::new(reader, self.header.index_end_offset());
+    let mut reader =
+      AsyncBundleDataReader::new_with_options(reader, self.header.index_end_offset(), options);
     let data = reader.read_entry_data(entry).await?;
     Ok(Some(data))
   }
@@ -205,11 +283,24 @@ impl Bundle {
   /// assert_eq!(data, b"hello");
   /// ```
   pub fn get_data(&self, path: &str) -> crate::Result<Option<Vec<u8>>> {
+    self.get_data_with_options(path, DataReadOptions::default())
+  }
+
+  /// Retrieves file data by path, verifying the entry checksum when
+  /// [`DataReadOptions::verify_checksum`] is set.
+  ///
+  /// Returns `None` if the path doesn't exist in the bundle, and
+  /// [`crate::Error::ChecksumMismatch`] if the entry's data is corrupted.
+  pub fn get_data_with_options(
+    &self,
+    path: &str,
+    options: DataReadOptions,
+  ) -> crate::Result<Option<Vec<u8>>> {
     if !self.descriptor.index.contains_path(path) {
       return Ok(None);
     }
     let entry = self.descriptor.index.get_entry(path).unwrap();
-    let mut reader = BundleDataReader::new(Cursor::new(&self.data), 0);
+    let mut reader = BundleDataReader::new_with_options(Cursor::new(&self.data), 0, options);
     let data = reader.read_entry_data(entry)?;
     Ok(Some(data))
   }
@@ -228,12 +319,41 @@ impl Bundle {
   }
 }
 
-fn read_entry(entry: &IndexEntry) -> (u64, Vec<u8>) {
-  (entry.offset(), vec![0u8; entry.len() as usize])
+/// The read plan for an entry: where its data starts, and a buffer sized to hold it.
+///
+/// When the checksum is to be verified the buffer also covers the 4-byte checksum that
+/// immediately follows the data, so both are fetched in a single read.
+fn read_entry(entry: &IndexEntry, options: &DataReadOptions) -> (u64, Vec<u8>) {
+  let len = entry.len() as usize;
+  let len = match options.verify_checksum {
+    true => len + CHECKSUM_LEN,
+    false => len,
+  };
+  (entry.offset(), vec![0u8; len])
 }
 
-fn parse_entry(buf: &[u8]) -> crate::Result<Vec<u8>> {
-  let decompressed = decompress_size_prepended(buf)?;
+/// Decompresses an entry, first checking its trailing checksum when `options` asks for it.
+///
+/// `buf` is the entry's compressed bytes, followed by the 4-byte checksum when verifying.
+/// The checksum covers the compressed bytes, so it is checked *before* decompression:
+/// corruption then surfaces as [`crate::Error::ChecksumMismatch`] rather than as an opaque
+/// decompression failure.
+fn parse_entry(
+  buf: &[u8],
+  entry: &IndexEntry,
+  options: &DataReadOptions,
+) -> crate::Result<Vec<u8>> {
+  let data = match options.verify_checksum {
+    true => {
+      let (data, checksum) = buf.split_at(entry.len() as usize);
+      if make_checksum(options.checksum_seed, data) != parse_checksum(checksum) {
+        return Err(crate::Error::ChecksumMismatch);
+      }
+      data
+    }
+    false => buf,
+  };
+  let decompressed = decompress_size_prepended(data)?;
   Ok(decompressed)
 }
 
@@ -244,18 +364,27 @@ fn read_entry_checksum(entry: &IndexEntry) -> (u64, [u8; CHECKSUM_LEN]) {
 pub(crate) struct BundleDataReader<R: Read + Seek> {
   r: R,
   base_offset: u64,
+  options: DataReadOptions,
 }
 
 impl<R: Read + Seek> BundleDataReader<R> {
   pub fn new(r: R, base_offset: u64) -> Self {
-    Self { r, base_offset }
+    Self::new_with_options(r, base_offset, Default::default())
+  }
+
+  pub fn new_with_options(r: R, base_offset: u64, options: DataReadOptions) -> Self {
+    Self {
+      r,
+      base_offset,
+      options,
+    }
   }
 
   pub fn read_entry_data(&mut self, entry: &IndexEntry) -> crate::Result<Vec<u8>> {
-    let (offset, mut buf) = read_entry(entry);
+    let (offset, mut buf) = read_entry(entry, &self.options);
     self.r.seek(SeekFrom::Start(self.base_offset + offset))?;
     self.r.read_exact(&mut buf)?;
-    parse_entry(&buf)
+    parse_entry(&buf, entry, &self.options)
   }
 
   pub fn read_entry_checksum(&mut self, entry: &IndexEntry) -> crate::Result<u32> {
@@ -270,22 +399,31 @@ impl<R: Read + Seek> BundleDataReader<R> {
 pub(crate) struct AsyncBundleDataReader<R: AsyncRead + AsyncSeek + Unpin> {
   r: R,
   base_offset: u64,
+  options: DataReadOptions,
 }
 
 #[cfg(feature = "async")]
 impl<R: AsyncRead + AsyncSeek + Unpin> AsyncBundleDataReader<R> {
   pub fn new(r: R, base_offset: u64) -> Self {
-    Self { r, base_offset }
+    Self::new_with_options(r, base_offset, Default::default())
+  }
+
+  pub fn new_with_options(r: R, base_offset: u64, options: DataReadOptions) -> Self {
+    Self {
+      r,
+      base_offset,
+      options,
+    }
   }
 
   pub async fn read_entry_data(&mut self, entry: &IndexEntry) -> crate::Result<Vec<u8>> {
-    let (offset, mut buf) = read_entry(entry);
+    let (offset, mut buf) = read_entry(entry, &self.options);
     self
       .r
       .seek(SeekFrom::Start(self.base_offset + offset))
       .await?;
     self.r.read_exact(&mut buf).await?;
-    parse_entry(&buf)
+    parse_entry(&buf, entry, &self.options)
   }
 
   pub async fn read_entry_checksum(&mut self, entry: &IndexEntry) -> crate::Result<u32> {
@@ -456,8 +594,8 @@ impl<W: AsyncWrite + Unpin> AsyncWriter<Bundle> for AsyncBundleWriter<W> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::BundleEntry;
   use crate::version::Version;
+  use crate::{BundleBuilderOptions, BundleEntry};
   use http::{HeaderMap, header};
   use std::io::Cursor;
 
@@ -569,6 +707,119 @@ mod tests {
       forward, reserialized,
       "re-serializing a parsed bundle must reproduce identical bytes"
     );
+  }
+
+  /// The data section stores each entry as `[compressed bytes][4-byte checksum]`, so the
+  /// checksum for the entry at `path` starts right after its compressed bytes.
+  fn checksum_offset(bundle: &Bundle, path: &str) -> usize {
+    let entry = bundle.descriptor().index().get_entry(path).unwrap();
+    (entry.offset() + entry.len()) as usize
+  }
+
+  fn bundle_with_seed(seed: u32) -> Bundle {
+    let mut options = BundleBuilderOptions::new();
+    options.data_checksum_seed(seed);
+    let mut builder = BundleBuilder::new_with_options(options);
+    builder.insert_entry(
+      "/index.html",
+      BundleEntry::new(INDEX_HTML.as_bytes(), "text/html", None),
+    );
+    builder.build().unwrap()
+  }
+
+  #[test]
+  fn get_data_verifies_checksum() {
+    let bundle = bundle_with_seed(0);
+    let options = DataReadOptions::new().verify_checksum(true);
+    let html = bundle
+      .get_data_with_options("/index.html", options)
+      .unwrap();
+    assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
+  }
+
+  #[test]
+  fn get_data_verifies_checksum_with_seed() {
+    let bundle = bundle_with_seed(42);
+    let options = DataReadOptions::new()
+      .verify_checksum(true)
+      .checksum_seed(42);
+    let html = bundle
+      .get_data_with_options("/index.html", options)
+      .unwrap();
+    assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
+
+    // Reading with the wrong seed recomputes a different checksum.
+    let wrong_seed = DataReadOptions::new()
+      .verify_checksum(true)
+      .checksum_seed(0);
+    let err = bundle
+      .get_data_with_options("/index.html", wrong_seed)
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::ChecksumMismatch));
+  }
+
+  #[test]
+  fn get_data_detects_corrupted_entry() {
+    let mut bundle = bundle_with_seed(0);
+    // Corrupt a byte of the compressed payload, leaving its stored checksum intact.
+    bundle.data[4] ^= 0xff;
+
+    let options = DataReadOptions::new().verify_checksum(true);
+    let err = bundle
+      .get_data_with_options("/index.html", options)
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::ChecksumMismatch));
+
+    // Without verification the corruption is not reported as a checksum mismatch: it
+    // either decompresses to garbage or fails inside lz4. This is why the checksum is
+    // compared before decompression.
+    assert!(!matches!(
+      bundle.get_data("/index.html"),
+      Err(crate::Error::ChecksumMismatch)
+    ));
+  }
+
+  #[test]
+  fn get_data_detects_corrupted_checksum() {
+    let mut bundle = bundle_with_seed(0);
+    let offset = checksum_offset(&bundle, "/index.html");
+    bundle.data[offset] ^= 0xff;
+
+    let options = DataReadOptions::new().verify_checksum(true);
+    let err = bundle
+      .get_data_with_options("/index.html", options)
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::ChecksumMismatch));
+  }
+
+  #[cfg(feature = "async")]
+  #[tokio::test]
+  async fn async_get_data_verifies_checksum() {
+    let bundle = bundle_with_seed(0);
+    let mut raw = vec![];
+    BundleWriter::new(Cursor::new(&mut raw))
+      .write(&bundle)
+      .unwrap();
+
+    let mut reader = BundleReader::new(Cursor::new(&raw));
+    let descriptor: BundleDescriptor = reader.read().unwrap();
+    let options = DataReadOptions::new().verify_checksum(true);
+
+    let html = descriptor
+      .async_get_data_with_options(Cursor::new(&raw), "/index.html", options)
+      .await
+      .unwrap();
+    assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
+
+    // Corrupting the on-disk payload is caught on read.
+    let data_offset = descriptor.header().index_end_offset() as usize;
+    let mut corrupted = raw.clone();
+    corrupted[data_offset + 4] ^= 0xff;
+    let err = descriptor
+      .async_get_data_with_options(Cursor::new(&corrupted), "/index.html", options)
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::ChecksumMismatch));
   }
 
   #[cfg(feature = "async")]

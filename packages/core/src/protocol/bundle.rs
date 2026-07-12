@@ -1,3 +1,4 @@
+use crate::DataReadOptions;
 use crate::protocol::uri::{UriBundleResolver, UriPathResolver};
 use crate::source::BundleSource;
 use async_trait::async_trait;
@@ -6,6 +7,64 @@ use http_range::HttpRange;
 use std::fmt::Formatter;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
+
+/// Options for [`BundleProtocol`].
+///
+/// # Data checksum
+///
+/// Every entry in a bundle carries an xxHash-32 checksum of its compressed bytes. With
+/// `verify_data_checksum` enabled (the default), the protocol recomputes it as it serves
+/// each file and fails the request with [`crate::Error::ChecksumMismatch`] when the entry is
+/// corrupted, instead of handing damaged bytes to the webview. Bindings decide what response
+/// that error turns into.
+///
+/// `data_checksum_seed` must match the seed the bundle was packed with
+/// ([`crate::BundleBuilderOptions::data_checksum_seed`], default `0`).
+///
+/// The checksum detects corruption, not tampering: the seed is not secret, so whatever can
+/// rewrite an entry can rewrite its checksum too. See [`crate::source::BundleSourceOptions`]
+/// for integrity and signature verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BundleProtocolOptions {
+  /// Verify each entry's checksum as it is served (default: `true`).
+  pub verify_data_checksum: bool,
+  /// The seed the bundle's data checksums were built with (default: `0`).
+  pub data_checksum_seed: u32,
+}
+
+impl Default for BundleProtocolOptions {
+  fn default() -> Self {
+    Self {
+      verify_data_checksum: true,
+      data_checksum_seed: 0,
+    }
+  }
+}
+
+impl BundleProtocolOptions {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
+    self.verify_data_checksum = verify;
+    self
+  }
+
+  pub fn data_checksum_seed(mut self, seed: u32) -> Self {
+    self.data_checksum_seed = seed;
+    self
+  }
+}
+
+impl From<BundleProtocolOptions> for DataReadOptions {
+  fn from(value: BundleProtocolOptions) -> Self {
+    DataReadOptions::new()
+      .verify_checksum(value.verify_data_checksum)
+      .checksum_seed(value.data_checksum_seed)
+  }
+}
 
 /// Protocol handler for serving files from bundle sources.
 ///
@@ -82,6 +141,7 @@ pub struct BundleProtocol {
   source: Arc<BundleSource>,
   bundle_resolver: UriBundleResolver,
   path_resolver: UriPathResolver,
+  options: BundleProtocolOptions,
 }
 
 impl std::fmt::Debug for BundleProtocol {
@@ -117,6 +177,7 @@ impl BundleProtocol {
       source,
       bundle_resolver: UriBundleResolver::default(),
       path_resolver: UriPathResolver::default(),
+      options: BundleProtocolOptions::default(),
     }
   }
 
@@ -127,6 +188,12 @@ impl BundleProtocol {
 
   pub fn with_path_resolver(mut self, path_resolver: UriPathResolver) -> Self {
     self.path_resolver = path_resolver;
+    self
+  }
+
+  /// Sets how served entry data is verified (default: checksum verification on, seed `0`).
+  pub fn with_options(mut self, options: BundleProtocolOptions) -> Self {
+    self.options = options;
     self
   }
 
@@ -273,8 +340,7 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = descriptor.reader().await?;
-            let buf = if let Some(data) = descriptor.async_get_data(reader, path).await? {
+            let buf = if let Some(data) = self.get_data(&descriptor, path).await? {
               extract_buf(&data, start, end)
             } else {
               return not_found();
@@ -311,8 +377,7 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = descriptor.reader().await?;
-            let buf = if let Some(data) = descriptor.async_get_data(reader, path).await? {
+            let buf = if let Some(data) = self.get_data(&descriptor, path).await? {
               let mut buf = Vec::new();
               for (start, end) in ranges {
                 buf.write_all(boundary_sep.as_bytes()).await?;
@@ -347,8 +412,7 @@ impl BundleProtocol {
         return Ok(response);
       }
 
-      let reader = descriptor.reader().await?;
-      let data = if let Some(data) = descriptor.async_get_data(reader, path).await? {
+      let data = if let Some(data) = self.get_data(&descriptor, path).await? {
         data
       } else {
         return not_found();
@@ -359,6 +423,17 @@ impl BundleProtocol {
     } else {
       not_found()
     }
+  }
+
+  /// Reads an entry, applying this protocol's checksum options rather than the source's.
+  async fn get_data(
+    &self,
+    descriptor: &crate::source::LoadedDescriptor,
+    path: &str,
+  ) -> crate::Result<Option<Vec<u8>>> {
+    descriptor
+      .get_data_with_options(path, self.options.into())
+      .await
   }
 }
 

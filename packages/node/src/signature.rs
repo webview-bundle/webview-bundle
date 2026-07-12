@@ -314,7 +314,7 @@ impl FromNapiValue for SignatureVerifier {
           }
         },
         Either::B(inner) => {
-          signature::SignatureVerifier::Custom(Arc::new(move |_bundle, message, signature| {
+          signature::SignatureVerifier::Custom(Arc::new(move |message, signature| {
             let message_buf = Buffer::from(message);
             let signature = signature.to_string();
             let callback = Arc::clone(&inner);

@@ -20,6 +20,13 @@ export interface BundleRoute {
    * `/about` → `/about/index.html`).
    */
   pathResolver?: PathResolver;
+  /**
+   * Check each served entry against its xxHash-32 checksum (default: `true`). A mismatch fails the
+   * request, which the route answers with its {@link errorResponse}.
+   */
+  verifyDataChecksum?: boolean;
+  /** Seed the bundle was packed with (default: `0`). Must match, or every read mismatches. */
+  dataChecksumSeed?: number;
   errorResponse?: ErrorResponse;
 }
 
@@ -159,7 +166,11 @@ function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
         ),
     };
   }
-  const protocol = new BundleProtocol(source, { pathResolver: route.pathResolver });
+  const protocol = new BundleProtocol(source, {
+    pathResolver: route.pathResolver,
+    verifyDataChecksum: route.verifyDataChecksum,
+    dataChecksumSeed: route.dataChecksumSeed,
+  });
   return {
     mountPath,
     errorResponse,

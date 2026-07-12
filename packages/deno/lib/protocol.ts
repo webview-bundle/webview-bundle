@@ -40,6 +40,21 @@ export interface BundleProtocolOptions {
   bundleResolver?: BundleResolverOptions;
   /** Default: `'directoryIndex'`. */
   pathResolver?: PathResolver;
+  /**
+   * Verify each entry's xxHash-32 checksum as it is served. Default: `true`.
+   *
+   * A corrupted entry rejects with the `core.checksum_mismatch` error code instead of handing
+   * damaged bytes to the webview. This detects corruption, not tampering: the seed is not
+   * secret, so whatever can rewrite an entry can rewrite its checksum. Use
+   * {@link BundleSourceConfig.signatureVerifier} to detect tampering.
+   */
+  verifyDataChecksum?: boolean;
+  /**
+   * The seed the bundle's data checksums were built with. Default: `0`.
+   *
+   * Must match the seed the bundle was packed with, otherwise every entry fails verification.
+   */
+  dataChecksumSeed?: number;
 }
 
 async function handleProtocol(

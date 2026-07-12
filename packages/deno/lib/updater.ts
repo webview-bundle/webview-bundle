@@ -34,20 +34,30 @@ export interface UpdaterOptions {
   signatureVerifier?: SignatureVerifierOptions;
 }
 
+/**
+ * @internal Encodes a verifier for the JSON wire, shared with {@link BundleSource} so both
+ * sides of the FFI agree on one encoding.
+ */
+export function serializeSignatureVerifier(
+  verifier: SignatureVerifierOptions
+): SignatureVerifierOptions {
+  const { key } = verifier;
+  // PEM formats carry text; binary formats (Uint8Array) are base64-encoded for the JSON wire.
+  const data = typeof key.data === 'string' ? key.data : encodeBase64(key.data);
+  return {
+    algorithm: verifier.algorithm,
+    key: { format: key.format, data },
+  };
+}
+
 function serializeOptions(options: UpdaterOptions): string {
   const { signatureVerifier, ...rest } = options;
   if (signatureVerifier == null) {
     return JSON.stringify(rest);
   }
-  const { key } = signatureVerifier;
-  // PEM formats carry text; binary formats (Uint8Array) are base64-encoded for the JSON wire.
-  const data = typeof key.data === 'string' ? key.data : encodeBase64(key.data);
   return JSON.stringify({
     ...rest,
-    signatureVerifier: {
-      algorithm: signatureVerifier.algorithm,
-      key: { format: key.format, data },
-    },
+    signatureVerifier: serializeSignatureVerifier(signatureVerifier),
   });
 }
 

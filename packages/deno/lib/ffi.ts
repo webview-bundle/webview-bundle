@@ -11,6 +11,10 @@ import {
 
 const SYMBOLS = {
   wvb_source_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
+  wvb_source_new_with_options: {
+    parameters: ['buffer', 'buffer', 'buffer'],
+    result: 'pointer',
+  },
   wvb_source_free: { parameters: ['pointer'], result: 'void' },
   // BundleSource data API (→ WvbResult). Disk/manifest ops run on the tokio runtime → nonblocking.
   wvb_source_list_bundles: { parameters: ['pointer'], result: 'pointer', nonblocking: true },

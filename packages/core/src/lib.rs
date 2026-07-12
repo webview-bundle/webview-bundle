@@ -145,3 +145,5 @@ pub mod source;
 pub mod testing;
 #[cfg(feature = "updater")]
 pub mod updater;
+#[cfg(feature = "integrity")]
+pub(crate) mod verify;

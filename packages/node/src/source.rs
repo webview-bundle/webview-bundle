@@ -1,10 +1,16 @@
 use crate::bundle::Bundle;
 use crate::bundle::BundleDescriptor;
 use crate::bundle::BundleDescriptorInner;
+use crate::integrity::IntegrityPolicy;
+use crate::js::JsCallbackExt;
+use crate::signature::SignatureVerifier;
+use crate::updater::UpdateIntegrityChecker;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::sync::Arc;
+use wvb::DataReadOptions;
+use wvb::integrity::IntegrityChecker;
 use wvb::source;
 
 /// The type of bundle source: builtin or remote.
@@ -194,6 +200,10 @@ impl LoadedDescriptor {
   /// source's active version changes meanwhile. Returns `null` if the path does not
   /// exist in the bundle.
   ///
+  /// The entry's checksum is verified when the source was created with
+  /// `verifyDataChecksum`; a corrupted entry rejects with the `core.checksum_mismatch`
+  /// error code.
+  ///
   /// @param {string} path - File path in the bundle (e.g., "/index.html")
   /// @returns {Promise<Buffer | null>} File contents or null if not found
   ///
@@ -207,8 +217,7 @@ impl LoadedDescriptor {
   /// ```
   #[napi]
   pub async fn get_data(&self, path: String) -> crate::Result<Option<Buffer>> {
-    let reader = self.inner.reader().await?;
-    let data = self.inner.async_get_data(reader, &path).await?;
+    let data = self.inner.get_data(&path).await?;
     Ok(data.map(|x| x.into()))
   }
 
@@ -218,9 +227,35 @@ impl LoadedDescriptor {
   /// @returns {Promise<number | null>} xxHash-32 checksum or null if not found
   #[napi]
   pub async fn get_data_checksum(&self, path: String) -> crate::Result<Option<u32>> {
-    let reader = self.inner.reader().await?;
-    let checksum = self.inner.async_get_data_checksum(reader, &path).await?;
+    let checksum = self.inner.get_data_checksum(&path).await?;
     Ok(checksum)
+  }
+}
+
+/// Which bundles are verified against their manifest metadata when loaded from disk.
+///
+/// A bundle is verified once per version, when it is first read; the result is cached
+/// with the descriptor, so serving a bundle does not re-hash it on every request.
+///
+/// @enum {string}
+#[napi(string_enum = "lowercase")]
+pub enum VerifyOnLoad {
+  /// Never verify on load. Bundles are still verified when downloaded and installed.
+  None,
+  /// Verify downloaded (remote) bundles only.
+  Remote,
+  /// Verify both builtin and remote bundles. Requires the builtin manifest to carry
+  /// integrity (and, with a signature verifier, signature) metadata for every bundle.
+  All,
+}
+
+impl From<VerifyOnLoad> for source::VerifyOnLoad {
+  fn from(value: VerifyOnLoad) -> Self {
+    match value {
+      VerifyOnLoad::None => Self::None,
+      VerifyOnLoad::Remote => Self::Remote,
+      VerifyOnLoad::All => Self::All,
+    }
   }
 }
 
@@ -230,6 +265,12 @@ impl LoadedDescriptor {
 /// @property {string} remoteDir - Directory containing remote bundles
 /// @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
 /// @property {string} [remoteManifestFilepath] - Custom manifest path for remote
+/// @property {VerifyOnLoad} [verifyOnLoad] - Which bundles are verified against their manifest metadata when loaded (default: 'none')
+/// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
+/// @property {Function} [integrityChecker] - Custom integrity verification function
+/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
+/// @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: false)
+/// @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
 ///
 /// @example
 /// ```typescript
@@ -239,12 +280,70 @@ impl LoadedDescriptor {
 /// };
 /// const source = new BundleSource(config);
 /// ```
-#[napi(object)]
+///
+/// @example
+/// ```typescript
+/// // Verify downloaded bundles against the integrity recorded in the manifest.
+/// const source = new BundleSource({
+///   builtinDir: './bundles/builtin',
+///   remoteDir: './bundles/remote',
+///   verifyOnLoad: 'remote',
+///   integrityPolicy: 'strict',
+/// });
+/// ```
+#[napi(object, object_to_js = false)]
 pub struct BundleSourceConfig {
   pub builtin_dir: String,
   pub remote_dir: String,
   pub builtin_manifest_filepath: Option<String>,
   pub remote_manifest_filepath: Option<String>,
+  pub verify_on_load: Option<VerifyOnLoad>,
+  pub integrity_policy: Option<IntegrityPolicy>,
+  #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
+  pub integrity_checker: Option<UpdateIntegrityChecker>,
+  #[napi(
+    ts_type = "SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)"
+  )]
+  pub signature_verifier: Option<SignatureVerifier>,
+  pub verify_data_checksum: Option<bool>,
+  pub data_checksum_seed: Option<u32>,
+}
+
+fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOptions {
+  let mut options = source::BundleSourceOptions::default();
+  if let Some(verify_on_load) = config.verify_on_load.take() {
+    options = options.verify_on_load(verify_on_load.into());
+  }
+  if let Some(policy) = config.integrity_policy.take() {
+    options = options.integrity_policy(policy.into());
+  }
+  if let Some(checker) = config.integrity_checker.take() {
+    options = options.integrity_checker(IntegrityChecker::Custom(Arc::new(
+      move |data, integrity| {
+        let buffer = Buffer::from(data);
+        let integrity = integrity.to_string();
+        let callback = Arc::clone(&checker);
+        Box::pin(async move {
+          let ret = callback
+            .invoke_async((buffer, integrity).into())
+            .await?
+            .await?;
+          Ok(ret)
+        })
+      },
+    )));
+  }
+  if let Some(verifier) = config.signature_verifier.take() {
+    options = options.signature_verifier(verifier.inner);
+  }
+  let mut data = DataReadOptions::default();
+  if let Some(verify) = config.verify_data_checksum.take() {
+    data = data.verify_checksum(verify);
+  }
+  if let Some(seed) = config.data_checksum_seed.take() {
+    data = data.checksum_seed(seed);
+  }
+  options.data(data)
 }
 
 /// Bundle source for managing multiple bundle versions.
@@ -291,10 +390,12 @@ impl BundleSource {
   /// });
   /// ```
   #[napi(constructor)]
-  pub fn new(config: BundleSourceConfig) -> BundleSource {
+  pub fn new(mut config: BundleSourceConfig) -> crate::Result<BundleSource> {
+    let options = source_options(&mut config);
     let mut builder = source::BundleSource::builder()
       .builtin_dir(config.builtin_dir)
-      .remote_dir(config.remote_dir);
+      .remote_dir(config.remote_dir)
+      .options(options);
     if let Some(builtin_manifest) = config.builtin_manifest_filepath {
       builder = builder.builtin_manifest_filepath(builtin_manifest);
     }
@@ -302,9 +403,9 @@ impl BundleSource {
       builder = builder.remote_manifest_filepath(remote_manifest);
     }
     let source = builder.build();
-    BundleSource {
+    Ok(BundleSource {
       inner: Arc::new(source),
-    }
+    })
   }
 
   /// Lists all available bundles from both sources.

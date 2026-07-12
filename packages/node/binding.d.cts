@@ -285,6 +285,12 @@ export declare class BundleProtocol {
    *   bundleResolver: { type: 'pathname' },
    * });
    * ```
+   *
+   * @example
+   * ```typescript
+   * // Serve without checking entry checksums.
+   * const protocol = new BundleProtocol(source, { verifyDataChecksum: false });
+   * ```
    */
   constructor(source: BundleSource, options?: BundleProtocolOptions | undefined | null)
   /**
@@ -702,6 +708,10 @@ export declare class LoadedDescriptor {
    * is always consistent with {@link LoadedDescriptor.descriptor} even if the
    * source's active version changes meanwhile. Returns `null` if the path does not
    * exist in the bundle.
+   *
+   * The entry's checksum is verified when the source was created with
+   * `verifyDataChecksum`; a corrupted entry rejects with the `core.checksum_mismatch`
+   * error code.
    *
    * @param {string} path - File path in the bundle (e.g., "/index.html")
    * @returns {Promise<Buffer | null>} File contents or null if not found
@@ -1145,10 +1155,15 @@ export declare enum BundleManifestVersion {
  *
  * @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
  * @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
+ * @property {boolean} [verifyDataChecksum] - Verify each served entry's xxHash-32 checksum (default: true).
+ *   A corrupted entry fails the request with the `core.checksum_mismatch` error code.
+ * @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
  */
 export interface BundleProtocolOptions {
   bundleResolver?: BundleResolverOptions
   pathResolver?: PathResolver
+  verifyDataChecksum?: boolean
+  dataChecksumSeed?: number
 }
 
 /**
@@ -1180,6 +1195,12 @@ export type BundleResolverOptions =
  * @property {string} remoteDir - Directory containing remote bundles
  * @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
  * @property {string} [remoteManifestFilepath] - Custom manifest path for remote
+ * @property {VerifyOnLoad} [verifyOnLoad] - Which bundles are verified against their manifest metadata when loaded (default: 'none')
+ * @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
+ * @property {Function} [integrityChecker] - Custom integrity verification function
+ * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
+ * @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: false)
+ * @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
  *
  * @example
  * ```typescript
@@ -1189,12 +1210,29 @@ export type BundleResolverOptions =
  * };
  * const source = new BundleSource(config);
  * ```
+ *
+ * @example
+ * ```typescript
+ * // Verify downloaded bundles against the integrity recorded in the manifest.
+ * const source = new BundleSource({
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
+ *   verifyOnLoad: 'remote',
+ *   integrityPolicy: 'strict',
+ * });
+ * ```
  */
 export interface BundleSourceConfig {
   builtinDir: string
   remoteDir: string
   builtinManifestFilepath?: string
   remoteManifestFilepath?: string
+  verifyOnLoad?: VerifyOnLoad
+  integrityPolicy?: IntegrityPolicy
+  integrityChecker?: (data: Uint8Array, integrity: string) => Promise<boolean>
+  signatureVerifier?: SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)
+  verifyDataChecksum?: boolean
+  dataChecksumSeed?: number
 }
 
 /**
@@ -1704,6 +1742,24 @@ export type VerifyingKeyFormat = /** SubjectPublicKeyInfo DER format (binary) */
 'sec1'|
 /** Raw key bytes (Ed25519 only| 32 bytes) */
 'raw';
+
+/**
+ * Which bundles are verified against their manifest metadata when loaded from disk.
+ *
+ * A bundle is verified once per version, when it is first read; the result is cached
+ * with the descriptor, so serving a bundle does not re-hash it on every request.
+ *
+ * @enum {string}
+ */
+export type VerifyOnLoad = /** Never verify on load. Bundles are still verified when downloaded and installed. */
+'none'|
+/** Verify downloaded (remote) bundles only. */
+'remote'|
+/**
+ * Verify both builtin and remote bundles. Requires the builtin manifest to carry
+ * integrity (and| with a signature verifier| signature) metadata for every bundle.
+ */
+'all';
 
 export type Version =  'v1';
 

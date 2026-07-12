@@ -57,6 +57,23 @@ describe('bundle protocol', () => {
     return source;
   }
 
+  // Flips the entry's stored 4-byte checksum on disk, leaving its compressed bytes intact:
+  // a read that verifies the checksum fails, a read that does not still returns the
+  // original bytes.
+  async function corruptChecksum(source: BundleSource, entryPath: string) {
+    const filepath = await source.resolveFilepath('app');
+    const descriptor = await source.fetchDescriptor('app');
+    const entry = descriptor.index().getEntry(entryPath);
+    if (entry == null) {
+      throw new Error(`no such entry: ${entryPath}`);
+    }
+    const dataOffset = Number(descriptor.header().indexEndOffset());
+    const raw = await fs.readFile(filepath);
+    const offset = dataOffset + entry.offset + entry.len;
+    raw[offset] = raw[offset]! ^ 0xff;
+    await fs.writeFile(filepath, raw);
+  }
+
   // Checked by `tsc --noEmit`; a no-op at runtime.
   it('takes bundleResolver as a discriminated union', () => {
     assertType<BundleResolverOptions>({ type: 'hostname', segment: 'stripSuffix' });
@@ -157,6 +174,35 @@ describe('bundle protocol', () => {
     expect(await protocol.handle('get', 'wvb://app.wvb/about.html')).toMatchObject({ status: 200 });
     // No `/` -> `/index.html` rewrite.
     expect(await protocol.handle('get', 'wvb://app.wvb/')).toMatchObject({ status: 404 });
+  });
+
+  it('fails a corrupted entry with a checksum mismatch by default', async () => {
+    const source = await makeSource();
+    await corruptChecksum(source, '/index.html');
+
+    const protocol = new BundleProtocol(source);
+    const error = await protocol.handle('get', 'wvb://app.wvb/index.html').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+
+    // Only the corrupted entry fails; the rest of the bundle is still served.
+    expect(await protocol.handle('get', 'wvb://app.wvb/about.html')).toMatchObject({ status: 200 });
+  });
+
+  it('serves a corrupted entry when verifyDataChecksum is false', async () => {
+    const source = await makeSource();
+    await corruptChecksum(source, '/index.html');
+
+    const protocol = new BundleProtocol(source, { verifyDataChecksum: false });
+    const resp = await protocol.handle('get', 'wvb://app.wvb/index.html');
+    expect(resp.status).toBe(200);
+    expect(resp.body.toString('utf8')).toBe('<h1>index</h1>');
+  });
+
+  it('fails when dataChecksumSeed does not match the seed the bundle was packed with', async () => {
+    const protocol = new BundleProtocol(await makeSource(), { dataChecksumSeed: 42 });
+    const error = await protocol.handle('get', 'wvb://app.wvb/index.html').catch(e => e);
+    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
   });
 });
 

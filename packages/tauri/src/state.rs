@@ -70,6 +70,7 @@ impl<R: Runtime> WebviewBundle<R> {
       BundleSource::builder()
         .builtin_dir(builtin_dir.as_path())
         .remote_dir(config.source.resolve_remote_dir(&app)?.as_path())
+        .options(config.source.build_options()?)
         .build(),
     );
     let mut protocols = HashMap::with_capacity(config.protocols.len());
@@ -77,7 +78,8 @@ impl<R: Runtime> WebviewBundle<R> {
       let scheme = protocol_config.scheme().to_string();
       let (kind, error_response) = match protocol_config {
         Protocol::Bundle(config) => {
-          let mut bundle = protocol::BundleProtocol::new(source.clone());
+          let mut bundle =
+            protocol::BundleProtocol::new(source.clone()).with_options(config.build_options());
           if let Some(resolver) = config.bundle_resolver.clone() {
             bundle = bundle.with_bundle_resolver(resolver);
           }

@@ -1,9 +1,10 @@
 use crate::remote::Remote;
 use crate::source::{
   BundleManifestData, BundleManifestEntry, BundleManifestMetadata, BundleSource,
+  BundleSourceOptions,
 };
 use crate::testing::TempDir;
-use crate::{Bundle, BundleEntry, BundleWriter, Writer};
+use crate::{Bundle, BundleBuilder, BundleBuilderOptions, BundleEntry, BundleWriter, Writer};
 use httpmock::{HttpMockRequest, HttpMockResponse, MockExt, MockServer};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +13,47 @@ use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+/// Rewrites a bundle file in place, leaving its manifest entry untouched.
+fn corrupt_bundle_file(
+  dir: &std::path::Path,
+  name: &str,
+  version: &str,
+  corrupt: impl FnOnce(&mut [u8]),
+) {
+  let filepath = dir.join(name).join(format!("{name}_{version}.wvb"));
+  let mut data = fs::read(&filepath).unwrap();
+  corrupt(&mut data);
+  fs::write(&filepath, data).unwrap();
+}
+
+/// The offset, within the bytes of a `.wvb` file, of the compressed data of `path`.
+///
+/// An entry is stored as `[compressed bytes][4-byte checksum]`, so flipping a byte at this
+/// offset corrupts the payload while leaving its checksum intact — which is what a
+/// checksum-verifying read is supposed to catch. Flipping a byte of the payload's leading
+/// length prefix instead surfaces as a decompression error, so tests that mean to exercise
+/// the checksum should target this offset.
+pub fn entry_data_offset(bundle_data: &[u8], path: &str) -> usize {
+  use crate::{BundleDescriptor, BundleReader, Reader};
+  let descriptor: BundleDescriptor = BundleReader::new(Cursor::new(bundle_data)).read().unwrap();
+  let entry = descriptor
+    .index()
+    .get_entry(path)
+    .unwrap_or_else(|| panic!("no entry at {path:?}"));
+  (descriptor.header().index_end_offset() + entry.offset()) as usize
+}
+
+/// The offset, within the bytes of a `.wvb` file, of the 4-byte checksum of `path`.
+pub fn entry_checksum_offset(bundle_data: &[u8], path: &str) -> usize {
+  use crate::{BundleDescriptor, BundleReader, Reader};
+  let descriptor: BundleDescriptor = BundleReader::new(Cursor::new(bundle_data)).read().unwrap();
+  let entry = descriptor
+    .index()
+    .get_entry(path)
+    .unwrap_or_else(|| panic!("no entry at {path:?}"));
+  (descriptor.header().index_end_offset() + entry.offset() + entry.len()) as usize
+}
 
 #[derive(Debug, Clone)]
 pub struct MockBundle {
@@ -22,6 +64,7 @@ pub struct MockBundle {
   signature: Option<String>,
   last_modified: Option<String>,
   entries: HashMap<String, BundleEntry>,
+  options: BundleBuilderOptions,
 }
 
 impl From<(String, String)> for MockBundle {
@@ -55,6 +98,7 @@ impl MockBundle {
       signature: None,
       last_modified: None,
       entries: HashMap::new(),
+      options: BundleBuilderOptions::default(),
     }
   }
 
@@ -111,8 +155,56 @@ impl MockBundle {
     self
   }
 
+  /// Builds the bundle with non-default options, e.g. a non-zero data checksum seed.
+  pub fn with_builder_options(mut self, options: BundleBuilderOptions) -> Self {
+    self.options = options;
+    self
+  }
+
+  pub fn with_etag(mut self, etag: impl Into<String>) -> Self {
+    self.etag = Some(etag.into());
+    self
+  }
+
+  /// Advertises an explicit integrity string, whether or not it matches the bundle bytes.
+  pub fn with_integrity(mut self, integrity: impl Into<String>) -> Self {
+    self.integrity = Some(integrity.into());
+    self
+  }
+
+  /// Advertises an explicit signature string.
+  pub fn with_signature(mut self, signature: impl Into<String>) -> Self {
+    self.signature = Some(signature.into());
+    self
+  }
+
+  /// Advertises the integrity of this bundle's own bytes, as a real server would.
+  #[cfg(feature = "integrity")]
+  pub fn with_auto_integrity(self) -> Self {
+    let integrity = crate::integrity::Integrity::compute(
+      crate::integrity::IntegrityAlgorithm::Sha256,
+      &self.bundle_data(),
+    )
+    .serialize();
+    self.with_integrity(integrity)
+  }
+
+  /// Signs this bundle's integrity string with `sign`, mirroring how a release pipeline
+  /// signs a bundle: the signed message is the integrity string, not the bundle bytes.
+  ///
+  /// Requires an integrity string; combine with [`MockBundle::with_auto_integrity`].
+  #[cfg(feature = "integrity")]
+  pub fn with_signed_integrity(self, sign: impl FnOnce(&[u8]) -> String) -> Self {
+    let integrity = self
+      .integrity
+      .clone()
+      .expect("with_signed_integrity requires an integrity string");
+    let signature = sign(integrity.as_bytes());
+    self.with_signature(signature)
+  }
+
   pub fn bundle(&self) -> Bundle {
-    let mut builder = Bundle::builder();
+    let mut builder = BundleBuilder::new_with_options(self.options);
     for (path, entry) in self.entries.iter() {
       builder.insert_entry(path, entry.clone());
     }
@@ -248,10 +340,28 @@ impl MockSource {
   }
 
   pub fn get_source(&self) -> BundleSource {
+    self.get_source_with(Default::default())
+  }
+
+  /// A source configured with verification options (see [`BundleSourceOptions`]).
+  pub fn get_source_with(&self, options: BundleSourceOptions) -> BundleSource {
     BundleSource::builder()
       .builtin_dir(&self.builtin_dir)
       .remote_dir(&self.remote_dir)
+      .options(options)
       .build()
+  }
+
+  /// Overwrites a builtin bundle's file on disk without touching its manifest entry,
+  /// simulating filesystem corruption of an installed bundle.
+  pub fn corrupt_builtin_bundle(&self, name: &str, version: &str, corrupt: impl FnOnce(&mut [u8])) {
+    corrupt_bundle_file(&self.builtin_dir, name, version, corrupt);
+  }
+
+  /// Overwrites a remote bundle's file on disk without touching its manifest entry,
+  /// simulating filesystem corruption of an installed bundle.
+  pub fn corrupt_remote_bundle(&self, name: &str, version: &str, corrupt: impl FnOnce(&mut [u8])) {
+    corrupt_bundle_file(&self.remote_dir, name, version, corrupt);
   }
 
   pub fn dirs(&self) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -306,6 +416,8 @@ impl MockSource {
     self
   }
 
+  /// Stages a bundle in the remote directory as if it had already been downloaded: writes
+  /// its `.wvb` file and records it in the remote manifest.
   pub fn add_remote_bundle(&mut self, bundle: MockBundle) -> &mut Self {
     let filepath = self.remote_dir.join(bundle.name()).join(format!(
       "{}_{}.wvb",
@@ -313,6 +425,7 @@ impl MockSource {
       bundle.version()
     ));
     fs::create_dir_all(filepath.parent().unwrap()).unwrap();
+    fs::write(filepath, bundle.bundle_data()).unwrap();
     self.remote_bundles.add(bundle);
     self.sync_remote_manifest();
     self

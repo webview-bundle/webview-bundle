@@ -16,6 +16,9 @@ export const writeBundleIntoBuffer: typeof binding.writeBundleIntoBuffer = wrapF
   binding.writeBundleIntoBuffer
 );
 
+export type BundleSource = binding.BundleSource;
+export const BundleSource: typeof binding.BundleSource = wrapClass(binding.BundleSource);
+
 export type Remote = binding.Remote;
 export const Remote: typeof binding.Remote = wrapClass(binding.Remote);
 

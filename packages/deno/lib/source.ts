@@ -1,11 +1,59 @@
 import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
+import {
+  type IntegrityPolicy,
+  type SignatureVerifierOptions,
+  serializeSignatureVerifier,
+} from './updater.ts';
+
+/**
+ * Which bundles are verified against the integrity/signature recorded in their manifest when
+ * they are loaded from disk.
+ *
+ * A bundle is verified once per version, when it is first read, so serving it does not re-hash
+ * it on every request.
+ *
+ * - `'none'` (default) — never verify on load; bundles are still verified when downloaded.
+ * - `'remote'` — verify downloaded bundles only. Builtin bundles carry integrity metadata only
+ *   if the app was packed with it, so this is the setting that works without changing how
+ *   builtin bundles are built.
+ * - `'all'` — also verify builtin bundles, which then must carry integrity metadata.
+ */
+export type VerifyOnLoad = 'none' | 'remote' | 'all';
 
 export interface BundleSourceConfig {
   /** Read-only directory of builtin bundles. */
   builtinDir: string;
   /** Writable directory for downloaded remote bundles. */
   remoteDir: string;
+  /** Which bundles are verified when loaded from disk. Default: `'none'`. */
+  verifyOnLoad?: VerifyOnLoad;
+  /** How a missing or mismatched integrity is treated on load. */
+  integrityPolicy?: IntegrityPolicy;
+  /**
+   * Verify that a bundle's integrity string was signed by the matching key.
+   *
+   * The signature signs the integrity string, so setting this also makes the integrity check
+   * mandatory whatever {@link BundleSourceConfig.integrityPolicy} says — a signature over an
+   * unchecked hash proves nothing about the bundle's bytes.
+   */
+  signatureVerifier?: SignatureVerifierOptions;
+  /**
+   * Verify each entry's xxHash-32 checksum when its data is read through this source.
+   * Default: `false`. ({@link BundleProtocol} verifies by default and overrides this.)
+   */
+  verifyDataChecksum?: boolean;
+  /** The seed the bundle's data checksums were built with. Default: `0`. */
+  dataChecksumSeed?: number;
+}
+
+function serializeConfig(config: BundleSourceConfig): string {
+  const { builtinDir: _builtin, remoteDir: _remote, signatureVerifier, ...options } = config;
+  return JSON.stringify(
+    signatureVerifier == null
+      ? options
+      : { ...options, signatureVerifier: serializeSignatureVerifier(signatureVerifier) }
+  );
 }
 
 export type BundleSourceType = 'builtin' | 'remote';
@@ -35,9 +83,18 @@ export class BundleSource {
 
   constructor(config: BundleSourceConfig) {
     const lib = getLib();
-    this.#ptr = lib.symbols.wvb_source_new(cstr(config.builtinDir), cstr(config.remoteDir));
+    this.#ptr = lib.symbols.wvb_source_new_with_options(
+      cstr(config.builtinDir),
+      cstr(config.remoteDir),
+      cstr(serializeConfig(config))
+    );
     if (this.#ptr === null) {
-      throw new WebviewBundleError('unknown', 'wvb: failed to create BundleSource');
+      // A null source also means an option was ill-formed — e.g. a `signatureVerifier` that
+      // couldn't be built. Fail closed rather than read bundles unverified.
+      throw new WebviewBundleError(
+        'invalid_signature_options',
+        'wvb: failed to create BundleSource (check verifyOnLoad/integrityPolicy/signatureVerifier)'
+      );
     }
   }
 
