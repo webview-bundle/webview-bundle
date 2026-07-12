@@ -67,8 +67,7 @@ const PROTOCOL_OPTION_KEYS: ReadonlySet<string> = new Set([
 /**
  * Serialize the options, rejecting any key the binding does not know: a misspelled
  * `verifyDataChecksum` would otherwise be dropped in silence, leaving the request served with a
- * setting the caller did not ask for. Checking here — rather than natively — keeps a newer TS
- * working against an older shipped cdylib that knows fewer keys.
+ * setting the caller did not ask for.
  */
 function serializeOptions(options: BundleProtocolOptions): string {
   for (const key of Object.keys(options)) {

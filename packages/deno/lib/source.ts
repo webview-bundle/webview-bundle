@@ -66,8 +66,7 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
 
 function serializeConfig(config: BundleSourceConfig): string {
   // A misspelled security option (`verifyOnload`) would otherwise be dropped in silence, leaving
-  // verification off while the caller believes it is on. Rejecting here — rather than natively —
-  // keeps a newer TS working against an older shipped cdylib that knows fewer keys.
+  // verification off while the caller believes it is on.
   for (const key of Object.keys(config)) {
     if (!CONFIG_KEYS.has(key)) {
       throw new WebviewBundleError('unknown', `wvb: unknown BundleSource option '${key}'`);

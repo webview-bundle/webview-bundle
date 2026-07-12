@@ -267,7 +267,7 @@ impl From<VerifyOnLoad> for source::VerifyOnLoad {
 /// @property {VerifyOnLoad} [verifyOnLoad] - Which bundles are verified against their manifest metadata when loaded (default: 'none')
 /// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
 /// @property {Function} [integrityChecker] - Custom integrity verification function
-/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
+/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
 /// @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: true)
 /// @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
 ///

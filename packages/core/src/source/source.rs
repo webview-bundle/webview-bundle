@@ -249,7 +249,10 @@ impl BundleSourceBuilder {
     self
   }
 
-  /// How bundles read through this source are verified (default: no verification).
+  /// How bundles read through this source are verified.
+  ///
+  /// By default entry checksums are verified as data is read, while load-time integrity and
+  /// signature verification is off — see [`BundleSourceOptions`].
   #[must_use]
   pub fn options(mut self, options: BundleSourceOptions) -> Self {
     self.options = options;

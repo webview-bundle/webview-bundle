@@ -214,21 +214,48 @@ pub struct BundleSource {
   pub(crate) inner: Arc<source::BundleSource>,
 }
 
+fn source_builder(config: BundleSourceConfig) -> source::BundleSourceBuilder {
+  let mut builder = source::BundleSource::builder()
+    .builtin_dir(config.builtin_dir)
+    .remote_dir(config.remote_dir);
+  if let Some(p) = config.builtin_manifest_filepath {
+    builder = builder.builtin_manifest_filepath(p);
+  }
+  if let Some(p) = config.remote_manifest_filepath {
+    builder = builder.remote_manifest_filepath(p);
+  }
+  builder
+}
+
+fn source_options(
+  options: BundleSourceOptions,
+) -> Result<source::BundleSourceOptions, crate::Error> {
+  let mut source_options = source::BundleSourceOptions::new();
+  if let Some(verify_on_load) = options.verify_on_load {
+    source_options = source_options.verify_on_load(verify_on_load.into());
+  }
+  if let Some(policy) = options.integrity_policy {
+    source_options = source_options.integrity_policy(policy.into());
+  }
+  if let Some(verifier_opts) = options.signature_verifier {
+    let verifier = signature::SignatureVerifier::try_from(verifier_opts)?;
+    source_options = source_options.signature_verifier(verifier);
+  }
+  if let Some(verify) = options.verify_data_checksum {
+    source_options = source_options.verify_data_checksum(verify);
+  }
+  if let Some(seed) = options.data_checksum_seed {
+    source_options = source_options.data_checksum_seed(seed);
+  }
+  Ok(source_options)
+}
+
 #[uniffi::export]
 impl BundleSource {
   #[uniffi::constructor]
   pub fn new(config: BundleSourceConfig) -> Arc<BundleSource> {
-    let mut builder = source::BundleSource::builder()
-      .builtin_dir(config.builtin_dir)
-      .remote_dir(config.remote_dir);
-    if let Some(p) = config.builtin_manifest_filepath {
-      builder = builder.builtin_manifest_filepath(p);
-    }
-    if let Some(p) = config.remote_manifest_filepath {
-      builder = builder.remote_manifest_filepath(p);
-    }
     Arc::new(BundleSource {
-      inner: Arc::new(builder.build()),
+      inner: Arc::new(source_builder(config).build()),
     })
   }
 
@@ -239,36 +266,9 @@ impl BundleSource {
     config: BundleSourceConfig,
     options: BundleSourceOptions,
   ) -> Result<Arc<BundleSource>, crate::Error> {
-    let mut builder = source::BundleSource::builder()
-      .builtin_dir(config.builtin_dir)
-      .remote_dir(config.remote_dir);
-    if let Some(p) = config.builtin_manifest_filepath {
-      builder = builder.builtin_manifest_filepath(p);
-    }
-    if let Some(p) = config.remote_manifest_filepath {
-      builder = builder.remote_manifest_filepath(p);
-    }
-
-    let mut source_options = source::BundleSourceOptions::new();
-    if let Some(verify_on_load) = options.verify_on_load {
-      source_options = source_options.verify_on_load(verify_on_load.into());
-    }
-    if let Some(policy) = options.integrity_policy {
-      source_options = source_options.integrity_policy(policy.into());
-    }
-    if let Some(verifier_opts) = options.signature_verifier {
-      let verifier = signature::SignatureVerifier::try_from(verifier_opts)?;
-      source_options = source_options.signature_verifier(verifier);
-    }
-    if let Some(verify) = options.verify_data_checksum {
-      source_options = source_options.verify_data_checksum(verify);
-    }
-    if let Some(seed) = options.data_checksum_seed {
-      source_options = source_options.data_checksum_seed(seed);
-    }
-
+    let builder = source_builder(config).options(source_options(options)?);
     Ok(Arc::new(BundleSource {
-      inner: Arc::new(builder.options(source_options).build()),
+      inner: Arc::new(builder.build()),
     }))
   }
 

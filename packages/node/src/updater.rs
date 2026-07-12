@@ -77,7 +77,7 @@ pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Pr
 /// @property {string} [channel] - Update channel (e.g., "stable", "beta")
 /// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
 /// @property {Function} [integrityChecker] - Custom integrity verification function
-/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
+/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
 ///
 /// @example
 /// ```typescript
