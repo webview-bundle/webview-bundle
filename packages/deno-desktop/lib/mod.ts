@@ -2,7 +2,7 @@ export { type HttpResponse, loadLib, loadLibViaPlug, type PathResolver } from '@
 export { type BridgeErrorData, registerBindings } from './bindings.ts';
 export type { RemoteOptions } from './remote.ts';
 export { remote } from './remote.ts';
-export type { BundleRoute, ProxyRoute, Route, Routes } from './routes.ts';
+export type { BundleRoute, ErrorResponse, ProxyRoute, Route, Routes } from './routes.ts';
 export type { SourceOptions } from './source.ts';
 export { appDataDir, bundleSource } from './source.ts';
 export type {

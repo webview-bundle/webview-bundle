@@ -44,9 +44,7 @@ impl ProxyResolver {
 
   /// Resolve the proxy target with a custom async closure. `Ok(None)` means "do not proxy".
   ///
-  /// The future must be `'static`, so it cannot borrow `uri`; copy out what it needs
-  /// (e.g. `let host = uri.host().map(str::to_owned);`) before the `async move` block.
-  /// Inside the block, `?` boxes any `std::error::Error + Send + Sync` automatically.
+  /// The future is `'static`, so copy what it needs out of `uri` before the `async move` block.
   pub fn custom<F, Fut>(resolve_fn: F) -> Self
   where
     F: Fn(&Uri) -> Fut + Send + Sync + 'static,
@@ -94,8 +92,7 @@ struct CachedResponse {
   body: bytes::Bytes,
 }
 
-/// Total body bytes [`ProxyProtocol`] keeps cached, unless
-/// [`ProxyProtocol::with_max_cache_bytes`] says otherwise.
+/// Default budget for [`ProxyProtocol::with_max_cache_bytes`].
 pub const DEFAULT_MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Default)]
@@ -117,8 +114,7 @@ impl CacheState {
   }
 }
 
-/// Successful upstream responses, kept only so an upstream `304 Not Modified` can be answered with
-/// the body we last saw for that url.
+/// Bodies kept only to answer an upstream `304 Not Modified`, bounded by their total size.
 struct ResponseCache {
   state: Mutex<CacheState>,
   max_bytes: usize,
@@ -132,7 +128,7 @@ impl ResponseCache {
     }
   }
 
-  /// A panic elsewhere in the process must not take the proxy down with a poisoned cache.
+  /// A poisoned cache must not take the proxy down with it.
   fn lock(&self) -> MutexGuard<'_, CacheState> {
     self.state.lock().unwrap_or_else(|e| e.into_inner())
   }
@@ -143,8 +139,7 @@ impl ResponseCache {
 
   fn insert(&self, url: &str, response: CachedResponse) {
     let size = response.body.len();
-    // A single response over the budget (or any response, with the cache off) is served straight
-    // through, never cached.
+    // Never cache a response that alone would blow the budget.
     if self.max_bytes == 0 || size > self.max_bytes {
       self.lock().remove(url);
       return;
@@ -230,9 +225,8 @@ impl ProxyProtocol {
     }
   }
 
-  /// How many bytes of upstream response bodies to keep cached (default:
-  /// [`DEFAULT_MAX_CACHE_BYTES`], 32 MiB). `0` disables the cache, and an upstream `304` is then
-  /// passed through as-is.
+  /// Bytes of upstream response bodies kept for answering a `304` (default:
+  /// [`DEFAULT_MAX_CACHE_BYTES`]). `0` turns the cache off and passes the `304` through.
   ///
   /// ```
   /// # #[cfg(feature = "protocol-proxy")]
@@ -289,8 +283,7 @@ impl super::Protocol for ProxyProtocol {
     proxy_builder = proxy_builder.body(request.body().clone());
     let r = proxy_builder.send().await?;
 
-    // The webview only gets `304` back if it already holds the resource; when the upstream answers
-    // one for a body we cached, serve that body instead of an empty response.
+    // Answer an upstream `304` with the body we last saw, rather than an empty response.
     let cached = (r.status() == http::StatusCode::NOT_MODIFIED)
       .then(|| self.cache.get(&url))
       .flatten();
@@ -305,8 +298,7 @@ impl super::Protocol for ProxyProtocol {
           headers,
           body,
         };
-        // Only a whole `200` body can stand in for a later `304`; a `206` is a slice of one, and
-        // an error status is not worth replaying.
+        // Only a whole `200` body can stand in for a later `304` — a `206` is a slice of one.
         if status == http::StatusCode::OK {
           self.cache.insert(&url, response.clone());
         }

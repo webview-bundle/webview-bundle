@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use tauri::http;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
 use wvb::remote;
@@ -175,11 +176,28 @@ impl Remote {
   }
 }
 
+/// Builds the response for a request the protocol failed to serve.
+pub type ErrorResponse = Arc<dyn Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync>;
+
+/// A `500` plain-text response, used when a protocol has no [`ErrorResponse`] of its own.
+pub fn default_error_response(error: &crate::Error) -> http::Response<Vec<u8>> {
+  http::Response::builder()
+    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+    .header(http::header::CONTENT_TYPE, "text/plain")
+    .body(
+      format!("webview bundle protocol error: {error}")
+        .as_bytes()
+        .to_vec(),
+    )
+    .expect("static error response")
+}
+
 #[derive(Clone)]
 pub struct BundleProtocolConfig {
   scheme: String,
   pub(crate) bundle_resolver: Option<UriBundleResolver>,
   pub(crate) path_resolver: Option<UriPathResolver>,
+  pub(crate) error_response: Option<ErrorResponse>,
 }
 
 impl BundleProtocolConfig {
@@ -188,7 +206,30 @@ impl BundleProtocolConfig {
       scheme: scheme.into(),
       bundle_resolver: None,
       path_resolver: None,
+      error_response: None,
     }
+  }
+
+  /// The response for a request this protocol fails to serve
+  /// (default: [`default_error_response`], a `500` with the message).
+  ///
+  /// ```no_run
+  /// # use tauri::http;
+  /// # use wvb_tauri::{Error, Protocol};
+  /// Protocol::bundle("app").error_response(|e| {
+  ///   let missing = matches!(e, Error::Core(wvb::Error::BundleNotFound));
+  ///   http::Response::builder()
+  ///     .status(if missing { 404 } else { 500 })
+  ///     .body(e.to_string().into_bytes())
+  ///     .unwrap()
+  /// });
+  /// ```
+  pub fn error_response<F>(mut self, error_response: F) -> Self
+  where
+    F: Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync + 'static,
+  {
+    self.error_response = Some(Arc::new(error_response));
+    self
   }
 
   /// How the bundle name is resolved from the request uri
@@ -222,6 +263,7 @@ pub struct ProxyProtocolConfig {
   scheme: String,
   pub(crate) resolver: ProxyResolver,
   pub(crate) max_cache_bytes: Option<usize>,
+  pub(crate) error_response: Option<ErrorResponse>,
 }
 
 impl ProxyProtocolConfig {
@@ -230,7 +272,18 @@ impl ProxyProtocolConfig {
       scheme: scheme.into(),
       resolver,
       max_cache_bytes: None,
+      error_response: None,
     }
+  }
+
+  /// The response for a request this protocol fails to serve — e.g. a dev server that is not up
+  /// yet (default: [`default_error_response`], a `500` with the message).
+  pub fn error_response<F>(mut self, error_response: F) -> Self
+  where
+    F: Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync + 'static,
+  {
+    self.error_response = Some(Arc::new(error_response));
+    self
   }
 
   /// How many bytes of upstream response bodies the proxy keeps, so an upstream `304 Not Modified`

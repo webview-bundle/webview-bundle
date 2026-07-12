@@ -106,9 +106,8 @@ export class BundleProtocol {
 /** How a {@link ProxyProtocol} behaves beyond resolving the target. */
 export interface ProxyProtocolOptions {
   /**
-   * How many bytes of upstream response bodies to keep, so an upstream `304 Not Modified` can be
-   * answered with the body last seen for that url (default: 32 MiB; `0` turns the cache off and
-   * passes the `304` through).
+   * Bytes of upstream response bodies kept for answering a `304 Not Modified`
+   * (default: 32 MiB; `0` turns the cache off).
    */
   maxCacheBytes?: number;
 }

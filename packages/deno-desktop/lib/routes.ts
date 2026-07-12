@@ -8,6 +8,9 @@ import {
 } from '@wvb/deno';
 import { toResponse } from './http.ts';
 
+/** The response for a request the protocol failed to serve (default: `500` with the message). */
+export type ErrorResponse = (e: Error) => Response;
+
 /** Serves a bundle from the source. */
 export interface BundleRoute {
   /** Name of the bundle in the source. */
@@ -17,8 +20,7 @@ export interface BundleRoute {
    * `/about` → `/about/index.html`).
    */
   pathResolver?: PathResolver;
-  /** Called when the route fails to serve a request (which still gets a 500). */
-  onError?: (e: Error) => void;
+  errorResponse?: ErrorResponse;
 }
 
 /** Proxies to another HTTP server — typically a dev server with hot reload. */
@@ -26,13 +28,11 @@ export interface ProxyRoute {
   /** Base url of the target server, e.g. `'http://localhost:5173'`. */
   proxy: string;
   /**
-   * How many bytes of upstream response bodies to keep, so an upstream `304 Not Modified` can be
-   * answered with the body last seen for that url (default: 32 MiB; `0` turns the cache off and
-   * passes the `304` through).
+   * Bytes of upstream response bodies kept for answering a `304 Not Modified`
+   * (default: 32 MiB; `0` turns the cache off).
    */
   maxCacheBytes?: number;
-  /** Called when the route fails to serve a request (which still gets a 500). */
-  onError?: (e: Error) => void;
+  errorResponse?: ErrorResponse;
 }
 
 export type Route = BundleRoute | ProxyRoute;
@@ -134,7 +134,7 @@ export function normalizeRoutes(routes: Routes): Mount[] {
 
 interface Handler {
   readonly mountPath: string;
-  readonly onError?: (e: Error) => void;
+  readonly errorResponse?: ErrorResponse;
   /** `path` is below the mount and carries the query string. */
   handle(req: Request, method: HttpMethod, path: string): Promise<HttpResponse>;
 }
@@ -149,7 +149,7 @@ async function readBody(req: Request): Promise<Uint8Array<ArrayBuffer> | undefin
 }
 
 function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
-  const { onError } = route;
+  const { errorResponse } = route;
   if ('proxy' in route) {
     const protocol = new ProxyProtocol(
       { [PROXY_HOST]: route.proxy },
@@ -157,8 +157,7 @@ function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
     );
     return {
       mountPath,
-      onError,
-      // A proxied POST/PUT/PATCH carries a body, so it has to reach the upstream server.
+      errorResponse,
       handle: async (req, method, path) =>
         protocol.handle(
           method,
@@ -171,11 +170,13 @@ function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
   const protocol = new BundleProtocol(source, { pathResolver: route.pathResolver });
   return {
     mountPath,
-    onError,
+    errorResponse,
     handle: (req, method, path) =>
       protocol.handle(method, `bundle://${route.bundle}${path}`, normalizeHeaders(req.headers)),
   };
 }
+
+const defaultErrorResponse: ErrorResponse = e => new Response(e.message, { status: 500 });
 
 /** Builds the `Deno.serve` handler that serves each request from the route mounted at its path. */
 export function createHandler(
@@ -198,13 +199,7 @@ export function createHandler(
         return toResponse(await handler.handle(req, method, `${path}${search}`));
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
-        // The route still gets its 500 even if the app's own onError throws.
-        try {
-          handler.onError?.(error);
-        } catch {
-          // ignored: reporting the failure must not replace the response to it.
-        }
-        return new Response(error.message, { status: 500 });
+        return (handler.errorResponse ?? defaultErrorResponse)(error);
       }
     }
     return new Response('Not Found', { status: 404 });

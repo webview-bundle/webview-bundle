@@ -130,11 +130,8 @@ impl BundleProtocol {
     self
   }
 
-  /// The resolver this protocol maps a request uri to a bundle name with.
-  ///
-  /// Hosts that need the bundle name *before* serving — e.g. to extract it from a read-only
-  /// location first — resolve it through this, so they always pick the bundle the protocol is
-  /// about to read.
+  /// The resolver this protocol maps a request uri to a bundle name with. Hosts that need the name
+  /// *before* serving (e.g. to extract the bundle first) resolve it through this.
   ///
   /// ```
   /// # #[cfg(feature = "protocol")]

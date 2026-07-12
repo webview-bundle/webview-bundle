@@ -19,7 +19,7 @@ export interface ProtocolHandler {
 export interface ProtocolOptions {
   protocol?: () => ElectronProtocol;
   privileges?: Privileges;
-  handleError?: (e: Error) => Response;
+  errorResponse?: (e: Error) => Response;
 }
 
 export interface ProtocolHandlerBuildContext {
@@ -51,7 +51,7 @@ const DEFAULT_PRIVILEGES: Privileges = {
  */
 export async function registerProtocol(protocol: Protocol, source: BundleSource): Promise<void> {
   const { scheme, handler, options = {} } = protocol;
-  const { protocol: getProtocol, privileges, handleError } = options;
+  const { protocol: getProtocol, privileges, errorResponse } = options;
 
   electronProtocol.registerSchemesAsPrivileged([
     {
@@ -72,7 +72,7 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
     p.handle(scheme, async request => {
       const response = await h.handle(request).catch(e => {
         const error = makeError(e);
-        const resp = handleError?.(error) ?? defaultErrorResponse(error);
+        const resp = errorResponse?.(error) ?? defaultErrorResponse(error);
         return resp;
       });
       return response;
@@ -87,7 +87,7 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
 
       const response = await h.handle(request).catch(e => {
         const error = makeError(e);
-        const resp = handleError?.(error) ?? defaultErrorResponse(error);
+        const resp = errorResponse?.(error) ?? defaultErrorResponse(error);
         return resp;
       });
 
@@ -110,9 +110,8 @@ export type ProxyResolver = (uri: string) => Promise<string | null>;
 
 interface ProxyOptions {
   /**
-   * How many bytes of upstream response bodies to keep, so an upstream `304 Not Modified` can be
-   * answered with the body last seen for that url (default: 32 MiB; `0` turns the cache off and
-   * passes the `304` through).
+   * Bytes of upstream response bodies kept for answering a `304 Not Modified`
+   * (default: 32 MiB; `0` turns the cache off).
    */
   maxCacheBytes?: number;
 }
@@ -122,10 +121,7 @@ export type ProxyProtocolConfig = ProtocolOptions &
   ProxyOptions &
   (
     | {
-        /**
-         * Host → target url mapping, or a function returning one — evaluated once, when the handler
-         * is built (for a mapping only known by then, e.g. a dev server port).
-         */
+        /** Host → target url mapping, or a function returning one, evaluated when the handler is built. */
         hosts: Hosts | (() => Hosts | Promise<Hosts>);
         resolver?: never;
       }

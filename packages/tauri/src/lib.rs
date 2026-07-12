@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use tauri::{
-  Manager, Runtime, UriSchemeContext, http,
+  Manager, Runtime, UriSchemeContext,
   plugin::{Builder, TauriPlugin},
 };
 
 pub use config::{
-  Config, HostnameSegment, Http, IntegrityPolicy, Protocol, ProxyResolver, Remote,
-  SignatureVerifier, Source, Updater, UriBundleResolver, UriPathResolver,
+  Config, ErrorResponse, HostnameSegment, Http, IntegrityPolicy, Protocol, ProxyResolver, Remote,
+  SignatureVerifier, Source, Updater, UriBundleResolver, UriPathResolver, default_error_response,
 };
 pub use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
@@ -76,7 +76,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
           // requested bundle out (if not already) before the protocol reads it.
           #[cfg(target_os = "android")]
           if let Err(e) = wvb.ensure_builtin_bundle(&scheme, req.uri()) {
-            res.respond(protocol_error_response(&e));
+            res.respond(wvb.error_response(&scheme, &e));
             return;
           }
           let protocol = wvb
@@ -84,7 +84,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             .unwrap_or_else(|| panic!("protocol not found: {scheme}"));
           match protocol.handle(req).await {
             Ok(resp) => res.respond(resp),
-            Err(e) => res.respond(protocol_error_response(&e)),
+            Err(e) => res.respond(wvb.error_response(&scheme, &Error::Core(e))),
           }
         });
       },
@@ -117,17 +117,4 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
       commands::updater_install,
     ])
     .build()
-}
-
-/// A `500` plain-text response for a failed protocol request.
-fn protocol_error_response(error: &dyn std::fmt::Display) -> http::Response<Vec<u8>> {
-  http::Response::builder()
-    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-    .header(http::header::CONTENT_TYPE, "text/plain")
-    .body(
-      format!("webview bundle protocol error: {error}")
-        .as_bytes()
-        .to_vec(),
-    )
-    .unwrap()
 }

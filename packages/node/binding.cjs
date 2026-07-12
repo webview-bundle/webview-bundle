@@ -521,6 +521,7 @@ module.exports.Remote = nativeBinding.Remote
 module.exports.Updater = nativeBinding.Updater
 module.exports.BundleManifestVersion = nativeBinding.BundleManifestVersion
 module.exports.BundleSourceKind = nativeBinding.BundleSourceKind
+module.exports.ErrorCode = nativeBinding.ErrorCode
 module.exports.HostnameSegment = nativeBinding.HostnameSegment
 module.exports.HttpMethod = nativeBinding.HttpMethod
 module.exports.IntegrityAlgorithm = nativeBinding.IntegrityAlgorithm

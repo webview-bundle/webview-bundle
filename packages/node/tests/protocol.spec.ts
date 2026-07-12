@@ -21,6 +21,8 @@ import {
   BundleProtocol,
   type BundleResolverOptions,
   BundleSource,
+  type ErrorCode,
+  isWebviewBundleError,
   ProxyProtocol,
 } from '../dist/index.js';
 
@@ -197,9 +199,12 @@ describe('proxy protocol', () => {
 
   it('rejects a host that is not mapped', async () => {
     const protocol = new ProxyProtocol({ 'app.wvb': `http://localhost:${port}` });
-    await expect(protocol.handle('get', 'wvb://other.wvb/index.html')).rejects.toThrow(
-      /cannot resolve proxy server/
-    );
+    const error = await protocol.handle('get', 'wvb://other.wvb/index.html').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    // The code is typed: a core error code that does not exist fails to typecheck.
+    assertType<ErrorCode>(error.code);
+    expect(error.code).toBe<ErrorCode>('core.cannot_resolve_proxy_server');
+    expect(error.message).toMatch(/cannot resolve proxy server/);
   });
 
   it('serves with the response cache turned off', async () => {

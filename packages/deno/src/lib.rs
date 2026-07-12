@@ -35,12 +35,6 @@ pub struct WvbProtocol {
   inner: Arc<dyn Protocol>,
 }
 
-pub struct WvbResponse {
-  status: u16,
-  headers_json: CString,
-  body: Vec<u8>,
-}
-
 /// # Safety
 /// `ptr` must be null or a valid NUL-terminated C string.
 unsafe fn cstr(ptr: *const c_char) -> String {
@@ -127,9 +121,8 @@ fn parse_path_resolver(value: &serde_json::Value) -> Option<UriPathResolver> {
 }
 
 /// Create a bundle protocol handler serving from `source`. `options_json` is null/empty or a JSON
-/// object with `bundleResolver` and/or `pathResolver` (see `parse_bundle_resolver` /
-/// `parse_path_resolver`); an unparsable option returns null rather than silently serving with the
-/// default resolvers.
+/// object with `bundleResolver` and/or `pathResolver`; an unparsable option returns null rather
+/// than silently serving with the default resolvers.
 ///
 /// # Safety
 /// `source` must be a valid pointer returned by `wvb_source_new`; `options_json` must be null or a
@@ -145,8 +138,7 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
   let mut protocol = BundleProtocol::new(source.inner.clone());
   let raw = unsafe { cstr(options_json) };
   if !raw.is_empty() {
-    // Anything but an object (a scalar, an array) would read as "no options given" below, silently
-    // serving with the default resolvers — fail closed instead.
+    // A scalar or array would read as "no options given" below — fail closed instead.
     let Ok(options) = serde_json::from_str::<serde_json::Value>(&raw) else {
       return std::ptr::null_mut();
     };
@@ -173,9 +165,8 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
 }
 
 /// Create a proxy protocol handler that proxies requests to another server (for dev servers).
-/// `options_json` is null/empty or a JSON object mirroring `@wvb/deno`'s `ProxyProtocolOptions`:
-/// `{ "maxCacheBytes"?: number }`. An unparsable host mapping or option returns null rather than
-/// silently proxying nothing.
+/// `options_json` is null/empty or `{ "maxCacheBytes"?: number }`; an unparsable host mapping or
+/// option returns null rather than silently proxying nothing.
 ///
 /// # Safety
 /// `hosts_json` must be null or a JSON object string mapping host -> URL; `options_json` must be
@@ -226,7 +217,8 @@ pub unsafe extern "C" fn wvb_protocol_free(handle: *mut WvbProtocol) {
   }
 }
 
-/// Handle one request. Returns an owned `WvbResponse` (read via accessors, then free).
+/// Handle one request. Returns a `WvbResult` whose payload is `{ status, headers }` + the response
+/// body; a protocol failure comes back as an error result, so the host can answer it its own way.
 ///
 /// # Safety
 /// `handle` must be a valid `WvbProtocol`. `method`/`uri` must be valid C strings; `headers_json`
@@ -240,9 +232,9 @@ pub unsafe extern "C" fn wvb_protocol_handle(
   headers_json: *const c_char,
   body: *const u8,
   body_len: usize,
-) -> *mut WvbResponse {
+) -> *mut WvbResult {
   let Some(proto) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
-    return std::ptr::null_mut();
+    return null_handle_err("protocol");
   };
   let method = unsafe { cstr(method) };
   let uri = unsafe { cstr(uri) };
@@ -258,9 +250,7 @@ pub unsafe extern "C" fn wvb_protocol_handle(
   } else {
     unsafe { std::slice::from_raw_parts(body, body_len) }.to_vec()
   };
-
-  let response = handle_request(proto, &method, &uri, &headers, body);
-  Box::into_raw(Box::new(response))
+  handle_request(proto, &method, &uri, &headers, body)
 }
 
 fn handle_request(
@@ -269,11 +259,11 @@ fn handle_request(
   uri: &str,
   headers: &HashMap<String, String>,
   body: Vec<u8>,
-) -> WvbResponse {
+) -> *mut WvbResult {
   // An unparseable method token is a bad request — don't silently coerce it to GET.
   let method = match http::Method::from_bytes(method.to_ascii_uppercase().as_bytes()) {
     Ok(method) => method,
-    Err(_) => return error_response(400, "invalid HTTP method"),
+    Err(_) => return err_result("invalid_method", format!("invalid HTTP method: {method}")),
   };
   let mut builder = http::Request::builder().method(method).uri(uri);
   for (name, value) in headers {
@@ -281,83 +271,25 @@ fn handle_request(
   }
   let request = match builder.body(body) {
     Ok(request) => request,
-    Err(e) => return error_response(400, &format!("bad request: {e}")),
+    Err(e) => return err_result("invalid_request", format!("bad request: {e}")),
   };
 
   match runtime().block_on(async move { proto.handle(request).await }) {
     Ok(response) => {
-      let status = response.status().as_u16();
-      let mut map = serde_json::Map::new();
+      let mut headers = serde_json::Map::new();
       for (name, value) in response.headers() {
-        map.insert(
+        headers.insert(
           name.as_str().to_string(),
           serde_json::Value::String(String::from_utf8_lossy(value.as_bytes()).into_owned()),
         );
       }
-      let headers_json =
-        CString::new(serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string()))
-          .unwrap_or_default();
-      WvbResponse {
-        status,
-        headers_json,
-        body: response.body().as_ref().to_vec(),
-      }
+      let status = response.status().as_u16();
+      ok_result(
+        serde_json::json!({ "status": status, "headers": headers }),
+        response.body().as_ref().to_vec(),
+      )
     }
-    Err(e) => error_response(500, &format!("{e}")),
-  }
-}
-
-fn error_response(status: u16, message: &str) -> WvbResponse {
-  WvbResponse {
-    status,
-    headers_json: CString::new(r#"{"content-type":"text/plain; charset=utf-8"}"#)
-      .expect("static header json"),
-    body: message.as_bytes().to_vec(),
-  }
-}
-
-/// # Safety
-/// `resp` must be null or a valid `WvbResponse` pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_response_status(resp: *const WvbResponse) -> u16 {
-  unsafe { resp.as_ref() }.map(|r| r.status).unwrap_or(0)
-}
-
-/// Returns a borrowed pointer to the response's headers JSON (valid until `wvb_response_free`).
-///
-/// # Safety
-/// `resp` must be null or a valid `WvbResponse` pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_response_headers_json(resp: *const WvbResponse) -> *const c_char {
-  match unsafe { resp.as_ref() } {
-    Some(r) => r.headers_json.as_ptr(),
-    None => std::ptr::null(),
-  }
-}
-
-/// # Safety
-/// `resp` must be null or a valid `WvbResponse` pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_response_body_ptr(resp: *const WvbResponse) -> *const u8 {
-  match unsafe { resp.as_ref() } {
-    Some(r) => r.body.as_ptr(),
-    None => std::ptr::null(),
-  }
-}
-
-/// # Safety
-/// `resp` must be null or a valid `WvbResponse` pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_response_body_len(resp: *const WvbResponse) -> usize {
-  unsafe { resp.as_ref() }.map(|r| r.body.len()).unwrap_or(0)
-}
-
-/// # Safety
-/// `resp` must be null or a pointer previously returned by `wvb_protocol_handle`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_response_free(resp: *mut WvbResponse) {
-  if !resp.is_null() {
-    drop(unsafe { Box::from_raw(resp) });
+    Err(e) => core_err(e),
   }
 }
 

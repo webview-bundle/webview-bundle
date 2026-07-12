@@ -237,8 +237,7 @@ class TestRunner(private val context: Context) {
                 )
                 val handler = BundleProtocolHandler(source, options)
                 check(handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null).status == 200.toUShort())
-                // Recorded outside the catch: `error(...)` inside it would be caught as the very
-                // exception the test is looking for, and the test would pass either way.
+                // Recorded outside the catch, which would swallow an `error(...)` raised inside it.
                 var rejected = false
                 try {
                     handler.handle(HttpMethod.GET, "https://app.example.com/index.html", null)

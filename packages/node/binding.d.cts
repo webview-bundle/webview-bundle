@@ -1254,6 +1254,46 @@ export interface BundleUpdateInfo {
   lastModified?: string
 }
 
+/** The stable code every error thrown by this binding carries (`WebviewBundleError.code`). */
+export type ErrorCode =  'core.io'|
+'core.compress'|
+'core.decompress'|
+'core.encode'|
+'core.decode'|
+'core.http'|
+'core.invalid_magic_num'|
+'core.invalid_version'|
+'core.invalid_header_checksum'|
+'core.invalid_index_checksum'|
+'core.checksum_mismatch'|
+'core.bundle_not_found'|
+'core.bundle_entry_not_exists'|
+'core.bundle_cannot_be_removed'|
+'core.invalid_filepath'|
+'core.serde_json'|
+'core.cannot_resolve_proxy_server'|
+'core.reqwest'|
+'core.invalid_remote_url'|
+'core.invalid_remote_bundle'|
+'core.remote_bundle_not_found'|
+'core.remote_forbidden'|
+'core.remote_http'|
+'core.invalid_remote_config'|
+'core.invalid_integrity'|
+'core.integrity_required'|
+'core.integrity_verify_failed'|
+'core.invalid_signature'|
+'core.invalid_signing_key'|
+'core.signature_sign_failed'|
+'core.invalid_verifying_key'|
+'core.signature_not_exists'|
+'core.signature_verify_failed'|
+'core.generic'|
+'invalid_header_name'|
+'invalid_header_value'|
+'invalid_signature_options'|
+'napi';
+
 /**
  * Which hostname segment is used as the bundle name.
  *
@@ -1415,9 +1455,8 @@ export type PathResolver = /** Use the uri path as-is (only percent-decoded). */
 /**
  * Options for the proxy protocol.
  *
- * @property {number} [maxCacheBytes] - How many bytes of upstream response bodies to keep, so an
- * upstream `304 Not Modified` can be answered with the body last seen for that url
- * (default: 32 MiB; `0` turns the cache off and passes the `304` through)
+ * @property {number} [maxCacheBytes] - Bytes of upstream response bodies kept for answering a
+ * `304 Not Modified` (default: 32 MiB; `0` turns the cache off)
  *
  * @example
  * ```typescript

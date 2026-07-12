@@ -1,8 +1,11 @@
+/** biome-ignore-all lint/correctness/useImportExtensions: allow .cjs */
+import type { ErrorCode } from '../binding.cjs';
+
 export class WebviewBundleError extends Error {
   override readonly name = 'WebviewBundleError';
-  readonly code: string;
+  readonly code: ErrorCode;
 
-  constructor(code: string, message: string, options?: ErrorOptions) {
+  constructor(code: ErrorCode, message: string, options?: ErrorOptions) {
     super(message, options);
     this.code = code;
   }
@@ -30,6 +33,6 @@ export function toWebviewBundleError(value: unknown): unknown {
   if (matched == null) {
     return new WebviewBundleError('napi', value.message, { cause: value });
   }
-  const [, code = 'unknown', message = ''] = matched;
-  return new WebviewBundleError(code, message, { cause: value });
+  const [, code = 'napi', message = ''] = matched;
+  return new WebviewBundleError(code as ErrorCode, message, { cause: value });
 }

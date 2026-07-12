@@ -158,6 +158,23 @@ Deno.test('an unreachable proxy target surfaces as a 500', async () => {
   assertEquals(res.status, 500);
 });
 
+Deno.test('a route answers a failed request with its errorResponse', async () => {
+  const seen: string[] = [];
+  const app = makeApp({
+    '/': {
+      bundle: 'nope',
+      errorResponse: e => {
+        seen.push(e.message);
+        return new Response('gone', { status: 503 });
+      },
+    },
+  });
+  const res = await app.fetch(new Request('http://127.0.0.1/index.html'));
+  assertEquals(res.status, 503);
+  assertEquals(await res.text(), 'gone');
+  assertEquals(seen.length, 1);
+});
+
 Deno.test('an invalid routes config fails fast', () => {
   assertThrows(() => makeApp({}), Error, 'at least one route');
   assertThrows(() => makeApp({ docs: { bundle: 'app' } }), Error, 'must start with "/"');

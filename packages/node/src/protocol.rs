@@ -246,9 +246,8 @@ fn proxy_resolver(resolver: ProxyResolver) -> protocol::ProxyResolver {
 
 /// Options for the proxy protocol.
 ///
-/// @property {number} [maxCacheBytes] - How many bytes of upstream response bodies to keep, so an
-/// upstream `304 Not Modified` can be answered with the body last seen for that url
-/// (default: 32 MiB; `0` turns the cache off and passes the `304` through)
+/// @property {number} [maxCacheBytes] - Bytes of upstream response bodies kept for answering a
+/// `304 Not Modified` (default: 32 MiB; `0` turns the cache off)
 ///
 /// @example
 /// ```typescript

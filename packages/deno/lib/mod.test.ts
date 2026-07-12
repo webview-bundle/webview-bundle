@@ -12,6 +12,7 @@ import {
   type ProxyProtocolOptions,
   Remote,
   Updater,
+  WebviewBundleError,
 } from './mod.ts';
 
 // Resolve the locally-built cdylib and the committed builtin fixture (bundle "app" v1.0.0).
@@ -126,10 +127,12 @@ Deno.test('BundleProtocol resolves the bundle name from a path segment', async (
   using protocol = new BundleProtocol(source, { bundleResolver: { type: 'pathname' } });
   // Bundle "app" resolves; the path keeps the segment naming it, so the entry is missing (404).
   assertEquals((await protocol.handle('get', 'bundle://cdn/app/index.html')).status, 404);
-  // An unknown bundle name fails instead (the error surfaces as a 500 through the FFI).
-  const unknown = await protocol.handle('get', 'bundle://cdn/nope/index.html');
-  assertEquals(unknown.status, 500);
-  assert(new TextDecoder().decode(unknown.body).includes('bundle not found'));
+  // An unknown bundle name fails the request instead of answering it.
+  const error = await assertRejects(
+    () => protocol.handle('get', 'bundle://cdn/nope/index.html'),
+    WebviewBundleError
+  );
+  assertEquals(error.code, 'core.bundle_not_found');
 });
 
 Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', () => {
@@ -142,8 +145,7 @@ Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', ()
         bundleResolver: { type: 'nope' },
       })
   );
-  // Options that are not an object at all would otherwise read as "no options" and serve with the
-  // default resolvers.
+  // Options that are not an object would otherwise read as "no options" and serve with the defaults.
   assertThrows(
     () => new BundleProtocol(source, 'directoryIndex' as unknown as BundleProtocolOptions)
   );
@@ -172,9 +174,11 @@ Deno.test('ProxyProtocol rejects an unknown option value (fails closed)', () => 
 
 Deno.test('ProxyProtocol fails on a host that is not mapped', async () => {
   using proxy = new ProxyProtocol({ app: 'http://localhost:5173' });
-  const res = await proxy.handle('get', 'app://other/index.html');
-  assertEquals(res.status, 500);
-  assert(new TextDecoder().decode(res.body).includes('cannot resolve proxy server'));
+  const error = await assertRejects(
+    () => proxy.handle('get', 'app://other/index.html'),
+    WebviewBundleError
+  );
+  assertEquals(error.code, 'core.cannot_resolve_proxy_server');
 });
 
 Deno.test('Remote constructs and rejects (error path through FFI) on an unreachable endpoint', async () => {

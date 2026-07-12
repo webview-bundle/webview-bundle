@@ -130,8 +130,7 @@ impl BundleProtocolHandler {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl BundleProtocolHandler {
-  /// Serves the request from the bundle. `body` is accepted for a uniform call shape across
-  /// handlers, but unused: only GET and HEAD are served.
+  /// Serves the request from the bundle. `body` is accepted but unused: only GET/HEAD are served.
   #[uniffi::method(default(headers = None, body = None))]
   pub async fn handle(
     &self,
@@ -158,9 +157,8 @@ pub trait ProxyResolver: Send + Sync {
 
 /// How a [`ProxyProtocolHandler`] behaves beyond resolving the target.
 ///
-/// - `max_cache_bytes`: how many bytes of upstream response bodies to keep, so an upstream
-///   `304 Not Modified` can be answered with the body last seen for that url (default: 32 MiB;
-///   `0` turns the cache off and passes the `304` through).
+/// - `max_cache_bytes`: bytes of upstream response bodies kept for answering a `304 Not Modified`
+///   (default: 32 MiB; `0` turns the cache off).
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct ProxyProtocolOptions {
   #[uniffi(default = None)]
