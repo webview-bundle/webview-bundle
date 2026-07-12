@@ -190,6 +190,7 @@ impl BundleProtocol {
   /// @param {HttpMethod} method - HTTP method (GET or HEAD)
   /// @param {string} uri - Request URI (e.g., "bundle://app/index.html")
   /// @param {Record<string, string>} [headers] - Optional request headers
+  /// @param {Buffer} [body] - Optional request body (accepted, but unused: only GET/HEAD are served)
   /// @returns {Promise<HttpResponse>} HTTP response
   ///
   /// @example
@@ -214,8 +215,9 @@ impl BundleProtocol {
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
+    body: Option<Buffer>,
   ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers)?;
+    let req = request(method, uri, headers, body)?;
     let inner = self.inner.clone();
     let resp = AsyncBlockBuilder::new(async move {
       inner
@@ -313,6 +315,7 @@ impl ProxyProtocol {
   /// @param {HttpMethod} method - HTTP method
   /// @param {string} uri - Request URI (e.g., "app://myapp/api/data")
   /// @param {Record<string, string>} [headers] - Optional request headers
+  /// @param {Buffer} [body] - Optional request body, forwarded as-is (POST/PUT/PATCH)
   /// @returns {Promise<HttpResponse>} HTTP response from the proxied server
   ///
   /// @example
@@ -324,10 +327,13 @@ impl ProxyProtocol {
   ///
   /// @example
   /// ```typescript
-  /// // POST with headers
-  /// const response = await protocol.handle('post', 'app://api/submit', {
-  ///   'Content-Type': 'application/json',
-  /// });
+  /// // POST with a body
+  /// const response = await protocol.handle(
+  ///   'post',
+  ///   'app://api/submit',
+  ///   { 'Content-Type': 'application/json' },
+  ///   Buffer.from(JSON.stringify({ hello: 'world' })),
+  /// );
   /// ```
   #[napi]
   pub fn handle(
@@ -336,8 +342,9 @@ impl ProxyProtocol {
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
+    body: Option<Buffer>,
   ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers)?;
+    let req = request(method, uri, headers, body)?;
     let inner = self.inner.clone();
     let resp = AsyncBlockBuilder::new(async move {
       inner

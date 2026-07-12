@@ -167,6 +167,7 @@ describe('proxy protocol', () => {
     const app = new Hono();
     app.get('/index.html', c => c.html('<h1>proxied</h1>'));
     app.get('/api/data', c => c.json({ foo: c.req.query('foo') }));
+    app.post('/api/echo', async c => c.json({ received: await c.req.json() }));
     server = serve({ fetch: app.fetch, port });
   });
 
@@ -199,6 +200,18 @@ describe('proxy protocol', () => {
     await expect(protocol.handle('get', 'wvb://other.wvb/index.html')).rejects.toThrow(
       /cannot resolve proxy server/
     );
+  });
+
+  it('forwards the request body to the proxy target', async () => {
+    const protocol = new ProxyProtocol({ 'app.wvb': `http://localhost:${port}` });
+    const resp = await protocol.handle(
+      'post',
+      'wvb://app.wvb/api/echo',
+      { 'content-type': 'application/json' },
+      Buffer.from(JSON.stringify({ hello: 'world' }))
+    );
+    expect(resp.status).toBe(200);
+    expect(JSON.parse(resp.body.toString('utf8'))).toEqual({ received: { hello: 'world' } });
   });
 
   it('proxies with a custom resolver', async () => {

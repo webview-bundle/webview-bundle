@@ -1,11 +1,10 @@
 use async_trait::async_trait;
-use dashmap::DashMap;
 use http;
 use http::Uri;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 pub type ProxyResolveFn = dyn Fn(
     &Uri,
@@ -79,12 +78,15 @@ impl ProxyResolver {
 /// Join the resolved proxy target with the path and query of the original request.
 /// e.g. target `http://localhost:3000` + `app://myapp/api/data?foo=bar`
 /// -> `http://localhost:3000/api/data?foo=bar`
+///
+/// The path stays percent-encoded: decoding it here would turn an escaped reserved character
+/// (`%3F`, `%23`, `%2F`) back into url syntax and request a different resource than the webview
+/// asked for.
 fn proxy_url(target: &str, uri: &Uri) -> String {
-  let path = percent_encoding::percent_decode(uri.path().as_bytes()).decode_utf8_lossy();
   format!(
     "{}/{}{}",
     target.trim_end_matches('/'),
-    path.trim_start_matches('/'),
+    uri.path().trim_start_matches('/'),
     match uri.query() {
       Some(query) => format!("?{query}"),
       None => String::new(),
@@ -97,6 +99,78 @@ struct CachedResponse {
   status: http::StatusCode,
   headers: http::HeaderMap,
   body: bytes::Bytes,
+}
+
+/// Total body bytes [`ProxyProtocol`] keeps cached.
+const CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
+
+#[derive(Default)]
+struct CacheState {
+  entries: HashMap<String, CachedResponse>,
+  /// Insertion order of `entries`, evicted from the front.
+  order: VecDeque<String>,
+  bytes: usize,
+}
+
+impl CacheState {
+  fn remove(&mut self, url: &str) {
+    if let Some(previous) = self.entries.remove(url) {
+      self.bytes -= previous.body.len();
+      if let Some(index) = self.order.iter().position(|x| x == url) {
+        self.order.remove(index);
+      }
+    }
+  }
+}
+
+/// Successful upstream responses, kept only so an upstream `304 Not Modified` can be answered with
+/// the body we last saw for that url.
+///
+/// Bounded by total body size and evicted in insertion order: a page requesting ever-changing urls
+/// (cache busting) would otherwise grow the process without bound.
+struct ResponseCache {
+  state: Mutex<CacheState>,
+  max_bytes: usize,
+}
+
+impl ResponseCache {
+  fn new(max_bytes: usize) -> Self {
+    Self {
+      state: Mutex::new(CacheState::default()),
+      max_bytes,
+    }
+  }
+
+  /// A panic elsewhere in the process must not take the proxy down with a poisoned cache.
+  fn lock(&self) -> MutexGuard<'_, CacheState> {
+    self.state.lock().unwrap_or_else(|e| e.into_inner())
+  }
+
+  fn get(&self, url: &str) -> Option<CachedResponse> {
+    self.lock().entries.get(url).cloned()
+  }
+
+  fn insert(&self, url: &str, response: CachedResponse) {
+    let size = response.body.len();
+    // A single response over the budget is served straight through, never cached.
+    if size > self.max_bytes {
+      self.lock().remove(url);
+      return;
+    }
+    let mut state = self.lock();
+    state.remove(url);
+    state.bytes += size;
+    state.entries.insert(url.to_string(), response);
+    state.order.push_back(url.to_string());
+    while state.bytes > self.max_bytes {
+      let Some(oldest) = state.order.pop_front() else {
+        break;
+      };
+      if let Some(evicted) = state.entries.remove(&oldest) {
+        state.bytes -= evicted.body.len();
+      }
+    }
+  }
 }
 
 /// Protocol handler that proxies requests to servers.
@@ -128,7 +202,9 @@ struct CachedResponse {
 /// ```
 pub struct ProxyProtocol {
   resolver: ProxyResolver,
-  cache: DashMap<String, CachedResponse>,
+  /// Built on the first request and reused, so proxied requests share a connection pool.
+  client: OnceLock<reqwest::Client>,
+  cache: ResponseCache,
 }
 
 impl ProxyProtocol {
@@ -157,8 +233,17 @@ impl ProxyProtocol {
   pub fn new(resolver: ProxyResolver) -> Self {
     Self {
       resolver,
-      cache: DashMap::default(),
+      client: OnceLock::new(),
+      cache: ResponseCache::new(CACHE_MAX_BYTES),
     }
+  }
+
+  fn client(&self) -> crate::Result<&reqwest::Client> {
+    if let Some(client) = self.client.get() {
+      return Ok(client);
+    }
+    let client = reqwest::ClientBuilder::new().build()?;
+    Ok(self.client.get_or_init(|| client))
   }
 }
 
@@ -185,28 +270,36 @@ impl super::Protocol for ProxyProtocol {
 
     let mut builder = http::Response::builder();
 
-    let client = reqwest::ClientBuilder::new();
-    let mut proxy_builder = client.build()?.request(request.method().clone(), &url);
-    proxy_builder = proxy_builder.headers(request.headers().clone());
+    let mut proxy_builder = self
+      .client()?
+      .request(request.method().clone(), &url)
+      .headers(request.headers().clone());
     proxy_builder = proxy_builder.body(request.body().clone());
     let r = proxy_builder.send().await?;
-    let mut response = None;
-    if r.status() == http::StatusCode::NOT_MODIFIED {
-      response = self.cache.get(&url)
-    }
-    let response = if let Some(r) = response {
-      r
-    } else {
-      let status = r.status();
-      let headers = r.headers().clone();
-      let body = r.bytes().await?;
-      let response = CachedResponse {
-        status,
-        headers,
-        body,
-      };
-      self.cache.insert(url.to_string(), response);
-      self.cache.get(&url).unwrap()
+
+    // The webview only gets `304` back if it already holds the resource; when the upstream answers
+    // one for a body we cached, serve that body instead of an empty response.
+    let cached = (r.status() == http::StatusCode::NOT_MODIFIED)
+      .then(|| self.cache.get(&url))
+      .flatten();
+    let response = match cached {
+      Some(response) => response,
+      None => {
+        let status = r.status();
+        let headers = r.headers().clone();
+        let body = r.bytes().await?;
+        let response = CachedResponse {
+          status,
+          headers,
+          body,
+        };
+        // Only a whole `200` body can stand in for a later `304`; a `206` is a slice of one, and
+        // an error status is not worth replaying.
+        if status == http::StatusCode::OK {
+          self.cache.insert(&url, response.clone());
+        }
+        response
+      }
     };
     for (name, value) in &response.headers {
       builder = builder.header(name, value);
@@ -334,6 +427,52 @@ mod tests {
       proxy_url("http://localhost:3000/", &uri("app://myapp/")),
       "http://localhost:3000/"
     );
+  }
+
+  #[test]
+  fn proxy_url_keeps_the_path_encoded() {
+    // Decoding these would forward `/api?debug=true` and `/a/b` — other resources than the ones
+    // the webview requested.
+    assert_eq!(
+      proxy_url(
+        "http://localhost:3000",
+        &uri("app://myapp/api%3Fdebug=true")
+      ),
+      "http://localhost:3000/api%3Fdebug=true"
+    );
+    assert_eq!(
+      proxy_url("http://localhost:3000", &uri("app://myapp/a%2Fb/c%20d.js")),
+      "http://localhost:3000/a%2Fb/c%20d.js"
+    );
+  }
+
+  fn cached(size: usize) -> CachedResponse {
+    CachedResponse {
+      status: http::StatusCode::OK,
+      headers: http::HeaderMap::new(),
+      body: bytes::Bytes::from(vec![0u8; size]),
+    }
+  }
+
+  #[test]
+  fn response_cache_stays_within_its_budget() {
+    let cache = ResponseCache::new(10);
+    cache.insert("/a", cached(6));
+    cache.insert("/b", cached(6));
+    // 12 bytes over a 10-byte budget: the oldest entry goes.
+    assert!(cache.get("/a").is_none());
+    assert!(cache.get("/b").is_some());
+    assert_eq!(cache.lock().bytes, 6);
+
+    // Re-caching a url replaces its entry rather than counting it twice.
+    cache.insert("/b", cached(8));
+    assert_eq!(cache.lock().entries.len(), 1);
+    assert_eq!(cache.lock().bytes, 8);
+
+    // A response larger than the whole budget is never cached.
+    cache.insert("/big", cached(11));
+    assert!(cache.get("/big").is_none());
+    assert_eq!(cache.lock().bytes, 8);
   }
 
   #[tokio::test]

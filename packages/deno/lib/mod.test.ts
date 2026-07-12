@@ -3,6 +3,7 @@ import { decodeBase64 } from '@std/encoding/base64';
 import { fromFileUrl } from '@std/path';
 import {
   BundleProtocol,
+  type BundleProtocolOptions,
   BundleSource,
   type HttpResponse,
   loadLib,
@@ -37,8 +38,11 @@ function testSource(): BundleSource {
     const source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir });
     return Object.assign(source, {
       [Symbol.dispose]: () => {
-        source.free();
-        removeRemoteDir();
+        try {
+          source.free();
+        } finally {
+          removeRemoteDir();
+        }
       },
     });
   } catch (e) {
@@ -136,6 +140,11 @@ Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', ()
         // @ts-expect-error unknown bundle resolver discriminant
         bundleResolver: { type: 'nope' },
       })
+  );
+  // Options that are not an object at all would otherwise read as "no options" and serve with the
+  // default resolvers.
+  assertThrows(
+    () => new BundleProtocol(source, 'directoryIndex' as unknown as BundleProtocolOptions)
   );
 });
 

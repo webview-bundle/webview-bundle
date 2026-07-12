@@ -57,8 +57,6 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
 
   for protocol_config in &config.protocols {
     let scheme = protocol_config.scheme().to_string();
-    #[cfg(target_os = "android")]
-    let is_bundle = matches!(protocol_config, Protocol::Bundle(_));
     builder = builder.register_asynchronous_uri_scheme_protocol(
       protocol_config.scheme(),
       move |ctx: UriSchemeContext<R>, req, res| {
@@ -77,13 +75,9 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
           // Android serves builtin bundles from extracted assets, so copy the
           // requested bundle out (if not already) before the protocol reads it.
           #[cfg(target_os = "android")]
-          if is_bundle {
-            if let Some(name) = req.uri().host().and_then(|host| host.split('.').next()) {
-              if let Err(e) = wvb.ensure_builtin_bundle(name) {
-                res.respond(protocol_error_response(&e));
-                return;
-              }
-            }
+          if let Err(e) = wvb.ensure_builtin_bundle(&scheme, req.uri()) {
+            res.respond(protocol_error_response(&e));
+            return;
           }
           let protocol = wvb
             .get_protocol(&scheme)

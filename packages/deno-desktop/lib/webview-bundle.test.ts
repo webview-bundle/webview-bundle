@@ -109,6 +109,28 @@ Deno.test('a proxy route forwards the path and query to the target', async () =>
   }
 });
 
+Deno.test('a proxy route forwards the request body to the target', async () => {
+  let received: { method: string; body: string } | null = null;
+  const server = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, async req => {
+    received = { method: req.method, body: await req.text() };
+    return new Response('ok');
+  });
+  try {
+    const app = makeApp({ '/api': { proxy: `http://127.0.0.1:${server.addr.port}` } });
+    const res = await app.fetch(
+      new Request('http://127.0.0.1/api/submit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ hello: 'world' }),
+      })
+    );
+    assertEquals(res.status, 200);
+    assertEquals(received, { method: 'POST', body: '{"hello":"world"}' });
+  } finally {
+    await server.shutdown();
+  }
+});
+
 Deno.test('an unreachable proxy target surfaces as a 500', async () => {
   const app = makeApp({ '/': { proxy: 'http://127.0.0.1:59999' } });
   const res = await app.fetch(new Request('http://127.0.0.1/index.html'));

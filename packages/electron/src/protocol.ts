@@ -95,22 +95,47 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
 
 type Hosts = Record<string, string>;
 
-export interface ProxyProtocolConfig extends ProtocolOptions {
-  hosts: Hosts | (() => Hosts | Promise<Hosts>);
-}
+/**
+ * Resolves the proxy target for a request uri (`null` to not proxy). The path and query of the
+ * request are appended to whatever it returns.
+ */
+export type ProxyResolver = (uri: string) => Promise<string | null>;
 
-/** Proxy the scheme to another server (a dev server with hot reload), mapping host → URL. */
+export type ProxyProtocolConfig = ProtocolOptions &
+  (
+    | {
+        /**
+         * Host → target url mapping, or a function returning one — evaluated once, when the handler
+         * is built (for a mapping that is only known by then, e.g. a dev server port).
+         */
+        hosts: Hosts | (() => Hosts | Promise<Hosts>);
+        resolver?: never;
+      }
+    | {
+        /** Called with each request uri, for routing that depends on the request. */
+        resolver: ProxyResolver;
+        hosts?: never;
+      }
+  );
+
+/** Proxy the scheme to another server (a dev server with hot reload). */
 export function proxyProtocol(scheme: string, config: ProxyProtocolConfig): Protocol {
-  const { hosts, ...options } = config;
+  const { hosts, resolver, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: async () => {
-      const h = typeof hosts === 'function' ? await hosts() : hosts;
-      const proxy = new ProxyProtocol(h);
+      const proxy = new ProxyProtocol(
+        resolver ?? (typeof hosts === 'function' ? await hosts() : (hosts as Hosts))
+      );
       return {
         handle: async req => {
           const method = req.method.toLowerCase() as HttpMethod;
-          const resp = await proxy.handle(method, req.url, normalizeHeaders(req.headers));
+          const resp = await proxy.handle(
+            method,
+            req.url,
+            normalizeHeaders(req.headers),
+            await readBody(req)
+          );
           return makeResponse(resp);
         },
       };
@@ -118,6 +143,15 @@ export function proxyProtocol(scheme: string, config: ProxyProtocolConfig): Prot
     options,
   };
   return protocol;
+}
+
+/** The request body, or `undefined` when it has none — a proxied POST/PUT/PATCH carries one. */
+async function readBody(req: Request): Promise<Buffer | undefined> {
+  if (req.body == null) {
+    return undefined;
+  }
+  const body = Buffer.from(await req.arrayBuffer());
+  return body.byteLength > 0 ? body : undefined;
 }
 
 export interface BundleProtocolConfig extends ProtocolOptions {

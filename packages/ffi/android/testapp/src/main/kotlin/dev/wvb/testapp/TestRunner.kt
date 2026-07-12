@@ -237,12 +237,16 @@ class TestRunner(private val context: Context) {
                 )
                 val handler = BundleProtocolHandler(source, options)
                 check(handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null).status == 200.toUShort())
+                // Recorded outside the catch: `error(...)` inside it would be caught as the very
+                // exception the test is looking for, and the test would pass either way.
+                var rejected = false
                 try {
                     handler.handle(HttpMethod.GET, "https://app.example.com/index.html", null)
-                    error("expected exception for a host without the .wvb suffix")
                 } catch (e: Exception) {
                     // expected: the bundle name is not resolved, so no bundle is found
+                    rejected = true
                 }
+                check(rejected) { "expected an error for a host without the .wvb suffix" }
             }
         }
 
@@ -252,12 +256,14 @@ class TestRunner(private val context: Context) {
 
         testSuspend("ProxyProtocolHandler: unknown host error") {
             val handler = ProxyProtocolHandler(mapOf("known" to "http://localhost:9999"))
+            var rejected = false
             try {
                 handler.handle(HttpMethod.GET, "https://unknown.wvb/index.html", null)
-                error("expected exception for unknown host")
             } catch (e: Exception) {
                 // expected: no proxy target for "unknown.wvb"
+                rejected = true
             }
+            check(rejected) { "expected an error for an unknown host" }
         }
 
         testSuspend("ProxyProtocolHandler: custom resolver receives the uri") {
@@ -269,12 +275,14 @@ class TestRunner(private val context: Context) {
                 }
             }
             val handler = ProxyProtocolHandler.custom(resolver)
+            var rejected = false
             try {
                 handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null)
-                error("expected exception when the resolver returns null")
             } catch (e: Exception) {
                 // expected: the target is unresolved
+                rejected = true
             }
+            check(rejected) { "expected an error when the resolver returns null" }
             check(seen == "https://app.wvb/index.html") { "resolver saw uri=$seen" }
         }
 

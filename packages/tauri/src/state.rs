@@ -22,6 +22,10 @@ pub struct WebviewBundle<R: Runtime> {
   remote: Option<Arc<Remote>>,
   updater: Option<Arc<Updater>>,
   protocols: HashMap<String, Arc<dyn protocol::Protocol>>,
+  /// The bundle resolver each bundle protocol serves with, so Android can extract the same bundle
+  /// the protocol is about to read (see [`Self::ensure_builtin_bundle`]).
+  #[cfg(target_os = "android")]
+  bundle_resolvers: HashMap<String, protocol::UriBundleResolver>,
   #[cfg(target_os = "android")]
   builtin_extractor: crate::android::BuiltinExtractor,
 }
@@ -44,14 +48,17 @@ impl<R: Runtime> WebviewBundle<R> {
         .build(),
     );
     let mut protocols = HashMap::with_capacity(config.protocols.len());
+    #[cfg(target_os = "android")]
+    let mut bundle_resolvers = HashMap::new();
     for protocol_config in &config.protocols {
       let scheme = protocol_config.scheme().to_string();
       let protocol: Arc<dyn protocol::Protocol> = match protocol_config {
         Protocol::Bundle(config) => {
-          let mut bundle = protocol::BundleProtocol::new(source.clone());
-          if let Some(resolver) = config.bundle_resolver.clone() {
-            bundle = bundle.with_bundle_resolver(resolver);
-          }
+          let bundle_resolver = config.bundle_resolver.clone().unwrap_or_default();
+          #[cfg(target_os = "android")]
+          bundle_resolvers.insert(scheme.clone(), bundle_resolver.clone());
+          let mut bundle =
+            protocol::BundleProtocol::new(source.clone()).with_bundle_resolver(bundle_resolver);
           if let Some(resolver) = config.path_resolver.clone() {
             bundle = bundle.with_path_resolver(resolver);
           }
@@ -87,6 +94,8 @@ impl<R: Runtime> WebviewBundle<R> {
       updater,
       protocols,
       #[cfg(target_os = "android")]
+      bundle_resolvers,
+      #[cfg(target_os = "android")]
       builtin_extractor,
     })
   }
@@ -109,8 +118,22 @@ impl<R: Runtime> WebviewBundle<R> {
 
   /// Extracts the requested builtin bundle's `.wvb` files before the protocol
   /// serves it (Android only; see [`crate::android::BuiltinExtractor`]).
+  ///
+  /// The name is resolved with the scheme's own bundle resolver, so extraction and serving always
+  /// pick the same bundle. A scheme that is not a bundle protocol, or a uri the resolver rejects,
+  /// extracts nothing and is left to the protocol to answer.
   #[cfg(target_os = "android")]
-  pub(crate) fn ensure_builtin_bundle(&self, bundle_name: &str) -> crate::Result<()> {
-    self.builtin_extractor.ensure(&self._app, bundle_name)
+  pub(crate) fn ensure_builtin_bundle(
+    &self,
+    scheme: &str,
+    uri: &wvb::http::Uri,
+  ) -> crate::Result<()> {
+    let Some(resolver) = self.bundle_resolvers.get(scheme) else {
+      return Ok(());
+    };
+    let Some(bundle_name) = resolver.resolve(uri) else {
+      return Ok(());
+    };
+    self.builtin_extractor.ensure(&self._app, &bundle_name)
   }
 }

@@ -101,6 +101,7 @@ pub(crate) fn request(
   method: HttpMethod,
   uri: String,
   headers: Option<HashMap<String, String>>,
+  body: Option<Buffer>,
 ) -> crate::Result<http::Request<Vec<u8>>> {
   let mut req = http::Request::builder()
     .method(http::Method::from(method))
@@ -111,7 +112,7 @@ pub(crate) fn request(
     }
   }
   let req = req
-    .body(vec![])
+    .body(body.map(|body| body.to_vec()).unwrap_or_default())
     .map_err(|e| crate::Error::Core(wvb::Error::from(e)))?;
   Ok(req)
 }

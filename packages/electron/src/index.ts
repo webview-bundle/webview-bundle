@@ -9,6 +9,7 @@ export type {
   ProtocolHandler,
   ProtocolOptions,
   ProxyProtocolConfig,
+  ProxyResolver,
 } from './protocol.js';
 export { bundleProtocol, proxyProtocol } from './protocol.js';
 export type { RemoteOptions } from './remote.js';

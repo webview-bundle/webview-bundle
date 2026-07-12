@@ -145,9 +145,14 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
   let mut protocol = BundleProtocol::new(source.inner.clone());
   let raw = unsafe { cstr(options_json) };
   if !raw.is_empty() {
+    // Anything but an object (a scalar, an array) would read as "no options given" below, silently
+    // serving with the default resolvers — fail closed instead.
     let Ok(options) = serde_json::from_str::<serde_json::Value>(&raw) else {
       return std::ptr::null_mut();
     };
+    if !options.is_object() {
+      return std::ptr::null_mut();
+    }
     match options.get("bundleResolver") {
       None | Some(serde_json::Value::Null) => {}
       Some(value) => match parse_bundle_resolver(value) {
@@ -197,13 +202,16 @@ pub unsafe extern "C" fn wvb_protocol_free(handle: *mut WvbProtocol) {
 ///
 /// # Safety
 /// `handle` must be a valid `WvbProtocol`. `method`/`uri` must be valid C strings; `headers_json`
-/// must be null or a JSON object string of `{ name: value }` headers.
+/// must be null or a JSON object string of `{ name: value }` headers. `body` must be null, or point
+/// to `body_len` readable bytes for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wvb_protocol_handle(
   handle: *const WvbProtocol,
   method: *const c_char,
   uri: *const c_char,
   headers_json: *const c_char,
+  body: *const u8,
+  body_len: usize,
 ) -> *mut WvbResponse {
   let Some(proto) = (unsafe { handle.as_ref() }).map(|h| h.inner.clone()) else {
     return std::ptr::null_mut();
@@ -216,8 +224,14 @@ pub unsafe extern "C" fn wvb_protocol_handle(
   } else {
     serde_json::from_str(&headers_raw).unwrap_or_default()
   };
+  // Copied out before the request runs: the caller only guarantees the bytes for this call.
+  let body = if body.is_null() || body_len == 0 {
+    Vec::new()
+  } else {
+    unsafe { std::slice::from_raw_parts(body, body_len) }.to_vec()
+  };
 
-  let response = handle_request(proto, &method, &uri, &headers);
+  let response = handle_request(proto, &method, &uri, &headers, body);
   Box::into_raw(Box::new(response))
 }
 
@@ -226,6 +240,7 @@ fn handle_request(
   method: &str,
   uri: &str,
   headers: &HashMap<String, String>,
+  body: Vec<u8>,
 ) -> WvbResponse {
   // An unparseable method token is a bad request — don't silently coerce it to GET.
   let method = match http::Method::from_bytes(method.to_ascii_uppercase().as_bytes()) {
@@ -236,7 +251,7 @@ fn handle_request(
   for (name, value) in headers {
     builder = builder.header(name.as_str(), value.as_str());
   }
-  let request = match builder.body(Vec::new()) {
+  let request = match builder.body(body) {
     Ok(request) => request,
     Err(e) => return error_response(400, &format!("bad request: {e}")),
   };

@@ -133,6 +133,15 @@ interface Handler {
   handle(req: Request, method: HttpMethod, path: string): Promise<HttpResponse>;
 }
 
+/** The request body, or `undefined` when the request has none (GET/HEAD never do). */
+async function readBody(req: Request): Promise<Uint8Array<ArrayBuffer> | undefined> {
+  if (req.body == null) {
+    return undefined;
+  }
+  const body = new Uint8Array(await req.arrayBuffer());
+  return body.byteLength > 0 ? body : undefined;
+}
+
 function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
   const { onError } = route;
   if ('proxy' in route) {
@@ -140,8 +149,14 @@ function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
     return {
       mountPath,
       onError,
-      handle: (req, method, path) =>
-        protocol.handle(method, `proxy://${PROXY_HOST}${path}`, normalizeHeaders(req.headers)),
+      // A proxied POST/PUT/PATCH carries a body, so it has to reach the upstream server.
+      handle: async (req, method, path) =>
+        protocol.handle(
+          method,
+          `proxy://${PROXY_HOST}${path}`,
+          normalizeHeaders(req.headers),
+          await readBody(req)
+        ),
     };
   }
   const protocol = new BundleProtocol(source, { pathResolver: route.pathResolver });
@@ -174,7 +189,12 @@ export function createHandler(
         return toResponse(await handler.handle(req, method, `${path}${search}`));
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
-        handler.onError?.(error);
+        // The route still gets its 500 even if the app's own onError throws.
+        try {
+          handler.onError?.(error);
+        } catch {
+          // ignored: reporting the failure must not replace the response to it.
+        }
         return new Response(error.message, { status: 500 });
       }
     }

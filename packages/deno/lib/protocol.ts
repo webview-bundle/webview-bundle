@@ -46,14 +46,17 @@ async function handleProtocol(
   ptr: Deno.PointerValue,
   method: string,
   uri: string,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  body?: Uint8Array<ArrayBuffer>
 ): Promise<HttpResponse> {
   const lib = getLib();
   const respPtr = await lib.symbols.wvb_protocol_handle(
     ptr,
     cstr(method),
     cstr(uri),
-    cstr(headers != null ? JSON.stringify(headers) : '')
+    cstr(headers != null ? JSON.stringify(headers) : ''),
+    body ?? null,
+    BigInt(body?.byteLength ?? 0)
   );
   return readResponse(lib, respPtr);
 }
@@ -78,8 +81,14 @@ export class BundleProtocol {
     }
   }
 
-  handle(method: HttpMethod, uri: string, headers?: Record<string, string>): Promise<HttpResponse> {
-    return handleProtocol(this.#ptr, method, uri, headers);
+  /** Serves from the bundle; a request body is accepted but unused (only GET/HEAD are served). */
+  handle(
+    method: HttpMethod,
+    uri: string,
+    headers?: Record<string, string>,
+    body?: Uint8Array<ArrayBuffer>
+  ): Promise<HttpResponse> {
+    return handleProtocol(this.#ptr, method, uri, headers, body);
   }
 
   free(): void {
@@ -110,8 +119,14 @@ export class ProxyProtocol {
     }
   }
 
-  handle(method: HttpMethod, uri: string, headers?: Record<string, string>): Promise<HttpResponse> {
-    return handleProtocol(this.#ptr, method, uri, headers);
+  /** Forwards the request — including `body`, for POST/PUT/PATCH — to the resolved target. */
+  handle(
+    method: HttpMethod,
+    uri: string,
+    headers?: Record<string, string>,
+    body?: Uint8Array<ArrayBuffer>
+  ): Promise<HttpResponse> {
+    return handleProtocol(this.#ptr, method, uri, headers, body);
   }
 
   free(): void {

@@ -295,6 +295,7 @@ export declare class BundleProtocol {
    * @param {HttpMethod} method - HTTP method (GET or HEAD)
    * @param {string} uri - Request URI (e.g., "bundle://app/index.html")
    * @param {Record<string, string>} [headers] - Optional request headers
+   * @param {Buffer} [body] - Optional request body (accepted, but unused: only GET/HEAD are served)
    * @returns {Promise<HttpResponse>} HTTP response
    *
    * @example
@@ -313,7 +314,7 @@ export declare class BundleProtocol {
    * console.log(`Status: ${response.status}`); // 206 Partial Content
    * ```
    */
-  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null): Promise<HttpResponse>
+  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null, body?: Buffer | undefined | null): Promise<HttpResponse>
 }
 
 /**
@@ -776,6 +777,7 @@ export declare class ProxyProtocol {
    * @param {HttpMethod} method - HTTP method
    * @param {string} uri - Request URI (e.g., "app://myapp/api/data")
    * @param {Record<string, string>} [headers] - Optional request headers
+   * @param {Buffer} [body] - Optional request body, forwarded as-is (POST/PUT/PATCH)
    * @returns {Promise<HttpResponse>} HTTP response from the proxied server
    *
    * @example
@@ -787,13 +789,16 @@ export declare class ProxyProtocol {
    *
    * @example
    * ```typescript
-   * // POST with headers
-   * const response = await protocol.handle('post', 'app://api/submit', {
-   *   'Content-Type': 'application/json',
-   * });
+   * // POST with a body
+   * const response = await protocol.handle(
+   *   'post',
+   *   'app://api/submit',
+   *   { 'Content-Type': 'application/json' },
+   *   Buffer.from(JSON.stringify({ hello: 'world' })),
+   * );
    * ```
    */
-  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null): Promise<HttpResponse>
+  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null, body?: Buffer | undefined | null): Promise<HttpResponse>
 }
 
 /**
