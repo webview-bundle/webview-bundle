@@ -1,6 +1,6 @@
 ## Coding
 
-### About comment
+### About comments
 
 Do not write comments explaining the code as you write it. Comments should be used in only two cases: when necessary for documentation, or for parts of the code that are non-standard or difficult to understand.
 
