@@ -8,7 +8,7 @@ const instance = wvb({
     builtinDir: path.join(__dirname, 'bundles'),
     remoteDir: path.join(os.tmpdir(), 'wvb-electron-e2e-remote'),
   },
-  protocols: [bundleProtocol('app', { onError: e => console.error('[wvb]', e) })],
+  protocols: [bundleProtocol('app')],
 });
 
 app.whenReady().then(async () => {

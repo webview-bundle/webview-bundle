@@ -1,4 +1,4 @@
-use crate::protocol::uri::{DefaultUriResolver, UriResolver};
+use crate::protocol::uri::{UriBundleResolver, UriPathResolver};
 use crate::source::BundleSource;
 use async_trait::async_trait;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
@@ -80,7 +80,8 @@ use tokio::io::AsyncWriteExt;
 /// ```
 pub struct BundleProtocol {
   source: Arc<BundleSource>,
-  uri_resolver: Box<dyn UriResolver + 'static>,
+  bundle_resolver: UriBundleResolver,
+  path_resolver: UriPathResolver,
 }
 
 impl std::fmt::Debug for BundleProtocol {
@@ -108,15 +109,49 @@ impl BundleProtocol {
   /// let source = BundleSource::builder()
   ///     .builtin_dir("./bundles")
   ///     .build();
-  ///
   /// let protocol = BundleProtocol::new(Arc::new(source));
   /// # }
   /// ```
   pub fn new(source: Arc<BundleSource>) -> Self {
     Self {
       source,
-      uri_resolver: Box::new(DefaultUriResolver),
+      bundle_resolver: UriBundleResolver::default(),
+      path_resolver: UriPathResolver::default(),
     }
+  }
+
+  pub fn with_bundle_resolver(mut self, bundle_resolver: UriBundleResolver) -> Self {
+    self.bundle_resolver = bundle_resolver;
+    self
+  }
+
+  pub fn with_path_resolver(mut self, path_resolver: UriPathResolver) -> Self {
+    self.path_resolver = path_resolver;
+    self
+  }
+
+  /// The resolver this protocol maps a request uri to a bundle name with. Hosts that need the name
+  /// *before* serving (e.g. to extract the bundle first) resolve it through this.
+  ///
+  /// ```
+  /// # #[cfg(feature = "protocol")]
+  /// # {
+  /// use wvb::protocol::BundleProtocol;
+  /// use wvb::source::BundleSource;
+  /// use std::sync::Arc;
+  ///
+  /// let protocol = BundleProtocol::new(Arc::new(BundleSource::builder().build()));
+  /// let uri = "app://my-app/index.html".parse().unwrap();
+  /// assert_eq!(protocol.bundle_resolver().resolve(&uri).as_deref(), Some("my-app"));
+  /// # }
+  /// ```
+  pub fn bundle_resolver(&self) -> &UriBundleResolver {
+    &self.bundle_resolver
+  }
+
+  /// The resolver this protocol maps a request uri to a file path inside the bundle with.
+  pub fn path_resolver(&self) -> &UriPathResolver {
+    &self.path_resolver
   }
 }
 
@@ -128,16 +163,16 @@ impl super::Protocol for BundleProtocol {
     err(level = "error")
   ))]
   async fn handle(&self, request: Request<Vec<u8>>) -> crate::Result<super::ProtocolResponse> {
-    let name = self
-      .uri_resolver
-      .resolve_bundle(request.uri())
+    let bundle_name = self
+      .bundle_resolver
+      .resolve(request.uri())
       .ok_or(crate::Error::BundleNotFound)?;
-    let path = self.uri_resolver.resolve_path(request.uri());
+    let path = self.path_resolver.resolve(request.uri());
 
     #[cfg(feature = "tracing")]
-    tracing::info!(bundle_name = name, path = path);
+    tracing::info!(bundle_name = bundle_name, path = path);
 
-    let response = self.handle_inner(&name, &path, request).await?;
+    let response = self.handle_inner(&bundle_name, &path, request).await?;
 
     #[cfg(feature = "tracing")]
     {
@@ -708,5 +743,118 @@ mod tests {
       .await
       .unwrap();
     assert_eq!(resp.status(), 405);
+  }
+
+  #[tokio::test]
+  async fn with_bundle_resolver_custom() {
+    let fixture = Fixtures::bundles();
+    let source = Arc::new(
+      BundleSource::builder()
+        .builtin_dir(fixture.get_path("builtin"))
+        .remote_dir(fixture.get_path("remote"))
+        .build(),
+    );
+    let protocol = Arc::new(
+      BundleProtocol::new(source.clone())
+        .with_bundle_resolver(UriBundleResolver::custom(|_| Some("app".to_owned()))),
+    );
+    let resp = protocol
+      .handle(
+        Request::builder()
+          .uri("https://not-the-bundle-name/index.html")
+          .method("GET")
+          .body(vec![])
+          .unwrap(),
+      )
+      .await
+      .unwrap();
+    assert_eq!(resp.status(), 200);
+  }
+
+  #[tokio::test]
+  async fn with_bundle_resolver_pathname() {
+    let fixture = Fixtures::bundles();
+    let source = Arc::new(
+      BundleSource::builder()
+        .builtin_dir(fixture.get_path("builtin"))
+        .remote_dir(fixture.get_path("remote"))
+        .build(),
+    );
+    let protocol = Arc::new(
+      BundleProtocol::new(source.clone())
+        .with_bundle_resolver(UriBundleResolver::pathname(Some(0)))
+        .with_path_resolver(UriPathResolver::custom(|_| "/index.html".to_owned())),
+    );
+    let resp = protocol
+      .handle(
+        Request::builder()
+          .uri("https://cdn.example.com/app/whatever")
+          .method("GET")
+          .body(vec![])
+          .unwrap(),
+      )
+      .await
+      .unwrap();
+    assert_eq!(resp.status(), 200);
+  }
+
+  #[tokio::test]
+  async fn with_path_resolver_exact() {
+    let fixture = Fixtures::bundles();
+    let source = Arc::new(
+      BundleSource::builder()
+        .builtin_dir(fixture.get_path("builtin"))
+        .remote_dir(fixture.get_path("remote"))
+        .build(),
+    );
+    let protocol =
+      Arc::new(BundleProtocol::new(source.clone()).with_path_resolver(UriPathResolver::exact()));
+    let served_as_is = protocol
+      .handle(
+        Request::builder()
+          .uri("https://app.wvb/index.html")
+          .method("GET")
+          .body(vec![])
+          .unwrap(),
+      )
+      .await
+      .unwrap();
+    assert_eq!(served_as_is.status(), 200);
+    let no_index_rewrite = protocol
+      .handle(
+        Request::builder()
+          .uri("https://app.wvb/")
+          .method("GET")
+          .body(vec![])
+          .unwrap(),
+      )
+      .await
+      .unwrap();
+    assert_eq!(no_index_rewrite.status(), 404);
+  }
+
+  #[tokio::test]
+  async fn with_path_resolver_html_extension() {
+    let fixture = Fixtures::bundles();
+    let source = Arc::new(
+      BundleSource::builder()
+        .builtin_dir(fixture.get_path("builtin"))
+        .remote_dir(fixture.get_path("remote"))
+        .build(),
+    );
+    let protocol = Arc::new(
+      BundleProtocol::new(source.clone()).with_path_resolver(UriPathResolver::html_extension()),
+    );
+    let resp = protocol
+      .handle(
+        Request::builder()
+          .uri("https://app.wvb/index")
+          .method("GET")
+          .body(vec![])
+          .unwrap(),
+      )
+      .await
+      .unwrap();
+    assert_eq!(resp.status(), 200);
   }
 }

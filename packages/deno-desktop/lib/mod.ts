@@ -1,20 +1,8 @@
-export { type HttpResponse, loadLib, loadLibViaPlug } from '@wvb/deno';
-export {
-  type BridgeErrorData,
-  registerBindings,
-} from './bindings.ts';
-export type {
-  BundleProtocolConfig,
-  LocalProtocolConfig,
-  ProtocolConfig,
-  ProtocolHandler,
-  ProtocolHandlerBuild,
-  ProtocolHandlerBuildContext,
-  ProtocolOptions,
-} from './protocol.ts';
-export { bundleProtocol, localProtocol } from './protocol.ts';
+export { type HttpResponse, loadLib, loadLibViaPlug, type PathResolver } from '@wvb/deno';
+export { type BridgeErrorData, registerBindings } from './bindings.ts';
 export type { RemoteOptions } from './remote.ts';
 export { remote } from './remote.ts';
+export type { BundleRoute, ErrorResponse, ProxyRoute, Route, Routes } from './routes.ts';
 export type { SourceOptions } from './source.ts';
 export { appDataDir, bundleSource } from './source.ts';
 export type {

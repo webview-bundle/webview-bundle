@@ -47,7 +47,7 @@ pub enum Error {
   #[error("{0}")]
   CoreSerdeJson(String),
   #[error("{0}")]
-  CoreCannotResolveLocalHost(String),
+  CoreCannotResolveProxyServer(String),
   #[error("{0}")]
   CoreReqwest(String),
   #[error("{0}")]
@@ -116,7 +116,7 @@ impl Error {
       Self::CoreBundleCannotBeRemoved(_) => "core.bundle_cannot_be_removed",
       Self::CoreInvalidFilepath(_) => "core.invalid_filepath",
       Self::CoreSerdeJson(_) => "core.serde_json",
-      Self::CoreCannotResolveLocalHost(_) => "core.cannot_resolve_local_host",
+      Self::CoreCannotResolveProxyServer(_) => "core.cannot_resolve_proxy_server",
       Self::CoreReqwest(_) => "core.reqwest",
       Self::CoreInvalidRemoteUrl(_) => "core.invalid_remote_url",
       Self::CoreInvalidRemoteBundle(_) => "core.invalid_remote_bundle",
@@ -165,7 +165,7 @@ impl From<wvb::Error> for Error {
       ErrorCode::BundleCannotBeRemoved => Self::CoreBundleCannotBeRemoved(message),
       ErrorCode::InvalidFilepath => Self::CoreInvalidFilepath(message),
       ErrorCode::SerdeJson => Self::CoreSerdeJson(message),
-      ErrorCode::CannotResolveLocalHost => Self::CoreCannotResolveLocalHost(message),
+      ErrorCode::CannotResolveProxyServer => Self::CoreCannotResolveProxyServer(message),
       ErrorCode::Reqwest => Self::CoreReqwest(message),
       ErrorCode::InvalidRemoteUrl => Self::CoreInvalidRemoteUrl(message),
       ErrorCode::InvalidRemoteBundle => Self::CoreInvalidRemoteBundle(message),

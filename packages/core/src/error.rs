@@ -16,7 +16,7 @@ pub enum ErrorCode {
   BundleCannotBeRemoved,
   InvalidFilepath,
   SerdeJson,
-  CannotResolveLocalHost,
+  CannotResolveProxyServer,
   Reqwest,
   InvalidRemoteUrl,
   InvalidRemoteBundle,
@@ -56,7 +56,7 @@ impl ErrorCode {
       Self::BundleCannotBeRemoved => "bundle_cannot_be_removed",
       Self::InvalidFilepath => "invalid_filepath",
       Self::SerdeJson => "serde_json",
-      Self::CannotResolveLocalHost => "cannot_resolve_local_host",
+      Self::CannotResolveProxyServer => "cannot_resolve_proxy_server",
       Self::Reqwest => "reqwest",
       Self::InvalidRemoteUrl => "invalid_remote_url",
       Self::InvalidRemoteBundle => "invalid_remote_bundle",
@@ -137,9 +137,9 @@ pub enum Error {
   #[cfg(feature = "_serde")]
   #[error("serde json error: {0}")]
   SerdeJson(#[from] serde_json::Error),
-  #[cfg(feature = "protocol-local")]
-  #[error("cannot resolve local host")]
-  CannotResolveLocalHost,
+  #[cfg(feature = "protocol-proxy")]
+  #[error("cannot resolve proxy server")]
+  CannotResolveProxyServer,
   #[cfg(feature = "_reqwest")]
   #[error("reqwest error: {0}")]
   Reqwest(#[from] reqwest::Error),
@@ -218,8 +218,8 @@ impl Error {
       Self::InvalidFilepath(_) => ErrorCode::InvalidFilepath,
       #[cfg(feature = "_serde")]
       Self::SerdeJson(_) => ErrorCode::SerdeJson,
-      #[cfg(feature = "protocol-local")]
-      Self::CannotResolveLocalHost => ErrorCode::CannotResolveLocalHost,
+      #[cfg(feature = "protocol-proxy")]
+      Self::CannotResolveProxyServer => ErrorCode::CannotResolveProxyServer,
       #[cfg(feature = "_reqwest")]
       Self::Reqwest(_) => ErrorCode::Reqwest,
       #[cfg(feature = "remote")]

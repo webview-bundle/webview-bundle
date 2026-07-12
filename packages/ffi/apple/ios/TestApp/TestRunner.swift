@@ -180,9 +180,9 @@ final class TestRunner: ObservableObject {
         }
 
         // ── Protocol ─────────────────────────────────────────────────────
-        await testAsync("BundleUrlHandler: 200 index.html") {
+        await testAsync("BundleProtocolHandler: 200 index.html") {
             try await withBundleSource { source in
-                let handler = BundleUrlHandler(source: source)
+                let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .get, uri: "https://app.wvb/index.html", headers: nil)
                 guard response.status == 200 else { throw Fail("status=\(response.status)") }
                 guard !response.body.isEmpty else { throw Fail("body should not be empty") }
@@ -190,25 +190,25 @@ final class TestRunner: ObservableObject {
             }
         }
 
-        await testAsync("BundleUrlHandler: 200 root redirect") {
+        await testAsync("BundleProtocolHandler: 200 root redirect") {
             try await withBundleSource { source in
-                let handler = BundleUrlHandler(source: source)
+                let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .get, uri: "https://app.wvb/", headers: nil)
                 guard response.status == 200 else { throw Fail("status=\(response.status)") }
             }
         }
 
-        await testAsync("BundleUrlHandler: 404 not found") {
+        await testAsync("BundleProtocolHandler: 404 not found") {
             try await withBundleSource { source in
-                let handler = BundleUrlHandler(source: source)
+                let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .get, uri: "https://app.wvb/not_found.html", headers: nil)
                 guard response.status == 404 else { throw Fail("status=\(response.status)") }
             }
         }
 
-        await testAsync("BundleUrlHandler: HEAD 200") {
+        await testAsync("BundleProtocolHandler: HEAD 200") {
             try await withBundleSource { source in
-                let handler = BundleUrlHandler(source: source)
+                let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .head, uri: "https://app.wvb/index.html", headers: nil)
                 guard response.status == 200 else { throw Fail("status=\(response.status)") }
                 guard response.body.isEmpty else { throw Fail("HEAD response body must be empty") }
@@ -234,21 +234,64 @@ final class TestRunner: ObservableObject {
             }
         }
 
-        await testAsync("BundleUrlHandler: builtin 200 index.html") {
+        await testAsync("BundleProtocolHandler: builtin 200 index.html") {
             try await withBuiltinSource { source in
-                let handler = BundleUrlHandler(source: source)
+                let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .get, uri: "https://app.wvb/index.html", headers: nil)
                 guard response.status == 200 else { throw Fail("status=\(response.status)") }
                 guard !response.body.isEmpty else { throw Fail("body should not be empty") }
             }
         }
 
-        test("LocalUrlHandler: init") {
-            _ = LocalUrlHandler(hosts: ["myapp": "http://localhost:9999"])
+        await testAsync("BundleProtocolHandler: exact path resolver does not rewrite to index.html") {
+            try await withBundleSource { source in
+                let options = BundleProtocolOptions(pathResolver: .exact)
+                let handler = BundleProtocolHandler(source: source, options: options)
+                let served = try await handler.handle(method: .get, uri: "https://app.wvb/index.html", headers: nil)
+                guard served.status == 200 else { throw Fail("status=\(served.status)") }
+                let response = try await handler.handle(method: .get, uri: "https://app.wvb/", headers: nil)
+                guard response.status == 404 else { throw Fail("status=\(response.status)") }
+            }
         }
 
-        await testAsync("LocalUrlHandler: unknown host error") {
-            let handler = LocalUrlHandler(hosts: ["known": "http://localhost:9999"])
+        await testAsync("BundleProtocolHandler: allowWvbSuffixOnly rejects other hosts") {
+            try await withBundleSource { source in
+                let options = BundleProtocolOptions(
+                    bundleResolver: .hostname(segment: .first, allowWvbSuffixOnly: true)
+                )
+                let handler = BundleProtocolHandler(source: source, options: options)
+                let served = try await handler.handle(method: .get, uri: "https://app.wvb/index.html", headers: nil)
+                guard served.status == 200 else { throw Fail("status=\(served.status)") }
+                var didThrow = false
+                do {
+                    _ = try await handler.handle(method: .get, uri: "https://app.example.com/index.html", headers: nil)
+                } catch {
+                    didThrow = true
+                }
+                guard didThrow else { throw Fail("expected error for a host without the .wvb suffix") }
+            }
+        }
+
+        test("ProxyProtocolHandler: init") {
+            _ = ProxyProtocolHandler(hosts: ["myapp": "http://localhost:9999"])
+        }
+
+        await testAsync("BundleProtocolHandler: a request body is accepted") {
+            try await withBundleSource { source in
+                let handler = BundleProtocolHandler(source: source)
+                // The bundle protocol serves GET/HEAD only, but the body still travels over the FFI.
+                let response = try await handler.handle(
+                    method: .post,
+                    uri: "https://app.wvb/index.html",
+                    headers: nil,
+                    body: Data(#"{"hello":"world"}"#.utf8)
+                )
+                guard response.status == 405 else { throw Fail("status=\(response.status)") }
+            }
+        }
+
+        await testAsync("ProxyProtocolHandler: unknown host error") {
+            let handler = ProxyProtocolHandler(hosts: ["known": "http://localhost:9999"])
             var didThrow = false
             do {
                 _ = try await handler.handle(method: .get, uri: "https://unknown.wvb/index.html", headers: nil)
@@ -256,6 +299,21 @@ final class TestRunner: ObservableObject {
                 didThrow = true
             }
             guard didThrow else { throw Fail("expected error for unknown host") }
+        }
+
+        await testAsync("ProxyProtocolHandler: custom resolver receives the uri") {
+            let resolver = RecordingProxyResolver()
+            let handler = ProxyProtocolHandler.custom(resolver: resolver)
+            var didThrow = false
+            do {
+                _ = try await handler.handle(method: .get, uri: "https://app.wvb/index.html", headers: nil)
+            } catch {
+                didThrow = true
+            }
+            guard didThrow else { throw Fail("expected error when the resolver returns nil") }
+            guard resolver.seen == "https://app.wvb/index.html" else {
+                throw Fail("resolver saw uri=\(resolver.seen ?? "none")")
+            }
         }
 
         results = newResults
@@ -317,4 +375,23 @@ final class TestRunner: ObservableObject {
 private struct Fail: LocalizedError {
     let errorDescription: String?
     init(_ message: String) { errorDescription = message }
+}
+
+/// Records the uri it is asked to resolve, and never proxies.
+private final class RecordingProxyResolver: ProxyResolver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var uri: String?
+
+    var seen: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return uri
+    }
+
+    func resolve(uri: String) async -> String? {
+        lock.lock()
+        self.uri = uri
+        lock.unlock()
+        return nil
+    }
 }

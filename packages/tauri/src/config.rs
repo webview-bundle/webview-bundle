@@ -1,12 +1,13 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tauri::http;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
 use wvb::remote;
 use wvb::updater::UpdaterConfig;
 
 pub use wvb::integrity::IntegrityPolicy;
+pub use wvb::protocol::{HostnameSegment, ProxyResolver, UriBundleResolver, UriPathResolver};
 pub use wvb::remote::HttpConfig as Http;
 pub use wvb::signature::SignatureVerifier;
 
@@ -175,47 +176,111 @@ impl Remote {
   }
 }
 
+/// Builds the response for a request the protocol failed to serve.
+pub type ErrorResponse = Arc<dyn Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync>;
+
+/// A `500` plain-text response, used when a protocol has no [`ErrorResponse`] of its own.
+pub fn default_error_response(error: &crate::Error) -> http::Response<Vec<u8>> {
+  http::Response::builder()
+    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+    .header(http::header::CONTENT_TYPE, "text/plain")
+    .body(
+      format!("webview bundle protocol error: {error}")
+        .as_bytes()
+        .to_vec(),
+    )
+    .expect("static error response")
+}
+
 #[derive(Clone)]
 pub struct BundleProtocolConfig {
   scheme: String,
+  pub(crate) bundle_resolver: Option<UriBundleResolver>,
+  pub(crate) path_resolver: Option<UriPathResolver>,
+  pub(crate) error_response: Option<ErrorResponse>,
 }
 
 impl BundleProtocolConfig {
   pub fn new<S: Into<String>>(scheme: S) -> Self {
     Self {
       scheme: scheme.into(),
+      bundle_resolver: None,
+      path_resolver: None,
+      error_response: None,
     }
+  }
+
+  /// The response for a request this protocol fails to serve
+  /// (default: [`default_error_response`], a `500` with the message).
+  ///
+  /// ```no_run
+  /// # use tauri::http;
+  /// # use wvb_tauri::{Error, Protocol};
+  /// Protocol::bundle("app").error_response(|e| {
+  ///   let missing = matches!(e, Error::Core(wvb::Error::BundleNotFound));
+  ///   http::Response::builder()
+  ///     .status(if missing { 404 } else { 500 })
+  ///     .body(e.to_string().into_bytes())
+  ///     .unwrap()
+  /// });
+  /// ```
+  pub fn error_response<F>(mut self, error_response: F) -> Self
+  where
+    F: Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync + 'static,
+  {
+    self.error_response = Some(Arc::new(error_response));
+    self
+  }
+
+  /// How the bundle name is resolved from the request uri
+  /// (default: [`UriBundleResolver::hostname`] with the first hostname segment).
+  ///
+  /// ```no_run
+  /// # use wvb_tauri::{HostnameSegment, Protocol, UriBundleResolver};
+  /// Protocol::bundle("app")
+  ///   .bundle_resolver(UriBundleResolver::hostname(Some(HostnameSegment::StripSuffix), Some(true)));
+  /// ```
+  pub fn bundle_resolver(mut self, resolver: UriBundleResolver) -> Self {
+    self.bundle_resolver = Some(resolver);
+    self
+  }
+
+  /// How the file path in the bundle is resolved from the request uri
+  /// (default: [`UriPathResolver::directory_index`]).
+  ///
+  /// ```no_run
+  /// # use wvb_tauri::{Protocol, UriPathResolver};
+  /// Protocol::bundle("app").path_resolver(UriPathResolver::html_extension());
+  /// ```
+  pub fn path_resolver(mut self, resolver: UriPathResolver) -> Self {
+    self.path_resolver = Some(resolver);
+    self
   }
 }
 
 #[derive(Clone)]
-pub struct LocalProtocolConfig {
+pub struct ProxyProtocolConfig {
   scheme: String,
-  pub(crate) hosts: HashMap<String, String>,
+  pub(crate) resolver: ProxyResolver,
+  pub(crate) error_response: Option<ErrorResponse>,
 }
 
-impl LocalProtocolConfig {
-  pub fn new<S: Into<String>>(scheme: S) -> Self {
+impl ProxyProtocolConfig {
+  pub fn new<S: Into<String>>(scheme: S, resolver: ProxyResolver) -> Self {
     Self {
       scheme: scheme.into(),
-      hosts: HashMap::new(),
+      resolver,
+      error_response: None,
     }
   }
 
-  pub fn new_with_hosts<T: Into<HashMap<String, String>>>(scheme: String, hosts: T) -> Self {
-    Self {
-      scheme,
-      hosts: hosts.into(),
-    }
-  }
-
-  pub fn host<T: Into<String>, U: Into<String>>(mut self, host: T, url: U) -> Self {
-    self.hosts.insert(host.into(), url.into());
-    self
-  }
-
-  pub fn hosts<T: Into<HashMap<String, String>>>(mut self, hosts: T) -> Self {
-    self.hosts = hosts.into();
+  /// The response for a request this protocol fails to serve — e.g. a dev server that is not up
+  /// yet (default: [`default_error_response`], a `500` with the message).
+  pub fn error_response<F>(mut self, error_response: F) -> Self
+  where
+    F: Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync + 'static,
+  {
+    self.error_response = Some(Arc::new(error_response));
     self
   }
 }
@@ -223,7 +288,7 @@ impl LocalProtocolConfig {
 #[derive(Clone)]
 pub enum Protocol {
   Bundle(BundleProtocolConfig),
-  Local(LocalProtocolConfig),
+  Proxy(ProxyProtocolConfig),
 }
 
 impl Protocol {
@@ -231,14 +296,14 @@ impl Protocol {
     BundleProtocolConfig::new(scheme)
   }
 
-  pub fn local<S: Into<String>>(scheme: S) -> LocalProtocolConfig {
-    LocalProtocolConfig::new(scheme)
+  pub fn proxy<S: Into<String>>(scheme: S, resolver: ProxyResolver) -> ProxyProtocolConfig {
+    ProxyProtocolConfig::new(scheme, resolver)
   }
 
   pub fn scheme(&self) -> &str {
     match self {
       Protocol::Bundle(x) => &x.scheme,
-      Protocol::Local(x) => &x.scheme,
+      Protocol::Proxy(x) => &x.scheme,
     }
   }
 }
@@ -249,9 +314,9 @@ impl From<BundleProtocolConfig> for Protocol {
   }
 }
 
-impl From<LocalProtocolConfig> for Protocol {
-  fn from(value: LocalProtocolConfig) -> Self {
-    Protocol::Local(value)
+impl From<ProxyProtocolConfig> for Protocol {
+  fn from(value: ProxyProtocolConfig) -> Self {
+    Protocol::Proxy(value)
   }
 }
 

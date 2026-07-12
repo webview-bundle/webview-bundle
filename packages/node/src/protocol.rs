@@ -1,6 +1,7 @@
 use crate::http::HttpMethod;
 use crate::http::HttpResponse;
 use crate::http::request;
+use crate::js::{JsCallback, JsCallbackExt};
 use crate::source::BundleSource;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -8,6 +9,105 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wvb::protocol;
 use wvb::protocol::Protocol;
+
+/// Which hostname segment is used as the bundle name.
+///
+/// A number can be given instead to pick the nth segment (0-based).
+///
+/// @enum {string}
+#[napi(string_enum = "camelCase")]
+pub enum HostnameSegment {
+  /// First segment. (e.g. `app.mydomain.com` -> `app`)
+  First,
+  /// Full hostname. (e.g. `app.wvb` -> `app.wvb`)
+  Full,
+  /// Strip the last segment. (e.g. `a.b.wvb` -> `a.b`)
+  StripSuffix,
+}
+
+/// Options for resolving the bundle name from the request uri.
+///
+/// - `hostname`: from the uri hostname.
+///   - `segment` - Hostname segment to use, or the nth segment (default: 'first')
+///   - `allowWvbSuffixOnly` - Only resolve hosts ending in `.wvb` (default: false)
+/// - `pathname`: from the uri pathname.
+///   - `segmentIndex` - Path segment index, 0-based over non-empty segments (default: 0)
+///
+/// @example
+/// ```typescript
+/// // `https://app.wvb/index.html` -> bundle "app"
+/// const byHostname: BundleResolverOptions = { type: 'hostname' };
+///
+/// // `https://cdn.example.com/my-app/index.html` -> bundle "my-app"
+/// const byPathname: BundleResolverOptions = { type: 'pathname', segmentIndex: 0 };
+/// ```
+#[napi(discriminant_case = "camelCase", object_to_js = false)]
+pub enum BundleResolverOptions {
+  Hostname {
+    segment: Option<Either<HostnameSegment, u32>>,
+    allow_wvb_suffix_only: Option<bool>,
+  },
+  Pathname {
+    segment_index: Option<u32>,
+  },
+}
+
+impl From<BundleResolverOptions> for protocol::UriBundleResolver {
+  fn from(value: BundleResolverOptions) -> Self {
+    match value {
+      BundleResolverOptions::Hostname {
+        segment,
+        allow_wvb_suffix_only,
+      } => {
+        let segment = segment.map(|segment| match segment {
+          Either::A(HostnameSegment::First) => protocol::HostnameSegment::First,
+          Either::A(HostnameSegment::Full) => protocol::HostnameSegment::Full,
+          Either::A(HostnameSegment::StripSuffix) => protocol::HostnameSegment::StripSuffix,
+          Either::B(index) => protocol::HostnameSegment::Nth(index as usize),
+        });
+        Self::hostname(segment, allow_wvb_suffix_only)
+      }
+      BundleResolverOptions::Pathname { segment_index } => {
+        Self::pathname(segment_index.map(|x| x as usize))
+      }
+    }
+  }
+}
+
+/// How the file path in the bundle is resolved from the request uri.
+///
+/// @enum {string}
+#[napi(string_enum = "camelCase")]
+pub enum PathResolver {
+  /// Use the uri path as-is (only percent-decoded).
+  Exact,
+  /// Directory index: `/` -> `/index.html` and `/about` -> `/about/index.html`.
+  /// (static-site / MPA style; e.g. Astro `format: 'directory'` / Next `trailingSlash: true`)
+  DirectoryIndex,
+  /// `.html` extension: `/` -> `/index.html` and `/about` -> `/about.html`.
+  /// (flat-file style; e.g. Astro `format: 'file'` / GitHub Pages / Next `trailingSlash: false`)
+  HtmlExtension,
+}
+
+impl From<PathResolver> for protocol::UriPathResolver {
+  fn from(value: PathResolver) -> Self {
+    match value {
+      PathResolver::Exact => Self::exact(),
+      PathResolver::DirectoryIndex => Self::directory_index(),
+      PathResolver::HtmlExtension => Self::html_extension(),
+    }
+  }
+}
+
+/// Options for the bundle protocol.
+///
+/// @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
+/// @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
+#[napi(object, object_to_js = false)]
+pub struct BundleProtocolOptions {
+  pub bundle_resolver: Option<BundleResolverOptions>,
+  pub path_resolver: Option<PathResolver>,
+}
 
 /// Protocol handler for serving files from bundle sources.
 ///
@@ -40,6 +140,7 @@ impl BundleProtocol {
   /// Creates a new bundle protocol handler.
   ///
   /// @param {BundleSource} source - Bundle source to serve files from
+  /// @param {BundleProtocolOptions} [options] - How the request uri is resolved
   ///
   /// @example
   /// ```typescript
@@ -49,10 +150,27 @@ impl BundleProtocol {
   /// });
   /// const protocol = new BundleProtocol(source);
   /// ```
+  ///
+  /// @example
+  /// ```typescript
+  /// // `https://cdn.example.com/my-app/about` -> "/about/index.html" of the "my-app" bundle
+  /// const protocol = new BundleProtocol(source, {
+  ///   bundleResolver: { type: 'pathname' },
+  /// });
+  /// ```
   #[napi(constructor)]
-  pub fn new(source: &BundleSource) -> BundleProtocol {
+  pub fn new(source: &BundleSource, options: Option<BundleProtocolOptions>) -> BundleProtocol {
+    let mut inner = protocol::BundleProtocol::new(source.inner.clone());
+    if let Some(options) = options {
+      if let Some(bundle_resolver) = options.bundle_resolver {
+        inner = inner.with_bundle_resolver(bundle_resolver.into());
+      }
+      if let Some(path_resolver) = options.path_resolver {
+        inner = inner.with_path_resolver(path_resolver.into());
+      }
+    }
     Self {
-      inner: Arc::new(protocol::BundleProtocol::new(source.inner.clone())),
+      inner: Arc::new(inner),
     }
   }
 
@@ -63,6 +181,7 @@ impl BundleProtocol {
   /// @param {HttpMethod} method - HTTP method (GET or HEAD)
   /// @param {string} uri - Request URI (e.g., "bundle://app/index.html")
   /// @param {Record<string, string>} [headers] - Optional request headers
+  /// @param {Buffer} [body] - Optional request body (accepted, but unused: only GET/HEAD are served)
   /// @returns {Promise<HttpResponse>} HTTP response
   ///
   /// @example
@@ -87,8 +206,9 @@ impl BundleProtocol {
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
+    body: Option<Buffer>,
   ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers)?;
+    let req = request(method, uri, headers, body)?;
     let inner = self.inner.clone();
     let resp = AsyncBlockBuilder::new(async move {
       inner
@@ -103,14 +223,34 @@ impl BundleProtocol {
   }
 }
 
-/// Protocol handler that proxies requests to localhost servers.
+/// Resolves the proxy target for a request uri.
+///
+/// Either a static host mapping, or a function returning the target for a uri
+/// (`null` to not proxy).
+pub(crate) type ProxyResolver =
+  Either<HashMap<String, String>, JsCallback<String, Promise<Option<String>>>>;
+
+fn proxy_resolver(resolver: ProxyResolver) -> protocol::ProxyResolver {
+  match resolver {
+    Either::A(hosts) => protocol::ProxyResolver::host_mapping(hosts),
+    Either::B(callback) => protocol::ProxyResolver::custom(move |uri| {
+      let uri = uri.to_string();
+      let callback = Arc::clone(&callback);
+      async move {
+        let resolved = callback.invoke_async(uri).await?.await?;
+        Ok(resolved)
+      }
+    }),
+  }
+}
+
+/// Protocol handler that proxies requests to other servers.
 ///
 /// Forwards requests to local development servers for hot-reloading workflows.
-/// Features response caching and 304 Not Modified support.
 ///
 /// @example
 /// ```typescript
-/// const protocol = new LocalProtocol({
+/// const protocol = new ProxyProtocol({
 ///   myapp: 'http://localhost:3000',
 ///   api: 'http://localhost:8080',
 /// });
@@ -119,38 +259,54 @@ impl BundleProtocol {
 /// const response = await protocol.handle('get', 'app://myapp/index.html');
 /// ```
 #[napi]
-pub struct LocalProtocol {
-  pub(crate) inner: Arc<protocol::LocalProtocol>,
+pub struct ProxyProtocol {
+  pub(crate) inner: Arc<protocol::ProxyProtocol>,
 }
 
 #[napi]
-impl LocalProtocol {
-  /// Creates a new local protocol handler.
+impl ProxyProtocol {
+  /// Creates a new proxy protocol handler.
   ///
-  /// @param {Record<string, string>} hosts - Map of custom hosts to localhost URLs
+  /// The resolver returns the target server for a request uri; the path and query of
+  /// the request are appended to it. A static host mapping resolves by uri hostname,
+  /// while a function receives the full uri and returns the target, or `null` to not
+  /// proxy.
+  ///
+  /// @param {Record<string, string> | ((uri: string) => Promise<string | null>)} resolver - Host mapping or custom resolver
   ///
   /// @example
   /// ```typescript
-  /// const protocol = new LocalProtocol({
+  /// const protocol = new ProxyProtocol({
   ///   myapp: 'http://localhost:3000',
   ///   api: 'http://localhost:8080',
   /// });
   /// ```
-  #[napi(constructor)]
-  pub fn new(hosts: HashMap<String, String>) -> LocalProtocol {
+  ///
+  /// @example
+  /// ```typescript
+  /// // Proxies `app://myapp/index.html` to `http://localhost:3000/index.html`
+  /// const protocol = new ProxyProtocol(async uri => {
+  ///   const port = await lookupDevServer(new URL(uri).hostname);
+  ///   return port != null ? `http://localhost:${port}` : null;
+  /// });
+  /// ```
+  #[napi(
+    constructor,
+    ts_args_type = "resolver: Record<string, string> | ((uri: string) => Promise<string | null>)"
+  )]
+  pub fn new(resolver: ProxyResolver) -> ProxyProtocol {
     Self {
-      inner: Arc::new(protocol::LocalProtocol::new(hosts)),
+      inner: Arc::new(protocol::ProxyProtocol::new(proxy_resolver(resolver))),
     }
   }
 
-  /// Handles an HTTP request by proxying to localhost.
-  ///
-  /// Maps custom protocol URIs to localhost URLs and forwards the request.
+  /// Handles an HTTP request by proxying it to the resolved server.
   ///
   /// @param {HttpMethod} method - HTTP method
   /// @param {string} uri - Request URI (e.g., "app://myapp/api/data")
   /// @param {Record<string, string>} [headers] - Optional request headers
-  /// @returns {Promise<HttpResponse>} HTTP response from localhost
+  /// @param {Buffer} [body] - Optional request body, forwarded as-is (POST/PUT/PATCH)
+  /// @returns {Promise<HttpResponse>} HTTP response from the proxied server
   ///
   /// @example
   /// ```typescript
@@ -161,10 +317,13 @@ impl LocalProtocol {
   ///
   /// @example
   /// ```typescript
-  /// // POST with headers
-  /// const response = await protocol.handle('post', 'app://api/submit', {
-  ///   'Content-Type': 'application/json',
-  /// });
+  /// // POST with a body
+  /// const response = await protocol.handle(
+  ///   'post',
+  ///   'app://api/submit',
+  ///   { 'Content-Type': 'application/json' },
+  ///   Buffer.from(JSON.stringify({ hello: 'world' })),
+  /// );
   /// ```
   #[napi]
   pub fn handle(
@@ -173,8 +332,9 @@ impl LocalProtocol {
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
+    body: Option<Buffer>,
   ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers)?;
+    let req = request(method, uri, headers, body)?;
     let inner = self.inner.clone();
     let resp = AsyncBlockBuilder::new(async move {
       inner

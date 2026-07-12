@@ -1,6 +1,6 @@
 import { type BundleSource, loadLib, type Remote, Updater, type UpdaterOptions } from '@wvb/deno';
-import type { ProtocolConfig } from './protocol.ts';
 import { type RemoteOptions, remote } from './remote.ts';
+import { createHandler, type Mount, normalizeRoutes, type Routes } from './routes.ts';
 import { bundleSource, type SourceOptions } from './source.ts';
 
 export interface WebviewBundleRemoteConfig extends RemoteOptions {
@@ -14,39 +14,29 @@ export interface WebviewBundleUpdaterConfig extends UpdaterOptions {
 export interface WebviewBundleConfig {
   /**
    * Deno-specific: the native cdylib path (e.g. a `deno desktop --include`d dir resolved from the
-   * app's `import.meta.url`).
+   * app's `import.meta.url`). Omit if you already loaded it via `loadLib`/`loadLibViaPlug`.
    */
   lib?: string | URL;
   source?: SourceOptions;
   updater?: WebviewBundleUpdaterConfig;
-  protocol: ProtocolConfig;
-}
-
-async function buildHandler(
-  protocol: ProtocolConfig,
-  source: BundleSource
-): Promise<(req: Request) => Promise<Response>> {
-  const handler =
-    typeof protocol.handler === 'function' ? await protocol.handler({ source }) : protocol.handler;
-  const onError = protocol.options?.onError;
-  return async (req: Request): Promise<Response> => {
-    try {
-      return await handler.handle(req);
-    } catch (e) {
-      const error = e instanceof Error ? e : new Error(String(e));
-      onError?.(error);
-      return new Response(error.message, { status: 500 });
-    }
-  };
+  /**
+   * What is served at which path. Deno desktop serves a single origin over local HTTP, so bundles
+   * are told apart by the request path — see {@link Routes}.
+   */
+  routes: Routes;
 }
 
 export class WebviewBundle {
+  readonly #mounts: Mount[];
   readonly #source: BundleSource;
   readonly #remote: Remote | null = null;
   readonly #updater: Updater | null = null;
-  readonly #handler: Promise<(req: Request) => Promise<Response>>;
+  readonly #handler: (req: Request) => Promise<Response>;
 
   constructor(config: WebviewBundleConfig) {
+    // Fail fast on an invalid config before any side effects (loading the lib, creating dirs),
+    // rather than deferring the error to the first request.
+    this.#mounts = normalizeRoutes(config.routes);
     if (config.lib != null) {
       loadLib(config.lib);
     }
@@ -57,7 +47,12 @@ export class WebviewBundle {
       this.#remote = remote(endpoint, remoteOptions);
       this.#updater = new Updater(this.#source, this.#remote, updaterOptions);
     }
-    this.#handler = buildHandler(config.protocol, this.#source);
+    this.#handler = createHandler(this.#mounts, this.#source);
+  }
+
+  /** Mount paths, in match order (longest prefix first). */
+  get routePaths(): readonly string[] {
+    return this.#mounts.map(m => m.mountPath);
   }
 
   get source(): BundleSource {
@@ -73,7 +68,7 @@ export class WebviewBundle {
   }
 
   /** A `Deno.serve`-compatible handler: `Deno.serve(wvb.fetch)`. */
-  fetch = (req: Request): Promise<Response> => this.#handler.then(handle => handle(req));
+  fetch = (req: Request): Promise<Response> => this.#handler(req);
 }
 
 export function webviewBundle(config: WebviewBundleConfig): WebviewBundle {

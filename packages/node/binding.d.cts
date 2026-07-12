@@ -267,6 +267,7 @@ export declare class BundleProtocol {
    * Creates a new bundle protocol handler.
    *
    * @param {BundleSource} source - Bundle source to serve files from
+   * @param {BundleProtocolOptions} [options] - How the request uri is resolved
    *
    * @example
    * ```typescript
@@ -276,8 +277,16 @@ export declare class BundleProtocol {
    * });
    * const protocol = new BundleProtocol(source);
    * ```
+   *
+   * @example
+   * ```typescript
+   * // `https://cdn.example.com/my-app/about` -> "/about/index.html" of the "my-app" bundle
+   * const protocol = new BundleProtocol(source, {
+   *   bundleResolver: { type: 'pathname' },
+   * });
+   * ```
    */
-  constructor(source: BundleSource)
+  constructor(source: BundleSource, options?: BundleProtocolOptions | undefined | null)
   /**
    * Handles an HTTP request and returns a response.
    *
@@ -286,6 +295,7 @@ export declare class BundleProtocol {
    * @param {HttpMethod} method - HTTP method (GET or HEAD)
    * @param {string} uri - Request URI (e.g., "bundle://app/index.html")
    * @param {Record<string, string>} [headers] - Optional request headers
+   * @param {Buffer} [body] - Optional request body (accepted, but unused: only GET/HEAD are served)
    * @returns {Promise<HttpResponse>} HTTP response
    *
    * @example
@@ -304,7 +314,7 @@ export declare class BundleProtocol {
    * console.log(`Status: ${response.status}`); // 206 Partial Content
    * ```
    */
-  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null): Promise<HttpResponse>
+  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null, body?: Buffer | undefined | null): Promise<HttpResponse>
 }
 
 /**
@@ -716,14 +726,13 @@ export declare class LoadedDescriptor {
 }
 
 /**
- * Protocol handler that proxies requests to localhost servers.
+ * Protocol handler that proxies requests to other servers.
  *
  * Forwards requests to local development servers for hot-reloading workflows.
- * Features response caching and 304 Not Modified support.
  *
  * @example
  * ```typescript
- * const protocol = new LocalProtocol({
+ * const protocol = new ProxyProtocol({
  *   myapp: 'http://localhost:3000',
  *   api: 'http://localhost:8080',
  * });
@@ -732,30 +741,43 @@ export declare class LoadedDescriptor {
  * const response = await protocol.handle('get', 'app://myapp/index.html');
  * ```
  */
-export declare class LocalProtocol {
+export declare class ProxyProtocol {
   /**
-   * Creates a new local protocol handler.
+   * Creates a new proxy protocol handler.
    *
-   * @param {Record<string, string>} hosts - Map of custom hosts to localhost URLs
+   * The resolver returns the target server for a request uri; the path and query of
+   * the request are appended to it. A static host mapping resolves by uri hostname,
+   * while a function receives the full uri and returns the target, or `null` to not
+   * proxy.
+   *
+   * @param {Record<string, string> | ((uri: string) => Promise<string | null>)} resolver - Host mapping or custom resolver
    *
    * @example
    * ```typescript
-   * const protocol = new LocalProtocol({
+   * const protocol = new ProxyProtocol({
    *   myapp: 'http://localhost:3000',
    *   api: 'http://localhost:8080',
    * });
    * ```
-   */
-  constructor(hosts: Record<string, string>)
-  /**
-   * Handles an HTTP request by proxying to localhost.
    *
-   * Maps custom protocol URIs to localhost URLs and forwards the request.
+   * @example
+   * ```typescript
+   * // Proxies `app://myapp/index.html` to `http://localhost:3000/index.html`
+   * const protocol = new ProxyProtocol(async uri => {
+   *   const port = await lookupDevServer(new URL(uri).hostname);
+   *   return port != null ? `http://localhost:${port}` : null;
+   * });
+   * ```
+   */
+  constructor(resolver: Record<string, string> | ((uri: string) => Promise<string | null>))
+  /**
+   * Handles an HTTP request by proxying it to the resolved server.
    *
    * @param {HttpMethod} method - HTTP method
    * @param {string} uri - Request URI (e.g., "app://myapp/api/data")
    * @param {Record<string, string>} [headers] - Optional request headers
-   * @returns {Promise<HttpResponse>} HTTP response from localhost
+   * @param {Buffer} [body] - Optional request body, forwarded as-is (POST/PUT/PATCH)
+   * @returns {Promise<HttpResponse>} HTTP response from the proxied server
    *
    * @example
    * ```typescript
@@ -766,13 +788,16 @@ export declare class LocalProtocol {
    *
    * @example
    * ```typescript
-   * // POST with headers
-   * const response = await protocol.handle('post', 'app://api/submit', {
-   *   'Content-Type': 'application/json',
-   * });
+   * // POST with a body
+   * const response = await protocol.handle(
+   *   'post',
+   *   'app://api/submit',
+   *   { 'Content-Type': 'application/json' },
+   *   Buffer.from(JSON.stringify({ hello: 'world' })),
+   * );
    * ```
    */
-  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null): Promise<HttpResponse>
+  handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null, body?: Buffer | undefined | null): Promise<HttpResponse>
 }
 
 /**
@@ -1116,6 +1141,39 @@ export declare enum BundleManifestVersion {
 }
 
 /**
+ * Options for the bundle protocol.
+ *
+ * @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
+ * @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
+ */
+export interface BundleProtocolOptions {
+  bundleResolver?: BundleResolverOptions
+  pathResolver?: PathResolver
+}
+
+/**
+ * Options for resolving the bundle name from the request uri.
+ *
+ * - `hostname`: from the uri hostname.
+ *   - `segment` - Hostname segment to use, or the nth segment (default: 'first')
+ *   - `allowWvbSuffixOnly` - Only resolve hosts ending in `.wvb` (default: false)
+ * - `pathname`: from the uri pathname.
+ *   - `segmentIndex` - Path segment index, 0-based over non-empty segments (default: 0)
+ *
+ * @example
+ * ```typescript
+ * // `https://app.wvb/index.html` -> bundle "app"
+ * const byHostname: BundleResolverOptions = { type: 'hostname' };
+ *
+ * // `https://cdn.example.com/my-app/index.html` -> bundle "my-app"
+ * const byPathname: BundleResolverOptions = { type: 'pathname', segmentIndex: 0 };
+ * ```
+ */
+export type BundleResolverOptions =
+  | { type: 'hostname', segment?: HostnameSegment | number, allowWvbSuffixOnly?: boolean }
+  | { type: 'pathname', segmentIndex?: number }
+
+/**
  * Configuration for creating a bundle source.
  *
  * @property {string} builtinDir - Directory containing builtin bundles
@@ -1193,6 +1251,60 @@ export interface BundleUpdateInfo {
   signature?: string
   lastModified?: string
 }
+
+/** The stable code every error thrown by this binding carries (`WebviewBundleError.code`). */
+export type ErrorCode =  'core.io'|
+'core.compress'|
+'core.decompress'|
+'core.encode'|
+'core.decode'|
+'core.http'|
+'core.invalid_magic_num'|
+'core.invalid_version'|
+'core.invalid_header_checksum'|
+'core.invalid_index_checksum'|
+'core.checksum_mismatch'|
+'core.bundle_not_found'|
+'core.bundle_entry_not_exists'|
+'core.bundle_cannot_be_removed'|
+'core.invalid_filepath'|
+'core.serde_json'|
+'core.cannot_resolve_proxy_server'|
+'core.reqwest'|
+'core.invalid_remote_url'|
+'core.invalid_remote_bundle'|
+'core.remote_bundle_not_found'|
+'core.remote_forbidden'|
+'core.remote_http'|
+'core.invalid_remote_config'|
+'core.invalid_integrity'|
+'core.integrity_required'|
+'core.integrity_verify_failed'|
+'core.invalid_signature'|
+'core.invalid_signing_key'|
+'core.signature_sign_failed'|
+'core.invalid_verifying_key'|
+'core.signature_not_exists'|
+'core.signature_verify_failed'|
+'core.generic'|
+'invalid_header_name'|
+'invalid_header_value'|
+'invalid_signature_options'|
+'napi';
+
+/**
+ * Which hostname segment is used as the bundle name.
+ *
+ * A number can be given instead to pick the nth segment (0-based).
+ *
+ * @enum {string}
+ */
+export type HostnameSegment = /** First segment. (e.g. `app.mydomain.com` -> `app`) */
+'first'|
+/** Full hostname. (e.g. `app.wvb` -> `app.wvb`) */
+'full'|
+/** Strip the last segment. (e.g. `a.b.wvb` -> `a.b`) */
+'stripSuffix';
 
 export type HttpMethod =  'get'|
 'head'|
@@ -1319,6 +1431,24 @@ export interface ListRemoteBundleInfo {
   name: string
   version: string
 }
+
+/**
+ * How the file path in the bundle is resolved from the request uri.
+ *
+ * @enum {string}
+ */
+export type PathResolver = /** Use the uri path as-is (only percent-decoded). */
+'exact'|
+/**
+ * Directory index: `/` -> `/index.html` and `/about` -> `/about/index.html`.
+ * (static-site / MPA style; e.g. Astro `format: 'directory'` / Next `trailingSlash: true`)
+ */
+'directoryIndex'|
+/**
+ * `.html` extension: `/` -> `/index.html` and `/about` -> `/about.html`.
+ * (flat-file style; e.g. Astro `format: 'file'` / GitHub Pages / Next `trailingSlash: false`)
+ */
+'htmlExtension';
 
 /**
  * Reads a bundle from a file asynchronously.

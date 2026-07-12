@@ -64,19 +64,14 @@ const SYMBOLS = {
     nonblocking: true,
   },
   // Protocol
-  wvb_bundle_protocol_new: { parameters: ['pointer'], result: 'pointer' },
-  wvb_local_protocol_new: { parameters: ['buffer'], result: 'pointer' },
+  wvb_bundle_protocol_new: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_proxy_protocol_new: { parameters: ['buffer'], result: 'pointer' },
   wvb_protocol_free: { parameters: ['pointer'], result: 'void' },
   wvb_protocol_handle: {
-    parameters: ['pointer', 'buffer', 'buffer', 'buffer'],
+    parameters: ['pointer', 'buffer', 'buffer', 'buffer', 'buffer', 'usize'],
     result: 'pointer',
     nonblocking: true,
   },
-  wvb_response_status: { parameters: ['pointer'], result: 'u16' },
-  wvb_response_headers_json: { parameters: ['pointer'], result: 'pointer' },
-  wvb_response_body_ptr: { parameters: ['pointer'], result: 'pointer' },
-  wvb_response_body_len: { parameters: ['pointer'], result: 'usize' },
-  wvb_response_free: { parameters: ['pointer'], result: 'void' },
   // Remote
   wvb_remote_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
   wvb_remote_free: { parameters: ['pointer'], result: 'void' },
@@ -292,19 +287,15 @@ export function readResult(l: WvbLib, resultPtr: Deno.PointerValue): WvbResultDa
   }
 }
 
-export function readResponse(l: WvbLib, respPtr: Deno.PointerValue): HttpResponse {
-  if (respPtr === null) {
-    throw new WebviewBundleError('null_handle', 'wvb: native handler returned a null response');
-  }
-  try {
-    const status = l.symbols.wvb_response_status(respPtr);
-    const headersPtr = l.symbols.wvb_response_headers_json(respPtr);
-    const headersJson =
-      headersPtr === null ? '{}' : new Deno.UnsafePointerView(headersPtr).getCString();
-    const len = Number(l.symbols.wvb_response_body_len(respPtr));
-    const body = copyBytes(l.symbols.wvb_response_body_ptr(respPtr), len);
-    return { status, headers: JSON.parse(headersJson) as Record<string, string>, body };
-  } finally {
-    l.symbols.wvb_response_free(respPtr);
-  }
+/**
+ * Read a protocol response: `{ status, headers }` + body bytes. A failed request throws (see
+ * {@link readResult}) instead of answering, so hosts decide what response an error becomes.
+ */
+export function readResponse(l: WvbLib, resultPtr: Deno.PointerValue): HttpResponse {
+  const { json, body } = readResult(l, resultPtr);
+  const { status, headers } = JSON.parse(json) as {
+    status: number;
+    headers: Record<string, string>;
+  };
+  return { status, headers, body };
 }

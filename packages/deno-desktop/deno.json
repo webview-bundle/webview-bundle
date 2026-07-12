@@ -5,7 +5,7 @@
   "exports": "./lib/mod.ts",
   "tasks": {
     "check": "deno check lib/**/*.ts",
-    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write"
+    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write --allow-net=127.0.0.1"
   },
   "publish": {
     "exclude": ["fixtures", "**/*.test.ts"]

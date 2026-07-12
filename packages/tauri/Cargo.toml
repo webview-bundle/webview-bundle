@@ -17,7 +17,7 @@ tracing = { workspace = true }
 wvb = { workspace = true, features = [
   "source",
   "protocol",
-  "protocol-local",
+  "protocol-proxy",
   "remote",
   "updater",
   "integrity",

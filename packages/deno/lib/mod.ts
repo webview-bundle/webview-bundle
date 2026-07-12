@@ -1,4 +1,5 @@
 export {
+  type ErrorCode,
   isWebviewBundleError,
   WebviewBundleError,
 } from './error.ts';
@@ -9,7 +10,15 @@ export {
   loadLib,
   loadLibViaPlug,
 } from './ffi.ts';
-export { BundleProtocol, type HttpMethod, LocalProtocol } from './protocol.ts';
+export {
+  BundleProtocol,
+  type BundleProtocolOptions,
+  type BundleResolverOptions,
+  type HostnameSegment,
+  type HttpMethod,
+  type PathResolver,
+  ProxyProtocol,
+} from './protocol.ts';
 export {
   type HttpOptions,
   type ListRemoteBundleInfo,

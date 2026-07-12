@@ -1,14 +1,16 @@
 import { Buffer } from 'node:buffer';
 import {
   BundleProtocol,
+  type BundleResolverOptions,
   type BundleSource,
   type HttpMethod,
   type HttpResponse,
-  LocalProtocol,
+  type PathResolver,
+  ProxyProtocol,
 } from '@wvb/node';
 import type { Protocol as ElectronProtocol, Privileges } from 'electron';
 import { app, protocol as electronProtocol } from 'electron';
-import { makeError } from './utils.js';
+import { makeError, uploadDataBody } from './utils.js';
 
 export interface ProtocolHandler {
   handle(req: Request): Promise<Response>;
@@ -17,7 +19,7 @@ export interface ProtocolHandler {
 export interface ProtocolOptions {
   protocol?: () => ElectronProtocol;
   privileges?: Privileges;
-  onError?: (e: Error) => void;
+  errorResponse?: (e: Error) => Response;
 }
 
 export interface ProtocolHandlerBuildContext {
@@ -44,9 +46,12 @@ const DEFAULT_PRIVILEGES: Privileges = {
   codeCache: true,
 };
 
+/**
+ * Register webview protocol into electron protocol so the registered scheme can be handled.
+ */
 export async function registerProtocol(protocol: Protocol, source: BundleSource): Promise<void> {
   const { scheme, handler, options = {} } = protocol;
-  const { protocol: getProtocol, privileges, onError } = options;
+  const { protocol: getProtocol, privileges, errorResponse } = options;
 
   electronProtocol.registerSchemesAsPrivileged([
     {
@@ -58,16 +63,19 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
   await app.whenReady();
   const h = typeof handler === 'function' ? await handler({ source }) : handler;
   const p = getProtocol?.() ?? electronProtocol;
+
+  const defaultErrorResponse = (e: Error) => {
+    return new Response(e.message, { status: 500 });
+  };
+
   if (typeof p.handle === 'function') {
-    p.handle(scheme, async req => {
-      try {
-        const resp = await h.handle(req);
-        return resp;
-      } catch (e) {
+    p.handle(scheme, async request => {
+      const response = await h.handle(request).catch(e => {
         const error = makeError(e);
-        onError?.(error);
-        return new Response(error.message, { status: 500 });
-      }
+        const resp = errorResponse?.(error) ?? defaultErrorResponse(error);
+        return resp;
+      });
+      return response;
     });
   } else {
     // support for electron < 25
@@ -75,39 +83,65 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
       const request = new Request(req.url, {
         method: req.method,
         headers: req.headers,
+        body: uploadDataBody(req),
       });
-      try {
-        const response = await h.handle(request);
-        callback({
-          statusCode: response.status,
-          headers: normalizeHeaders(response.headers),
-          data: Buffer.from(await response.arrayBuffer()),
-        });
-      } catch (e) {
-        onError?.(makeError(e));
-        callback({ error: -2 });
-      }
+
+      const response = await h.handle(request).catch(e => {
+        const error = makeError(e);
+        const resp = errorResponse?.(error) ?? defaultErrorResponse(error);
+        return resp;
+      });
+
+      callback({
+        statusCode: response.status,
+        headers: normalizeHeaders(response.headers),
+        data: Buffer.from(await response.arrayBuffer()),
+      });
     });
   }
 }
 
 type Hosts = Record<string, string>;
 
-export interface LocalProtocolConfig extends ProtocolOptions {
-  hosts: Hosts | (() => Hosts | Promise<Hosts>);
-}
+/**
+ * Resolves the proxy target for a request uri (`null` to not proxy). The path and query of the
+ * request are appended to whatever it returns.
+ */
+export type ProxyResolver = (uri: string) => Promise<string | null>;
 
-export function localProtocol(scheme: string, config: LocalProtocolConfig): Protocol {
-  const { hosts, ...options } = config;
+/** Either a host → target mapping, or a resolver called with each request uri — never both. */
+export type ProxyProtocolConfig = ProtocolOptions &
+  (
+    | {
+        /** Host → target url mapping, or a function returning one, evaluated when the handler is built. */
+        hosts: Hosts | (() => Hosts | Promise<Hosts>);
+        resolver?: never;
+      }
+    | {
+        /** Called with each request uri, for routing that depends on the request. */
+        resolver: ProxyResolver;
+        hosts?: never;
+      }
+  );
+
+/** Proxy the scheme to another server (a dev server with hot reload). */
+export function proxyProtocol(scheme: string, config: ProxyProtocolConfig): Protocol {
+  const { hosts, resolver, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: async () => {
-      const h = typeof hosts === 'function' ? await hosts() : hosts;
-      const local = new LocalProtocol(h);
+      const proxy = new ProxyProtocol(
+        resolver ?? (typeof hosts === 'function' ? await hosts() : (hosts as Hosts))
+      );
       return {
         handle: async req => {
           const method = req.method.toLowerCase() as HttpMethod;
-          const resp = await local.handle(method, req.url, normalizeHeaders(req.headers));
+          const resp = await proxy.handle(
+            method,
+            req.url,
+            normalizeHeaders(req.headers),
+            await readBody(req)
+          );
           return makeResponse(resp);
         },
       };
@@ -117,14 +151,34 @@ export function localProtocol(scheme: string, config: LocalProtocolConfig): Prot
   return protocol;
 }
 
-export interface BundleProtocolConfig extends ProtocolOptions {}
+/** The request body, or `undefined` when it has none — a proxied POST/PUT/PATCH carries one. */
+async function readBody(req: Request): Promise<Buffer | undefined> {
+  if (req.body == null) {
+    return undefined;
+  }
+  const body = Buffer.from(await req.arrayBuffer());
+  return body.byteLength > 0 ? body : undefined;
+}
+
+export interface BundleProtocolConfig extends ProtocolOptions {
+  /**
+   * How the bundle name is resolved from the request uri (default: the first hostname segment,
+   * e.g. `app://my-app/index.html` -> bundle "my-app").
+   */
+  bundleResolver?: BundleResolverOptions;
+  /**
+   * How the file path in the bundle is resolved from the request uri (default: `'directoryIndex'`,
+   * i.e. `/about` -> `/about/index.html`).
+   */
+  pathResolver?: PathResolver;
+}
 
 export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): Protocol {
-  const { ...options } = config;
+  const { bundleResolver, pathResolver, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: ({ source }) => {
-      const bundle = new BundleProtocol(source);
+      const bundle = new BundleProtocol(source, { bundleResolver, pathResolver });
       return {
         handle: async req => {
           const method = req.method.toLowerCase() as HttpMethod;
@@ -146,11 +200,14 @@ function normalizeHeaders(headers: Headers): Record<string, string> {
   return map;
 }
 
+/** Statuses the `Response` constructor rejects a body for — e.g. a proxied `304 Not Modified`. */
+const NULL_BODY_STATUS: ReadonlySet<number> = new Set([101, 103, 204, 205, 304]);
+
 function makeResponse(resp: HttpResponse): Response {
   const { status, headers: respHeaders, body } = resp;
   const headers = new Headers();
   for (const [key, value] of Object.entries(respHeaders)) {
     headers.set(key, value);
   }
-  return new Response(body as any, { status, headers });
+  return new Response(NULL_BODY_STATUS.has(status) ? null : (body as any), { status, headers });
 }

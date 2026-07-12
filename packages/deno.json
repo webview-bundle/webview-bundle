@@ -1,7 +1,7 @@
 {
   "workspace": ["./deno", "./deno-desktop"],
   "tasks": {
-    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write ./deno ./deno-desktop",
+    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write --allow-net=127.0.0.1 ./deno ./deno-desktop",
     "check": "deno check ./deno ./deno-desktop"
   },
   "imports": {
