@@ -1,4 +1,7 @@
+mod error;
+
 use base64ct::{Base64, Encoding};
+use error::ErrorCode;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::{Arc, OnceLock};
@@ -240,7 +243,12 @@ fn handle_request(
   // An unparseable method token is a bad request — don't silently coerce it to GET.
   let method = match http::Method::from_bytes(method.to_ascii_uppercase().as_bytes()) {
     Ok(method) => method,
-    Err(_) => return err_result("invalid_method", format!("invalid HTTP method: {method}")),
+    Err(_) => {
+      return err_result(
+        ErrorCode::InvalidMethod,
+        format!("invalid HTTP method: {method}"),
+      );
+    }
   };
   let mut builder = http::Request::builder().method(method).uri(uri);
   for (name, value) in headers {
@@ -248,7 +256,7 @@ fn handle_request(
   }
   let request = match builder.body(body) {
     Ok(request) => request,
-    Err(e) => return err_result("invalid_request", format!("bad request: {e}")),
+    Err(e) => return err_result(ErrorCode::InvalidRequest, format!("bad request: {e}")),
   };
 
   match runtime().block_on(async move { proto.handle(request).await }) {
@@ -297,8 +305,8 @@ fn ok_result(json: serde_json::Value, body: Vec<u8>) -> *mut WvbResult {
 
 /// An error result carrying the stable code alongside the message, so `@wvb/deno` can rebuild a
 /// `WebviewBundleError` with the same code the other bindings use.
-fn err_result(code: &str, message: String) -> *mut WvbResult {
-  let json = serde_json::json!({ "code": code, "message": message });
+fn err_result(code: ErrorCode, message: String) -> *mut WvbResult {
+  let json = serde_json::json!({ "code": code.as_str(), "message": message });
   let text = serde_json::to_string(&json).unwrap_or_else(|_| "null".to_string());
   Box::into_raw(Box::new(WvbResult {
     ok: false,
@@ -309,12 +317,12 @@ fn err_result(code: &str, message: String) -> *mut WvbResult {
 
 /// A `wvb` core error, tagged with its [`wvb::ErrorCode`] as the `core.<code>` wire code.
 fn core_err(e: wvb::Error) -> *mut WvbResult {
-  err_result(&format!("core.{}", e.code()), e.to_string())
+  err_result(e.code().into(), e.to_string())
 }
 
 /// A handle argument was null, or had already been freed.
 fn null_handle_err(what: &str) -> *mut WvbResult {
-  err_result("null_handle", format!("{what} handle is null"))
+  err_result(ErrorCode::NullHandle, format!("{what} handle is null"))
 }
 
 fn list_info_json(info: &wvb::remote::ListRemoteBundleInfo) -> serde_json::Value {

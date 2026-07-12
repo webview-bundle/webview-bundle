@@ -1,4 +1,5 @@
 export {
+  type ErrorCode,
   isWebviewBundleError,
   WebviewBundleError,
 } from './error.ts';
