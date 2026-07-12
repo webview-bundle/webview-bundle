@@ -752,6 +752,7 @@ export declare class ProxyProtocol {
    * proxy.
    *
    * @param {Record<string, string> | ((uri: string) => Promise<string | null>)} resolver - Host mapping or custom resolver
+   * @param {ProxyProtocolOptions} [options] - How the proxy behaves beyond resolving the target
    *
    * @example
    * ```typescript
@@ -770,7 +771,7 @@ export declare class ProxyProtocol {
    * });
    * ```
    */
-  constructor(resolver: Record<string, string> | ((uri: string) => Promise<string | null>))
+  constructor(resolver: Record<string, string> | ((uri: string) => Promise<string | null>), options?: ProxyProtocolOptions)
   /**
    * Handles an HTTP request by proxying it to the resolved server.
    *
@@ -1146,15 +1147,6 @@ export declare enum BundleManifestVersion {
  *
  * @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
  * @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
- *
- * @example
- * ```typescript
- * // Serve `https://app.wvb/about` from `/about.html` of the "app" bundle.
- * const protocol = new BundleProtocol(source, {
- *   bundleResolver: { type: 'hostname', allowWvbSuffixOnly: true },
- *   pathResolver: 'htmlExtension',
- * });
- * ```
  */
 export interface BundleProtocolOptions {
   bundleResolver?: BundleResolverOptions
@@ -1419,6 +1411,25 @@ export type PathResolver = /** Use the uri path as-is (only percent-decoded). */
  * (flat-file style; e.g. Astro `format: 'file'` / GitHub Pages / Next `trailingSlash: false`)
  */
 'htmlExtension';
+
+/**
+ * Options for the proxy protocol.
+ *
+ * @property {number} [maxCacheBytes] - How many bytes of upstream response bodies to keep, so an
+ * upstream `304 Not Modified` can be answered with the body last seen for that url
+ * (default: 32 MiB; `0` turns the cache off and passes the `304` through)
+ *
+ * @example
+ * ```typescript
+ * const protocol = new ProxyProtocol(
+ *   { myapp: 'http://localhost:3000' },
+ *   { maxCacheBytes: 8 * 1024 * 1024 },
+ * );
+ * ```
+ */
+export interface ProxyProtocolOptions {
+  maxCacheBytes?: number
+}
 
 /**
  * Reads a bundle from a file asynchronously.

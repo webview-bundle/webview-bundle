@@ -173,19 +173,47 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
 }
 
 /// Create a proxy protocol handler that proxies requests to another server (for dev servers).
+/// `options_json` is null/empty or a JSON object mirroring `@wvb/deno`'s `ProxyProtocolOptions`:
+/// `{ "maxCacheBytes"?: number }`. An unparsable host mapping or option returns null rather than
+/// silently proxying nothing.
 ///
 /// # Safety
-/// `hosts_json` must be null or a JSON object string mapping host -> URL.
+/// `hosts_json` must be null or a JSON object string mapping host -> URL; `options_json` must be
+/// null or a valid C string.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_proxy_protocol_new(hosts_json: *const c_char) -> *mut WvbProtocol {
+pub unsafe extern "C" fn wvb_proxy_protocol_new(
+  hosts_json: *const c_char,
+  options_json: *const c_char,
+) -> *mut WvbProtocol {
   let raw = unsafe { cstr(hosts_json) };
   let hosts: HashMap<String, String> = if raw.is_empty() {
     HashMap::new()
   } else {
-    serde_json::from_str(&raw).unwrap_or_default()
+    match serde_json::from_str(&raw) {
+      Ok(hosts) => hosts,
+      Err(_) => return std::ptr::null_mut(),
+    }
   };
-  let resolver = ProxyResolver::host_mapping(hosts);
-  let protocol: Arc<dyn Protocol> = Arc::new(ProxyProtocol::new(resolver));
+  let mut protocol = ProxyProtocol::new(ProxyResolver::host_mapping(hosts));
+  let raw = unsafe { cstr(options_json) };
+  if !raw.is_empty() {
+    let Ok(options) = serde_json::from_str::<serde_json::Value>(&raw) else {
+      return std::ptr::null_mut();
+    };
+    if !options.is_object() {
+      return std::ptr::null_mut();
+    }
+    match options.get("maxCacheBytes") {
+      None | Some(serde_json::Value::Null) => {}
+      Some(value) => match value.as_u64() {
+        Some(max_cache_bytes) => {
+          protocol = protocol.with_max_cache_bytes(max_cache_bytes as usize);
+        }
+        None => return std::ptr::null_mut(),
+      },
+    }
+  }
+  let protocol: Arc<dyn Protocol> = Arc::new(protocol);
   Box::into_raw(Box::new(WvbProtocol { inner: protocol }))
 }
 

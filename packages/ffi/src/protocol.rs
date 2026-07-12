@@ -130,13 +130,17 @@ impl BundleProtocolHandler {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl BundleProtocolHandler {
+  /// Serves the request from the bundle. `body` is accepted for a uniform call shape across
+  /// handlers, but unused: only GET and HEAD are served.
+  #[uniffi::method(default(headers = None, body = None))]
   pub async fn handle(
     &self,
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
+    body: Option<Vec<u8>>,
   ) -> Result<HttpResponse, crate::Error> {
-    let req = request(method, uri, headers)?;
+    let req = request(method, uri, headers, body)?;
     let resp = self.inner.handle(req).await?;
     Ok(HttpResponse::from(resp))
   }
@@ -152,6 +156,26 @@ pub trait ProxyResolver: Send + Sync {
   async fn resolve(&self, uri: String) -> Option<String>;
 }
 
+/// How a [`ProxyProtocolHandler`] behaves beyond resolving the target.
+///
+/// - `max_cache_bytes`: how many bytes of upstream response bodies to keep, so an upstream
+///   `304 Not Modified` can be answered with the body last seen for that url (default: 32 MiB;
+///   `0` turns the cache off and passes the `304` through).
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct ProxyProtocolOptions {
+  #[uniffi(default = None)]
+  pub max_cache_bytes: Option<u32>,
+}
+
+impl ProxyProtocolOptions {
+  fn apply(self, protocol: protocol::ProxyProtocol) -> protocol::ProxyProtocol {
+    match self.max_cache_bytes {
+      Some(max_cache_bytes) => protocol.with_max_cache_bytes(max_cache_bytes as usize),
+      None => protocol,
+    }
+  }
+}
+
 /// Proxies HTTP-like requests to another HTTP server (typically a local dev server).
 ///
 /// The target is resolved per request — either from a static host mapping
@@ -165,37 +189,57 @@ pub struct ProxyProtocolHandler {
 #[uniffi::export]
 impl ProxyProtocolHandler {
   /// Proxy by a static host mapping, keyed by the uri host.
-  #[uniffi::constructor]
-  pub fn new(hosts: HashMap<String, String>) -> Arc<ProxyProtocolHandler> {
+  #[uniffi::constructor(default(options = None))]
+  pub fn new(
+    hosts: HashMap<String, String>,
+    options: Option<ProxyProtocolOptions>,
+  ) -> Arc<ProxyProtocolHandler> {
     let resolver = protocol::ProxyResolver::host_mapping(hosts);
-    Arc::new(ProxyProtocolHandler {
-      inner: Arc::new(protocol::ProxyProtocol::new(resolver)),
-    })
+    Arc::new(ProxyProtocolHandler::build(resolver, options))
   }
 
   /// Proxy by a custom resolver.
-  #[uniffi::constructor(name = "custom")]
-  pub fn custom(resolver: Arc<dyn ProxyResolver>) -> Arc<ProxyProtocolHandler> {
+  #[uniffi::constructor(name = "custom", default(options = None))]
+  pub fn custom(
+    resolver: Arc<dyn ProxyResolver>,
+    options: Option<ProxyProtocolOptions>,
+  ) -> Arc<ProxyProtocolHandler> {
     let resolver = protocol::ProxyResolver::custom(move |uri| {
       let uri = uri.to_string();
       let resolver = resolver.clone();
       async move { Ok(resolver.resolve(uri).await) }
     });
-    Arc::new(ProxyProtocolHandler {
-      inner: Arc::new(protocol::ProxyProtocol::new(resolver)),
-    })
+    Arc::new(ProxyProtocolHandler::build(resolver, options))
+  }
+}
+
+impl ProxyProtocolHandler {
+  fn build(
+    resolver: protocol::ProxyResolver,
+    options: Option<ProxyProtocolOptions>,
+  ) -> ProxyProtocolHandler {
+    let mut inner = protocol::ProxyProtocol::new(resolver);
+    if let Some(options) = options {
+      inner = options.apply(inner);
+    }
+    ProxyProtocolHandler {
+      inner: Arc::new(inner),
+    }
   }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ProxyProtocolHandler {
+  /// Forwards the request — including `body`, for POST/PUT/PATCH — to the resolved target.
+  #[uniffi::method(default(headers = None, body = None))]
   pub async fn handle(
     &self,
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
+    body: Option<Vec<u8>>,
   ) -> Result<HttpResponse, crate::Error> {
-    let req = request(method, uri, headers)?;
+    let req = request(method, uri, headers, body)?;
     let resp = self.inner.handle(req).await?;
     Ok(HttpResponse::from(resp))
   }

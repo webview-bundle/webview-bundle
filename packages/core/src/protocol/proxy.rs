@@ -75,13 +75,6 @@ impl ProxyResolver {
   }
 }
 
-/// Join the resolved proxy target with the path and query of the original request.
-/// e.g. target `http://localhost:3000` + `app://myapp/api/data?foo=bar`
-/// -> `http://localhost:3000/api/data?foo=bar`
-///
-/// The path stays percent-encoded: decoding it here would turn an escaped reserved character
-/// (`%3F`, `%23`, `%2F`) back into url syntax and request a different resource than the webview
-/// asked for.
 fn proxy_url(target: &str, uri: &Uri) -> String {
   format!(
     "{}/{}{}",
@@ -101,8 +94,9 @@ struct CachedResponse {
   body: bytes::Bytes,
 }
 
-/// Total body bytes [`ProxyProtocol`] keeps cached.
-const CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
+/// Total body bytes [`ProxyProtocol`] keeps cached, unless
+/// [`ProxyProtocol::with_max_cache_bytes`] says otherwise.
+pub const DEFAULT_MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Default)]
 struct CacheState {
@@ -125,9 +119,6 @@ impl CacheState {
 
 /// Successful upstream responses, kept only so an upstream `304 Not Modified` can be answered with
 /// the body we last saw for that url.
-///
-/// Bounded by total body size and evicted in insertion order: a page requesting ever-changing urls
-/// (cache busting) would otherwise grow the process without bound.
 struct ResponseCache {
   state: Mutex<CacheState>,
   max_bytes: usize,
@@ -152,8 +143,9 @@ impl ResponseCache {
 
   fn insert(&self, url: &str, response: CachedResponse) {
     let size = response.body.len();
-    // A single response over the budget is served straight through, never cached.
-    if size > self.max_bytes {
+    // A single response over the budget (or any response, with the cache off) is served straight
+    // through, never cached.
+    if self.max_bytes == 0 || size > self.max_bytes {
       self.lock().remove(url);
       return;
     }
@@ -183,7 +175,7 @@ impl ResponseCache {
 /// ```no_run
 /// # #[cfg(feature = "protocol-proxy")]
 /// # async {
-/// use wvb::protocol::{ProxyProtocol, ProxyResolver};
+/// use wvb::protocol::{Protocol, ProxyProtocol, ProxyResolver};
 ///
 /// let protocol = ProxyProtocol::new(
 ///   ProxyResolver::host_mapping([
@@ -234,8 +226,28 @@ impl ProxyProtocol {
     Self {
       resolver,
       client: OnceLock::new(),
-      cache: ResponseCache::new(CACHE_MAX_BYTES),
+      cache: ResponseCache::new(DEFAULT_MAX_CACHE_BYTES),
     }
+  }
+
+  /// How many bytes of upstream response bodies to keep cached (default:
+  /// [`DEFAULT_MAX_CACHE_BYTES`], 32 MiB). `0` disables the cache, and an upstream `304` is then
+  /// passed through as-is.
+  ///
+  /// ```
+  /// # #[cfg(feature = "protocol-proxy")]
+  /// # {
+  /// use wvb::protocol::{ProxyProtocol, ProxyResolver};
+  ///
+  /// let protocol = ProxyProtocol::new(ProxyResolver::host_mapping([
+  ///   ("myapp", "http://localhost:3000"),
+  /// ]))
+  /// .with_max_cache_bytes(8 * 1024 * 1024);
+  /// # }
+  /// ```
+  pub fn with_max_cache_bytes(mut self, max_cache_bytes: usize) -> Self {
+    self.cache = ResponseCache::new(max_cache_bytes);
+    self
   }
 
   fn client(&self) -> crate::Result<&reqwest::Client> {
@@ -473,6 +485,35 @@ mod tests {
     cache.insert("/big", cached(11));
     assert!(cache.get("/big").is_none());
     assert_eq!(cache.lock().bytes, 8);
+
+    // A zero budget caches nothing at all.
+    let off = ResponseCache::new(0);
+    off.insert("/a", cached(0));
+    assert!(off.get("/a").is_none());
+  }
+
+  #[tokio::test]
+  async fn with_max_cache_bytes_off_passes_the_upstream_304_through() {
+    let (addr, _) = server();
+    let protocol = ProxyProtocol::new(ProxyResolver::host_mapping([(
+      "app.wvb",
+      format!("http://{addr}"),
+    )]))
+    .with_max_cache_bytes(0);
+
+    let request = || {
+      http::Request::builder()
+        .uri("scheme://app.wvb/index.html")
+        .method("GET")
+        .body(Vec::new())
+        .unwrap()
+    };
+    assert_eq!(protocol.handle(request()).await.unwrap().status(), 200);
+    // The test server answers 304 from the second request on. With no cached body to serve in its
+    // place, the webview gets the 304 itself.
+    let second = protocol.handle(request()).await.unwrap();
+    assert_eq!(second.status(), 304);
+    assert!(second.body().is_empty());
   }
 
   #[tokio::test]

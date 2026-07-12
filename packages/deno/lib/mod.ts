@@ -17,6 +17,7 @@ export {
   type HttpMethod,
   type PathResolver,
   ProxyProtocol,
+  type ProxyProtocolOptions,
 } from './protocol.ts';
 export {
   type HttpOptions,

@@ -252,6 +252,24 @@ class TestRunner(private val context: Context) {
 
         test("ProxyProtocolHandler: init") {
             ProxyProtocolHandler(mapOf("myapp" to "http://localhost:9999"))
+            ProxyProtocolHandler(
+                mapOf("myapp" to "http://localhost:9999"),
+                ProxyProtocolOptions(maxCacheBytes = 0u),
+            )
+        }
+
+        testSuspend("BundleProtocolHandler: a request body is accepted") {
+            withBundleSource { source ->
+                val handler = BundleProtocolHandler(source)
+                // The bundle protocol serves GET/HEAD only, but the body still travels over the FFI.
+                val response = handler.handle(
+                    HttpMethod.POST,
+                    "https://app.wvb/index.html",
+                    null,
+                    """{"hello":"world"}""".toByteArray(),
+                )
+                check(response.status == 405.toUShort()) { "status=${response.status}" }
+            }
         }
 
         testSuspend("ProxyProtocolHandler: unknown host error") {

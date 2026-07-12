@@ -131,6 +131,27 @@ Deno.test('a proxy route forwards the request body to the target', async () => {
   }
 });
 
+Deno.test('a proxy route forwards maxCacheBytes to the protocol', async () => {
+  let served = 0;
+  const server = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, () => {
+    served += 1;
+    // Answer 304 from the second request on, as a dev server would for an unchanged asset.
+    return served === 1
+      ? new Response('asset', { headers: { etag: '"v1"' } })
+      : new Response(null, { status: 304, headers: { etag: '"v1"' } });
+  });
+  try {
+    // With the cache off, the 304 reaches the client instead of the body the proxy last saw.
+    const app = makeApp({
+      '/': { proxy: `http://127.0.0.1:${server.addr.port}`, maxCacheBytes: 0 },
+    });
+    assertEquals((await app.fetch(new Request('http://127.0.0.1/app.js'))).status, 200);
+    assertEquals((await app.fetch(new Request('http://127.0.0.1/app.js'))).status, 304);
+  } finally {
+    await server.shutdown();
+  }
+});
+
 Deno.test('an unreachable proxy target surfaces as a 500', async () => {
   const app = makeApp({ '/': { proxy: 'http://127.0.0.1:59999' } });
   const res = await app.fetch(new Request('http://127.0.0.1/index.html'));

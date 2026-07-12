@@ -202,6 +202,18 @@ describe('proxy protocol', () => {
     );
   });
 
+  it('serves with the response cache turned off', async () => {
+    // `maxCacheBytes: 0` keeps no bodies, so nothing stands in for an upstream 304 — the dev server
+    // here always answers 200, so the response is the same, just never cached.
+    const protocol = new ProxyProtocol(
+      { 'app.wvb': `http://localhost:${port}` },
+      { maxCacheBytes: 0 }
+    );
+    const resp = await protocol.handle('get', 'wvb://app.wvb/index.html');
+    expect(resp.status).toBe(200);
+    expect(resp.body.toString('utf8')).toBe('<h1>proxied</h1>');
+  });
+
   it('forwards the request body to the proxy target', async () => {
     const protocol = new ProxyProtocol({ 'app.wvb': `http://localhost:${port}` });
     const resp = await protocol.handle(

@@ -81,8 +81,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
           }
           let protocol = wvb
             .get_protocol(&scheme)
-            .unwrap_or_else(|| panic!("protocol not found: {scheme}"))
-            .clone();
+            .unwrap_or_else(|| panic!("protocol not found: {scheme}"));
           match protocol.handle(req).await {
             Ok(resp) => res.respond(resp),
             Err(e) => res.respond(protocol_error_response(&e)),

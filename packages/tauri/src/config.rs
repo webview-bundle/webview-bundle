@@ -221,6 +221,7 @@ impl BundleProtocolConfig {
 pub struct ProxyProtocolConfig {
   scheme: String,
   pub(crate) resolver: ProxyResolver,
+  pub(crate) max_cache_bytes: Option<usize>,
 }
 
 impl ProxyProtocolConfig {
@@ -228,7 +229,22 @@ impl ProxyProtocolConfig {
     Self {
       scheme: scheme.into(),
       resolver,
+      max_cache_bytes: None,
     }
+  }
+
+  /// How many bytes of upstream response bodies the proxy keeps, so an upstream `304 Not Modified`
+  /// can be answered with the body last seen for that url (default:
+  /// [`wvb::protocol::DEFAULT_MAX_CACHE_BYTES`], 32 MiB; `0` turns the cache off).
+  ///
+  /// ```no_run
+  /// # use wvb_tauri::{Protocol, ProxyResolver};
+  /// Protocol::proxy("dev", ProxyResolver::host_mapping([("app", "http://localhost:5173")]))
+  ///   .max_cache_bytes(8 * 1024 * 1024);
+  /// ```
+  pub fn max_cache_bytes(mut self, max_cache_bytes: usize) -> Self {
+    self.max_cache_bytes = Some(max_cache_bytes);
+    self
   }
 }
 

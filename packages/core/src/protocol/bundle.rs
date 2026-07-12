@@ -129,6 +129,33 @@ impl BundleProtocol {
     self.path_resolver = path_resolver;
     self
   }
+
+  /// The resolver this protocol maps a request uri to a bundle name with.
+  ///
+  /// Hosts that need the bundle name *before* serving — e.g. to extract it from a read-only
+  /// location first — resolve it through this, so they always pick the bundle the protocol is
+  /// about to read.
+  ///
+  /// ```
+  /// # #[cfg(feature = "protocol")]
+  /// # {
+  /// use wvb::protocol::BundleProtocol;
+  /// use wvb::source::BundleSource;
+  /// use std::sync::Arc;
+  ///
+  /// let protocol = BundleProtocol::new(Arc::new(BundleSource::builder().build()));
+  /// let uri = "app://my-app/index.html".parse().unwrap();
+  /// assert_eq!(protocol.bundle_resolver().resolve(&uri).as_deref(), Some("my-app"));
+  /// # }
+  /// ```
+  pub fn bundle_resolver(&self) -> &UriBundleResolver {
+    &self.bundle_resolver
+  }
+
+  /// The resolver this protocol maps a request uri to a file path inside the bundle with.
+  pub fn path_resolver(&self) -> &UriPathResolver {
+    &self.path_resolver
+  }
 }
 
 #[async_trait]

@@ -19,7 +19,7 @@ export interface ProtocolHandler {
 export interface ProtocolOptions {
   protocol?: () => ElectronProtocol;
   privileges?: Privileges;
-  onError?: (e: Error) => void;
+  handleError?: (e: Error) => Response;
 }
 
 export interface ProtocolHandlerBuildContext {
@@ -46,9 +46,12 @@ const DEFAULT_PRIVILEGES: Privileges = {
   codeCache: true,
 };
 
+/**
+ * Register webview protocol into electron protocol so the registered scheme can be handled.
+ */
 export async function registerProtocol(protocol: Protocol, source: BundleSource): Promise<void> {
   const { scheme, handler, options = {} } = protocol;
-  const { protocol: getProtocol, privileges, onError } = options;
+  const { protocol: getProtocol, privileges, handleError } = options;
 
   electronProtocol.registerSchemesAsPrivileged([
     {
@@ -60,16 +63,19 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
   await app.whenReady();
   const h = typeof handler === 'function' ? await handler({ source }) : handler;
   const p = getProtocol?.() ?? electronProtocol;
+
+  const defaultErrorResponse = (e: Error) => {
+    return new Response(e.message, { status: 500 });
+  };
+
   if (typeof p.handle === 'function') {
-    p.handle(scheme, async req => {
-      try {
-        const resp = await h.handle(req);
-        return resp;
-      } catch (e) {
+    p.handle(scheme, async request => {
+      const response = await h.handle(request).catch(e => {
         const error = makeError(e);
-        onError?.(error);
-        return new Response(error.message, { status: 500 });
-      }
+        const resp = handleError?.(error) ?? defaultErrorResponse(error);
+        return resp;
+      });
+      return response;
     });
   } else {
     // support for electron < 25
@@ -78,17 +84,18 @@ export async function registerProtocol(protocol: Protocol, source: BundleSource)
         method: req.method,
         headers: req.headers,
       });
-      try {
-        const response = await h.handle(request);
-        callback({
-          statusCode: response.status,
-          headers: normalizeHeaders(response.headers),
-          data: Buffer.from(await response.arrayBuffer()),
-        });
-      } catch (e) {
-        onError?.(makeError(e));
-        callback({ error: -2 });
-      }
+
+      const response = await h.handle(request).catch(e => {
+        const error = makeError(e);
+        const resp = handleError?.(error) ?? defaultErrorResponse(error);
+        return resp;
+      });
+
+      callback({
+        statusCode: response.status,
+        headers: normalizeHeaders(response.headers),
+        data: Buffer.from(await response.arrayBuffer()),
+      });
     });
   }
 }
@@ -101,12 +108,23 @@ type Hosts = Record<string, string>;
  */
 export type ProxyResolver = (uri: string) => Promise<string | null>;
 
+interface ProxyOptions {
+  /**
+   * How many bytes of upstream response bodies to keep, so an upstream `304 Not Modified` can be
+   * answered with the body last seen for that url (default: 32 MiB; `0` turns the cache off and
+   * passes the `304` through).
+   */
+  maxCacheBytes?: number;
+}
+
+/** Either a host → target mapping, or a resolver called with each request uri — never both. */
 export type ProxyProtocolConfig = ProtocolOptions &
+  ProxyOptions &
   (
     | {
         /**
          * Host → target url mapping, or a function returning one — evaluated once, when the handler
-         * is built (for a mapping that is only known by then, e.g. a dev server port).
+         * is built (for a mapping only known by then, e.g. a dev server port).
          */
         hosts: Hosts | (() => Hosts | Promise<Hosts>);
         resolver?: never;
@@ -120,12 +138,13 @@ export type ProxyProtocolConfig = ProtocolOptions &
 
 /** Proxy the scheme to another server (a dev server with hot reload). */
 export function proxyProtocol(scheme: string, config: ProxyProtocolConfig): Protocol {
-  const { hosts, resolver, ...options } = config;
+  const { hosts, resolver, maxCacheBytes, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: async () => {
       const proxy = new ProxyProtocol(
-        resolver ?? (typeof hosts === 'function' ? await hosts() : (hosts as Hosts))
+        resolver ?? (typeof hosts === 'function' ? await hosts() : (hosts as Hosts)),
+        { maxCacheBytes }
       );
       return {
         handle: async req => {
@@ -167,7 +186,6 @@ export interface BundleProtocolConfig extends ProtocolOptions {
   pathResolver?: PathResolver;
 }
 
-/** Serve bundles from the source over the scheme. */
 export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): Protocol {
   const { bundleResolver, pathResolver, ...options } = config;
   const protocol: Protocol = {
@@ -195,11 +213,14 @@ function normalizeHeaders(headers: Headers): Record<string, string> {
   return map;
 }
 
+/** Statuses the `Response` constructor rejects a body for — e.g. a proxied `304 Not Modified`. */
+const NULL_BODY_STATUS: ReadonlySet<number> = new Set([101, 103, 204, 205, 304]);
+
 function makeResponse(resp: HttpResponse): Response {
   const { status, headers: respHeaders, body } = resp;
   const headers = new Headers();
   for (const [key, value] of Object.entries(respHeaders)) {
     headers.set(key, value);
   }
-  return new Response(body as any, { status, headers });
+  return new Response(NULL_BODY_STATUS.has(status) ? null : (body as any), { status, headers });
 }

@@ -274,6 +274,24 @@ final class TestRunner: ObservableObject {
 
         test("ProxyProtocolHandler: init") {
             _ = ProxyProtocolHandler(hosts: ["myapp": "http://localhost:9999"])
+            _ = ProxyProtocolHandler(
+                hosts: ["myapp": "http://localhost:9999"],
+                options: ProxyProtocolOptions(maxCacheBytes: 0)
+            )
+        }
+
+        await testAsync("BundleProtocolHandler: a request body is accepted") {
+            try await withBundleSource { source in
+                let handler = BundleProtocolHandler(source: source)
+                // The bundle protocol serves GET/HEAD only, but the body still travels over the FFI.
+                let response = try await handler.handle(
+                    method: .post,
+                    uri: "https://app.wvb/index.html",
+                    headers: nil,
+                    body: Data(#"{"hello":"world"}"#.utf8)
+                )
+                guard response.status == 405 else { throw Fail("status=\(response.status)") }
+            }
         }
 
         await testAsync("ProxyProtocolHandler: unknown host error") {

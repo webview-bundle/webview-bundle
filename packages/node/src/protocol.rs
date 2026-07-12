@@ -103,15 +103,6 @@ impl From<PathResolver> for protocol::UriPathResolver {
 ///
 /// @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
 /// @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
-///
-/// @example
-/// ```typescript
-/// // Serve `https://app.wvb/about` from `/about.html` of the "app" bundle.
-/// const protocol = new BundleProtocol(source, {
-///   bundleResolver: { type: 'hostname', allowWvbSuffixOnly: true },
-///   pathResolver: 'htmlExtension',
-/// });
-/// ```
 #[napi(object, object_to_js = false)]
 pub struct BundleProtocolOptions {
   pub bundle_resolver: Option<BundleResolverOptions>,
@@ -253,6 +244,33 @@ fn proxy_resolver(resolver: ProxyResolver) -> protocol::ProxyResolver {
   }
 }
 
+/// Options for the proxy protocol.
+///
+/// @property {number} [maxCacheBytes] - How many bytes of upstream response bodies to keep, so an
+/// upstream `304 Not Modified` can be answered with the body last seen for that url
+/// (default: 32 MiB; `0` turns the cache off and passes the `304` through)
+///
+/// @example
+/// ```typescript
+/// const protocol = new ProxyProtocol(
+///   { myapp: 'http://localhost:3000' },
+///   { maxCacheBytes: 8 * 1024 * 1024 },
+/// );
+/// ```
+#[napi(object, object_to_js = false)]
+pub struct ProxyProtocolOptions {
+  pub max_cache_bytes: Option<u32>,
+}
+
+impl ProxyProtocolOptions {
+  fn apply(self, protocol: protocol::ProxyProtocol) -> protocol::ProxyProtocol {
+    match self.max_cache_bytes {
+      Some(max_cache_bytes) => protocol.with_max_cache_bytes(max_cache_bytes as usize),
+      None => protocol,
+    }
+  }
+}
+
 /// Protocol handler that proxies requests to other servers.
 ///
 /// Forwards requests to local development servers for hot-reloading workflows.
@@ -283,6 +301,7 @@ impl ProxyProtocol {
   /// proxy.
   ///
   /// @param {Record<string, string> | ((uri: string) => Promise<string | null>)} resolver - Host mapping or custom resolver
+  /// @param {ProxyProtocolOptions} [options] - How the proxy behaves beyond resolving the target
   ///
   /// @example
   /// ```typescript
@@ -302,11 +321,15 @@ impl ProxyProtocol {
   /// ```
   #[napi(
     constructor,
-    ts_args_type = "resolver: Record<string, string> | ((uri: string) => Promise<string | null>)"
+    ts_args_type = "resolver: Record<string, string> | ((uri: string) => Promise<string | null>), options?: ProxyProtocolOptions"
   )]
-  pub fn new(resolver: ProxyResolver) -> ProxyProtocol {
+  pub fn new(resolver: ProxyResolver, options: Option<ProxyProtocolOptions>) -> ProxyProtocol {
+    let mut inner = protocol::ProxyProtocol::new(proxy_resolver(resolver));
+    if let Some(options) = options {
+      inner = options.apply(inner);
+    }
     Self {
-      inner: Arc::new(protocol::ProxyProtocol::new(proxy_resolver(resolver))),
+      inner: Arc::new(inner),
     }
   }
 

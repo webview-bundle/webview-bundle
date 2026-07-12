@@ -9,6 +9,7 @@ import {
   loadLib,
   type PathResolver,
   ProxyProtocol,
+  type ProxyProtocolOptions,
   Remote,
   Updater,
 } from './mod.ts';
@@ -151,6 +152,22 @@ Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', ()
 Deno.test('ProxyProtocol constructs and is disposable', () => {
   using proxy = new ProxyProtocol({ app: 'http://localhost:5173' });
   assert(proxy instanceof ProxyProtocol);
+
+  using withOptions = new ProxyProtocol({ app: 'http://localhost:5173' }, { maxCacheBytes: 0 });
+  assert(withOptions instanceof ProxyProtocol);
+});
+
+Deno.test('ProxyProtocol rejects an unknown option value (fails closed)', () => {
+  assertThrows(
+    () =>
+      new ProxyProtocol(
+        { app: 'http://localhost:5173' },
+        { maxCacheBytes: 'lots' as unknown as number }
+      )
+  );
+  assertThrows(
+    () => new ProxyProtocol({ app: 'http://localhost:5173' }, 0 as unknown as ProxyProtocolOptions)
+  );
 });
 
 Deno.test('ProxyProtocol fails on a host that is not mapped', async () => {
