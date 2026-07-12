@@ -65,7 +65,7 @@ const SYMBOLS = {
   },
   // Protocol
   wvb_bundle_protocol_new: { parameters: ['pointer', 'buffer'], result: 'pointer' },
-  wvb_proxy_protocol_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
+  wvb_proxy_protocol_new: { parameters: ['buffer'], result: 'pointer' },
   wvb_protocol_free: { parameters: ['pointer'], result: 'void' },
   wvb_protocol_handle: {
     parameters: ['pointer', 'buffer', 'buffer', 'buffer', 'buffer', 'usize'],

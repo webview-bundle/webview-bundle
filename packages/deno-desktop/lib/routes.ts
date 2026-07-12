@@ -27,11 +27,6 @@ export interface BundleRoute {
 export interface ProxyRoute {
   /** Base url of the target server, e.g. `'http://localhost:5173'`. */
   proxy: string;
-  /**
-   * Bytes of upstream response bodies kept for answering a `304 Not Modified`
-   * (default: 32 MiB; `0` turns the cache off).
-   */
-  maxCacheBytes?: number;
   errorResponse?: ErrorResponse;
 }
 
@@ -151,10 +146,7 @@ async function readBody(req: Request): Promise<Uint8Array<ArrayBuffer> | undefin
 function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
   const { errorResponse } = route;
   if ('proxy' in route) {
-    const protocol = new ProxyProtocol(
-      { [PROXY_HOST]: route.proxy },
-      { maxCacheBytes: route.maxCacheBytes }
-    );
+    const protocol = new ProxyProtocol({ [PROXY_HOST]: route.proxy });
     return {
       mountPath,
       errorResponse,

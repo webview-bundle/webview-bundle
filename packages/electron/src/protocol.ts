@@ -108,17 +108,8 @@ type Hosts = Record<string, string>;
  */
 export type ProxyResolver = (uri: string) => Promise<string | null>;
 
-interface ProxyOptions {
-  /**
-   * Bytes of upstream response bodies kept for answering a `304 Not Modified`
-   * (default: 32 MiB; `0` turns the cache off).
-   */
-  maxCacheBytes?: number;
-}
-
 /** Either a host → target mapping, or a resolver called with each request uri — never both. */
 export type ProxyProtocolConfig = ProtocolOptions &
-  ProxyOptions &
   (
     | {
         /** Host → target url mapping, or a function returning one, evaluated when the handler is built. */
@@ -134,13 +125,12 @@ export type ProxyProtocolConfig = ProtocolOptions &
 
 /** Proxy the scheme to another server (a dev server with hot reload). */
 export function proxyProtocol(scheme: string, config: ProxyProtocolConfig): Protocol {
-  const { hosts, resolver, maxCacheBytes, ...options } = config;
+  const { hosts, resolver, ...options } = config;
   const protocol: Protocol = {
     scheme,
     handler: async () => {
       const proxy = new ProxyProtocol(
-        resolver ?? (typeof hosts === 'function' ? await hosts() : (hosts as Hosts)),
-        { maxCacheBytes }
+        resolver ?? (typeof hosts === 'function' ? await hosts() : (hosts as Hosts))
       );
       return {
         handle: async req => {

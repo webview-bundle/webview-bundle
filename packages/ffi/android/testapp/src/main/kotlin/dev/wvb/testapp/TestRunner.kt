@@ -251,10 +251,6 @@ class TestRunner(private val context: Context) {
 
         test("ProxyProtocolHandler: init") {
             ProxyProtocolHandler(mapOf("myapp" to "http://localhost:9999"))
-            ProxyProtocolHandler(
-                mapOf("myapp" to "http://localhost:9999"),
-                ProxyProtocolOptions(maxCacheBytes = 0u),
-            )
         }
 
         testSuspend("BundleProtocolHandler: a request body is accepted") {

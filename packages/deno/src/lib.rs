@@ -165,17 +165,12 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
 }
 
 /// Create a proxy protocol handler that proxies requests to another server (for dev servers).
-/// `options_json` is null/empty or `{ "maxCacheBytes"?: number }`; an unparsable host mapping or
-/// option returns null rather than silently proxying nothing.
+/// An unparsable host mapping returns null rather than silently proxying nothing.
 ///
 /// # Safety
-/// `hosts_json` must be null or a JSON object string mapping host -> URL; `options_json` must be
-/// null or a valid C string.
+/// `hosts_json` must be null or a JSON object string mapping host -> URL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_proxy_protocol_new(
-  hosts_json: *const c_char,
-  options_json: *const c_char,
-) -> *mut WvbProtocol {
+pub unsafe extern "C" fn wvb_proxy_protocol_new(hosts_json: *const c_char) -> *mut WvbProtocol {
   let raw = unsafe { cstr(hosts_json) };
   let hosts: HashMap<String, String> = if raw.is_empty() {
     HashMap::new()
@@ -185,26 +180,8 @@ pub unsafe extern "C" fn wvb_proxy_protocol_new(
       Err(_) => return std::ptr::null_mut(),
     }
   };
-  let mut protocol = ProxyProtocol::new(ProxyResolver::host_mapping(hosts));
-  let raw = unsafe { cstr(options_json) };
-  if !raw.is_empty() {
-    let Ok(options) = serde_json::from_str::<serde_json::Value>(&raw) else {
-      return std::ptr::null_mut();
-    };
-    if !options.is_object() {
-      return std::ptr::null_mut();
-    }
-    match options.get("maxCacheBytes") {
-      None | Some(serde_json::Value::Null) => {}
-      Some(value) => match value.as_u64() {
-        Some(max_cache_bytes) => {
-          protocol = protocol.with_max_cache_bytes(max_cache_bytes as usize);
-        }
-        None => return std::ptr::null_mut(),
-      },
-    }
-  }
-  let protocol: Arc<dyn Protocol> = Arc::new(protocol);
+  let protocol: Arc<dyn Protocol> =
+    Arc::new(ProxyProtocol::new(ProxyResolver::host_mapping(hosts)));
   Box::into_raw(Box::new(WvbProtocol { inner: protocol }))
 }
 

@@ -155,25 +155,6 @@ pub trait ProxyResolver: Send + Sync {
   async fn resolve(&self, uri: String) -> Option<String>;
 }
 
-/// How a [`ProxyProtocolHandler`] behaves beyond resolving the target.
-///
-/// - `max_cache_bytes`: bytes of upstream response bodies kept for answering a `304 Not Modified`
-///   (default: 32 MiB; `0` turns the cache off).
-#[derive(uniffi::Record, Clone, Debug, Default)]
-pub struct ProxyProtocolOptions {
-  #[uniffi(default = None)]
-  pub max_cache_bytes: Option<u32>,
-}
-
-impl ProxyProtocolOptions {
-  fn apply(self, protocol: protocol::ProxyProtocol) -> protocol::ProxyProtocol {
-    match self.max_cache_bytes {
-      Some(max_cache_bytes) => protocol.with_max_cache_bytes(max_cache_bytes as usize),
-      None => protocol,
-    }
-  }
-}
-
 /// Proxies HTTP-like requests to another HTTP server (typically a local dev server).
 ///
 /// The target is resolved per request — either from a static host mapping
@@ -187,42 +168,25 @@ pub struct ProxyProtocolHandler {
 #[uniffi::export]
 impl ProxyProtocolHandler {
   /// Proxy by a static host mapping, keyed by the uri host.
-  #[uniffi::constructor(default(options = None))]
-  pub fn new(
-    hosts: HashMap<String, String>,
-    options: Option<ProxyProtocolOptions>,
-  ) -> Arc<ProxyProtocolHandler> {
+  #[uniffi::constructor]
+  pub fn new(hosts: HashMap<String, String>) -> Arc<ProxyProtocolHandler> {
     let resolver = protocol::ProxyResolver::host_mapping(hosts);
-    Arc::new(ProxyProtocolHandler::build(resolver, options))
+    Arc::new(ProxyProtocolHandler {
+      inner: Arc::new(protocol::ProxyProtocol::new(resolver)),
+    })
   }
 
   /// Proxy by a custom resolver.
-  #[uniffi::constructor(name = "custom", default(options = None))]
-  pub fn custom(
-    resolver: Arc<dyn ProxyResolver>,
-    options: Option<ProxyProtocolOptions>,
-  ) -> Arc<ProxyProtocolHandler> {
+  #[uniffi::constructor(name = "custom")]
+  pub fn custom(resolver: Arc<dyn ProxyResolver>) -> Arc<ProxyProtocolHandler> {
     let resolver = protocol::ProxyResolver::custom(move |uri| {
       let uri = uri.to_string();
       let resolver = resolver.clone();
       async move { Ok(resolver.resolve(uri).await) }
     });
-    Arc::new(ProxyProtocolHandler::build(resolver, options))
-  }
-}
-
-impl ProxyProtocolHandler {
-  fn build(
-    resolver: protocol::ProxyResolver,
-    options: Option<ProxyProtocolOptions>,
-  ) -> ProxyProtocolHandler {
-    let mut inner = protocol::ProxyProtocol::new(resolver);
-    if let Some(options) = options {
-      inner = options.apply(inner);
-    }
-    ProxyProtocolHandler {
-      inner: Arc::new(inner),
-    }
+    Arc::new(ProxyProtocolHandler {
+      inner: Arc::new(protocol::ProxyProtocol::new(resolver)),
+    })
   }
 }
 

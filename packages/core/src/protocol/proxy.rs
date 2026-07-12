@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use http;
 use http::Uri;
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 pub type ProxyResolveFn = dyn Fn(
     &Uri,
@@ -85,81 +85,6 @@ fn proxy_url(target: &str, uri: &Uri) -> String {
   )
 }
 
-#[derive(Clone)]
-struct CachedResponse {
-  status: http::StatusCode,
-  headers: http::HeaderMap,
-  body: bytes::Bytes,
-}
-
-/// Default budget for [`ProxyProtocol::with_max_cache_bytes`].
-pub const DEFAULT_MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
-
-#[derive(Default)]
-struct CacheState {
-  entries: HashMap<String, CachedResponse>,
-  /// Insertion order of `entries`, evicted from the front.
-  order: VecDeque<String>,
-  bytes: usize,
-}
-
-impl CacheState {
-  fn remove(&mut self, url: &str) {
-    if let Some(previous) = self.entries.remove(url) {
-      self.bytes -= previous.body.len();
-      if let Some(index) = self.order.iter().position(|x| x == url) {
-        self.order.remove(index);
-      }
-    }
-  }
-}
-
-/// Bodies kept only to answer an upstream `304 Not Modified`, bounded by their total size.
-struct ResponseCache {
-  state: Mutex<CacheState>,
-  max_bytes: usize,
-}
-
-impl ResponseCache {
-  fn new(max_bytes: usize) -> Self {
-    Self {
-      state: Mutex::new(CacheState::default()),
-      max_bytes,
-    }
-  }
-
-  /// A poisoned cache must not take the proxy down with it.
-  fn lock(&self) -> MutexGuard<'_, CacheState> {
-    self.state.lock().unwrap_or_else(|e| e.into_inner())
-  }
-
-  fn get(&self, url: &str) -> Option<CachedResponse> {
-    self.lock().entries.get(url).cloned()
-  }
-
-  fn insert(&self, url: &str, response: CachedResponse) {
-    let size = response.body.len();
-    // Never cache a response that alone would blow the budget.
-    if self.max_bytes == 0 || size > self.max_bytes {
-      self.lock().remove(url);
-      return;
-    }
-    let mut state = self.lock();
-    state.remove(url);
-    state.bytes += size;
-    state.entries.insert(url.to_string(), response);
-    state.order.push_back(url.to_string());
-    while state.bytes > self.max_bytes {
-      let Some(oldest) = state.order.pop_front() else {
-        break;
-      };
-      if let Some(evicted) = state.entries.remove(&oldest) {
-        state.bytes -= evicted.body.len();
-      }
-    }
-  }
-}
-
 /// Protocol handler that proxies requests to servers.
 ///
 /// `ProxyProtocol` forwards requests to local development servers, making it
@@ -191,7 +116,6 @@ pub struct ProxyProtocol {
   resolver: ProxyResolver,
   /// Built on the first request and reused, so proxied requests share a connection pool.
   client: OnceLock<reqwest::Client>,
-  cache: ResponseCache,
 }
 
 impl ProxyProtocol {
@@ -221,27 +145,7 @@ impl ProxyProtocol {
     Self {
       resolver,
       client: OnceLock::new(),
-      cache: ResponseCache::new(DEFAULT_MAX_CACHE_BYTES),
     }
-  }
-
-  /// Bytes of upstream response bodies kept for answering a `304` (default:
-  /// [`DEFAULT_MAX_CACHE_BYTES`]). `0` turns the cache off and passes the `304` through.
-  ///
-  /// ```
-  /// # #[cfg(feature = "protocol-proxy")]
-  /// # {
-  /// use wvb::protocol::{ProxyProtocol, ProxyResolver};
-  ///
-  /// let protocol = ProxyProtocol::new(ProxyResolver::host_mapping([
-  ///   ("myapp", "http://localhost:3000"),
-  /// ]))
-  /// .with_max_cache_bytes(8 * 1024 * 1024);
-  /// # }
-  /// ```
-  pub fn with_max_cache_bytes(mut self, max_cache_bytes: usize) -> Self {
-    self.cache = ResponseCache::new(max_cache_bytes);
-    self
   }
 
   fn client(&self) -> crate::Result<&reqwest::Client> {
@@ -281,36 +185,14 @@ impl super::Protocol for ProxyProtocol {
       .request(request.method().clone(), &url)
       .headers(request.headers().clone());
     proxy_builder = proxy_builder.body(request.body().clone());
-    let r = proxy_builder.send().await?;
+    let response = proxy_builder.send().await?;
 
-    // Answer an upstream `304` with the body we last saw, rather than an empty response.
-    let cached = (r.status() == http::StatusCode::NOT_MODIFIED)
-      .then(|| self.cache.get(&url))
-      .flatten();
-    let response = match cached {
-      Some(response) => response,
-      None => {
-        let status = r.status();
-        let headers = r.headers().clone();
-        let body = r.bytes().await?;
-        let response = CachedResponse {
-          status,
-          headers,
-          body,
-        };
-        // Only a whole `200` body can stand in for a later `304` — a `206` is a slice of one.
-        if status == http::StatusCode::OK {
-          self.cache.insert(&url, response.clone());
-        }
-        response
-      }
-    };
-    for (name, value) in &response.headers {
+    let status = response.status();
+    for (name, value) in response.headers() {
       builder = builder.header(name, value);
     }
-    let resp = builder
-      .status(response.status)
-      .body(response.body.to_vec().into())?;
+    let body = response.bytes().await?;
+    let resp = builder.status(status).body(body.to_vec().into())?;
     #[cfg(feature = "tracing")]
     {
       use crate::protocol::http_ext::HttpHeadersTracingInfo;
@@ -330,34 +212,32 @@ mod tests {
   use http;
   use std::collections::HashMap;
   use std::net::{SocketAddr, TcpListener};
-  use std::sync::Arc;
-  use std::sync::atomic::{AtomicUsize, Ordering};
   use tiny_http::{Header as TinyHeader, Method, Response as TinyResponse, Server as TinyServer};
 
   fn uri(s: &str) -> Uri {
     s.parse().unwrap()
   }
 
+  /// Serves `/index.html` with an `ETag`, answering `304` to a request that already holds it.
   fn server() -> (SocketAddr, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let server = TinyServer::from_listener(listener, None).unwrap();
 
-    let counter = Arc::new(AtomicUsize::new(0));
-    let counter_for_thread = counter.clone();
-
     let handle = std::thread::spawn(move || {
       for request in server.incoming_requests() {
-        let n = counter_for_thread.fetch_add(1, Ordering::SeqCst) + 1;
+        let known = request
+          .headers()
+          .iter()
+          .any(|header| header.field.equiv("If-None-Match") && header.value == "\"v1\"");
         if request.method() == &Method::Get && request.url().starts_with("/index.html") {
-          if n == 1 {
-            let mut resp = TinyResponse::from_string("Hello World");
-            resp.add_header(TinyHeader::from_bytes("Content-Type", "text/plain").unwrap());
+          if known {
+            let mut resp = TinyResponse::empty(304);
             resp.add_header(TinyHeader::from_bytes("ETag", "\"v1\"").unwrap());
             let _ = request.respond(resp);
           } else {
-            // After first response, server will return 304 because content is not changed.
-            let mut resp = TinyResponse::empty(304);
+            let mut resp = TinyResponse::from_string("Hello World");
+            resp.add_header(TinyHeader::from_bytes("Content-Type", "text/plain").unwrap());
             resp.add_header(TinyHeader::from_bytes("ETag", "\"v1\"").unwrap());
             let _ = request.respond(resp);
           }
@@ -450,64 +330,6 @@ mod tests {
     );
   }
 
-  fn cached(size: usize) -> CachedResponse {
-    CachedResponse {
-      status: http::StatusCode::OK,
-      headers: http::HeaderMap::new(),
-      body: bytes::Bytes::from(vec![0u8; size]),
-    }
-  }
-
-  #[test]
-  fn response_cache_stays_within_its_budget() {
-    let cache = ResponseCache::new(10);
-    cache.insert("/a", cached(6));
-    cache.insert("/b", cached(6));
-    // 12 bytes over a 10-byte budget: the oldest entry goes.
-    assert!(cache.get("/a").is_none());
-    assert!(cache.get("/b").is_some());
-    assert_eq!(cache.lock().bytes, 6);
-
-    // Re-caching a url replaces its entry rather than counting it twice.
-    cache.insert("/b", cached(8));
-    assert_eq!(cache.lock().entries.len(), 1);
-    assert_eq!(cache.lock().bytes, 8);
-
-    // A response larger than the whole budget is never cached.
-    cache.insert("/big", cached(11));
-    assert!(cache.get("/big").is_none());
-    assert_eq!(cache.lock().bytes, 8);
-
-    // A zero budget caches nothing at all.
-    let off = ResponseCache::new(0);
-    off.insert("/a", cached(0));
-    assert!(off.get("/a").is_none());
-  }
-
-  #[tokio::test]
-  async fn with_max_cache_bytes_off_passes_the_upstream_304_through() {
-    let (addr, _) = server();
-    let protocol = ProxyProtocol::new(ProxyResolver::host_mapping([(
-      "app.wvb",
-      format!("http://{addr}"),
-    )]))
-    .with_max_cache_bytes(0);
-
-    let request = || {
-      http::Request::builder()
-        .uri("scheme://app.wvb/index.html")
-        .method("GET")
-        .body(Vec::new())
-        .unwrap()
-    };
-    assert_eq!(protocol.handle(request()).await.unwrap().status(), 200);
-    // The test server answers 304 from the second request on. With no cached body to serve in its
-    // place, the webview gets the 304 itself.
-    let second = protocol.handle(request()).await.unwrap();
-    assert_eq!(second.status(), 304);
-    assert!(second.body().is_empty());
-  }
-
   #[tokio::test]
   async fn smoke() {
     let (addr, _) = server();
@@ -516,31 +338,29 @@ mod tests {
       format!("http://{addr}"),
     )]));
 
-    let first_req = http::Request::builder()
+    let request = http::Request::builder()
       .uri("scheme://app.wvb/index.html")
       .method("GET")
       .body(Vec::new())
       .unwrap();
-    let first_resp = protocol.handle(first_req).await.unwrap();
-    assert_eq!(first_resp.status(), 200);
+    let response = protocol.handle(request).await.unwrap();
+    assert_eq!(response.status(), 200);
     assert_eq!(
-      first_resp.headers().get("content-type").unwrap(),
+      response.headers().get("content-type").unwrap(),
       "text/plain"
     );
-    assert_eq!(first_resp.body().as_ref(), b"Hello World");
+    assert_eq!(response.headers().get("etag").unwrap(), "\"v1\"");
+    assert_eq!(response.body().as_ref(), b"Hello World");
 
-    let second_req = http::Request::builder()
+    // A conditional request is forwarded, and so is the `304` the upstream answers it with.
+    let conditional = http::Request::builder()
       .uri("scheme://app.wvb/index.html")
       .method("GET")
+      .header("If-None-Match", "\"v1\"")
       .body(Vec::new())
       .unwrap();
-    let second_resp = protocol.handle(second_req).await.unwrap();
-    assert_eq!(second_resp.status(), 200);
-    assert_eq!(
-      second_resp.headers().get("content-type").unwrap(),
-      "text/plain"
-    );
-    assert_eq!(second_resp.headers().get("etag").unwrap(), "\"v1\"");
-    assert_eq!(first_resp.body().as_ref(), b"Hello World");
+    let response = protocol.handle(conditional).await.unwrap();
+    assert_eq!(response.status(), 304);
+    assert!(response.body().is_empty());
   }
 }

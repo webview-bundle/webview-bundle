@@ -729,7 +729,6 @@ export declare class LoadedDescriptor {
  * Protocol handler that proxies requests to other servers.
  *
  * Forwards requests to local development servers for hot-reloading workflows.
- * Features response caching and 304 Not Modified support.
  *
  * @example
  * ```typescript
@@ -752,7 +751,6 @@ export declare class ProxyProtocol {
    * proxy.
    *
    * @param {Record<string, string> | ((uri: string) => Promise<string | null>)} resolver - Host mapping or custom resolver
-   * @param {ProxyProtocolOptions} [options] - How the proxy behaves beyond resolving the target
    *
    * @example
    * ```typescript
@@ -771,7 +769,7 @@ export declare class ProxyProtocol {
    * });
    * ```
    */
-  constructor(resolver: Record<string, string> | ((uri: string) => Promise<string | null>), options?: ProxyProtocolOptions)
+  constructor(resolver: Record<string, string> | ((uri: string) => Promise<string | null>))
   /**
    * Handles an HTTP request by proxying it to the resolved server.
    *
@@ -1451,24 +1449,6 @@ export type PathResolver = /** Use the uri path as-is (only percent-decoded). */
  * (flat-file style; e.g. Astro `format: 'file'` / GitHub Pages / Next `trailingSlash: false`)
  */
 'htmlExtension';
-
-/**
- * Options for the proxy protocol.
- *
- * @property {number} [maxCacheBytes] - Bytes of upstream response bodies kept for answering a
- * `304 Not Modified` (default: 32 MiB; `0` turns the cache off)
- *
- * @example
- * ```typescript
- * const protocol = new ProxyProtocol(
- *   { myapp: 'http://localhost:3000' },
- *   { maxCacheBytes: 8 * 1024 * 1024 },
- * );
- * ```
- */
-export interface ProxyProtocolOptions {
-  maxCacheBytes?: number
-}
 
 /**
  * Reads a bundle from a file asynchronously.

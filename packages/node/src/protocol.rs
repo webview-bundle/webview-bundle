@@ -244,36 +244,9 @@ fn proxy_resolver(resolver: ProxyResolver) -> protocol::ProxyResolver {
   }
 }
 
-/// Options for the proxy protocol.
-///
-/// @property {number} [maxCacheBytes] - Bytes of upstream response bodies kept for answering a
-/// `304 Not Modified` (default: 32 MiB; `0` turns the cache off)
-///
-/// @example
-/// ```typescript
-/// const protocol = new ProxyProtocol(
-///   { myapp: 'http://localhost:3000' },
-///   { maxCacheBytes: 8 * 1024 * 1024 },
-/// );
-/// ```
-#[napi(object, object_to_js = false)]
-pub struct ProxyProtocolOptions {
-  pub max_cache_bytes: Option<u32>,
-}
-
-impl ProxyProtocolOptions {
-  fn apply(self, protocol: protocol::ProxyProtocol) -> protocol::ProxyProtocol {
-    match self.max_cache_bytes {
-      Some(max_cache_bytes) => protocol.with_max_cache_bytes(max_cache_bytes as usize),
-      None => protocol,
-    }
-  }
-}
-
 /// Protocol handler that proxies requests to other servers.
 ///
 /// Forwards requests to local development servers for hot-reloading workflows.
-/// Features response caching and 304 Not Modified support.
 ///
 /// @example
 /// ```typescript
@@ -300,7 +273,6 @@ impl ProxyProtocol {
   /// proxy.
   ///
   /// @param {Record<string, string> | ((uri: string) => Promise<string | null>)} resolver - Host mapping or custom resolver
-  /// @param {ProxyProtocolOptions} [options] - How the proxy behaves beyond resolving the target
   ///
   /// @example
   /// ```typescript
@@ -320,15 +292,11 @@ impl ProxyProtocol {
   /// ```
   #[napi(
     constructor,
-    ts_args_type = "resolver: Record<string, string> | ((uri: string) => Promise<string | null>), options?: ProxyProtocolOptions"
+    ts_args_type = "resolver: Record<string, string> | ((uri: string) => Promise<string | null>)"
   )]
-  pub fn new(resolver: ProxyResolver, options: Option<ProxyProtocolOptions>) -> ProxyProtocol {
-    let mut inner = protocol::ProxyProtocol::new(proxy_resolver(resolver));
-    if let Some(options) = options {
-      inner = options.apply(inner);
-    }
+  pub fn new(resolver: ProxyResolver) -> ProxyProtocol {
     Self {
-      inner: Arc::new(inner),
+      inner: Arc::new(protocol::ProxyProtocol::new(proxy_resolver(resolver))),
     }
   }
 

@@ -103,33 +103,17 @@ export class BundleProtocol {
   }
 }
 
-/** How a {@link ProxyProtocol} behaves beyond resolving the target. */
-export interface ProxyProtocolOptions {
-  /**
-   * Bytes of upstream response bodies kept for answering a `304 Not Modified`
-   * (default: 32 MiB; `0` turns the cache off).
-   */
-  maxCacheBytes?: number;
-}
-
 /**
  * Proxies requests for custom hosts to other servers (for dev servers with hot reload). Maps a
  * custom host to a base URL — e.g. `{ app: 'http://localhost:5173' }` serves `app://app/index.html`
  * from the dev server; the path and query of the request are appended to the target.
- *
- * ```ts
- * const proxy = new ProxyProtocol({ app: 'http://localhost:5173' }, { maxCacheBytes: 0 });
- * ```
  */
 export class ProxyProtocol {
   #ptr: Deno.PointerValue;
 
-  constructor(hosts: Record<string, string>, options?: ProxyProtocolOptions) {
+  constructor(hosts: Record<string, string>) {
     const lib = getLib();
-    this.#ptr = lib.symbols.wvb_proxy_protocol_new(
-      cstr(JSON.stringify(hosts)),
-      cstr(options != null ? JSON.stringify(options) : '')
-    );
+    this.#ptr = lib.symbols.wvb_proxy_protocol_new(cstr(JSON.stringify(hosts)));
     if (this.#ptr === null) {
       throw new WebviewBundleError('unknown', 'wvb: failed to create ProxyProtocol');
     }

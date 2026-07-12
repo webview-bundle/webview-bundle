@@ -167,7 +167,12 @@ describe('proxy protocol', () => {
   beforeAll(async () => {
     port = await getPort();
     const app = new Hono();
-    app.get('/index.html', c => c.html('<h1>proxied</h1>'));
+    app.get('/index.html', c => {
+      if (c.req.header('if-none-match') === '"v1"') {
+        return c.body(null, 304, { etag: '"v1"' });
+      }
+      return c.html('<h1>proxied</h1>', 200, { etag: '"v1"' });
+    });
     app.get('/api/data', c => c.json({ foo: c.req.query('foo') }));
     app.post('/api/echo', async c => c.json({ received: await c.req.json() }));
     server = serve({ fetch: app.fetch, port });
@@ -207,16 +212,13 @@ describe('proxy protocol', () => {
     expect(error.message).toMatch(/cannot resolve proxy server/);
   });
 
-  it('serves with the response cache turned off', async () => {
-    // `maxCacheBytes: 0` keeps no bodies, so nothing stands in for an upstream 304 — the dev server
-    // here always answers 200, so the response is the same, just never cached.
-    const protocol = new ProxyProtocol(
-      { 'app.wvb': `http://localhost:${port}` },
-      { maxCacheBytes: 0 }
-    );
-    const resp = await protocol.handle('get', 'wvb://app.wvb/index.html');
-    expect(resp.status).toBe(200);
-    expect(resp.body.toString('utf8')).toBe('<h1>proxied</h1>');
+  it('passes an upstream 304 through', async () => {
+    const protocol = new ProxyProtocol({ 'app.wvb': `http://localhost:${port}` });
+    const resp = await protocol.handle('get', 'wvb://app.wvb/index.html', {
+      'If-None-Match': '"v1"',
+    });
+    expect(resp.status).toBe(304);
+    expect(resp.body.length).toBe(0);
   });
 
   it('forwards the request body to the proxy target', async () => {

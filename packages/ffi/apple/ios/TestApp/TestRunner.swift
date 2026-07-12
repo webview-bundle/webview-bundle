@@ -274,10 +274,6 @@ final class TestRunner: ObservableObject {
 
         test("ProxyProtocolHandler: init") {
             _ = ProxyProtocolHandler(hosts: ["myapp": "http://localhost:9999"])
-            _ = ProxyProtocolHandler(
-                hosts: ["myapp": "http://localhost:9999"],
-                options: ProxyProtocolOptions(maxCacheBytes: 0)
-            )
         }
 
         await testAsync("BundleProtocolHandler: a request body is accepted") {

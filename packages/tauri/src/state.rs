@@ -90,10 +90,7 @@ impl<R: Runtime> WebviewBundle<R> {
           )
         }
         Protocol::Proxy(config) => {
-          let mut proxy = protocol::ProxyProtocol::new(config.resolver.clone());
-          if let Some(max_cache_bytes) = config.max_cache_bytes {
-            proxy = proxy.with_max_cache_bytes(max_cache_bytes);
-          }
+          let proxy = protocol::ProxyProtocol::new(config.resolver.clone());
           (
             ProtocolKind::Proxy(Arc::new(proxy)),
             config.error_response.clone(),
