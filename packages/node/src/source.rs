@@ -9,7 +9,6 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::sync::Arc;
-use wvb::DataReadOptions;
 use wvb::integrity::IntegrityChecker;
 use wvb::source;
 
@@ -244,8 +243,8 @@ pub enum VerifyOnLoad {
   None,
   /// Verify downloaded (remote) bundles only.
   Remote,
-  /// Verify both builtin and remote bundles. Requires the builtin manifest to carry
-  /// integrity (and, with a signature verifier, signature) metadata for every bundle.
+  /// Verify both builtin and remote bundles. Whether a bundle whose manifest carries no
+  /// integrity metadata still loads is decided by `integrityPolicy` and not by this option.
   All,
 }
 
@@ -269,7 +268,7 @@ impl From<VerifyOnLoad> for source::VerifyOnLoad {
 /// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
 /// @property {Function} [integrityChecker] - Custom integrity verification function
 /// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
-/// @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: false)
+/// @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: true)
 /// @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
 ///
 /// @example
@@ -302,7 +301,7 @@ pub struct BundleSourceConfig {
   #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
   pub integrity_checker: Option<UpdateIntegrityChecker>,
   #[napi(
-    ts_type = "SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)"
+    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
   )]
   pub signature_verifier: Option<SignatureVerifier>,
   pub verify_data_checksum: Option<bool>,
@@ -336,14 +335,13 @@ fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOption
   if let Some(verifier) = config.signature_verifier.take() {
     options = options.signature_verifier(verifier.inner);
   }
-  let mut data = DataReadOptions::default();
   if let Some(verify) = config.verify_data_checksum.take() {
-    data = data.verify_checksum(verify);
+    options = options.verify_data_checksum(verify);
   }
   if let Some(seed) = config.data_checksum_seed.take() {
-    data = data.checksum_seed(seed);
+    options = options.data_checksum_seed(seed);
   }
-  options.data(data)
+  options
 }
 
 /// Bundle source for managing multiple bundle versions.

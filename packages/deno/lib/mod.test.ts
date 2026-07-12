@@ -175,15 +175,55 @@ Deno.test('BundleProtocol verifies the data checksum of what it serves by defaul
 });
 
 Deno.test('BundleSource accepts verification options and fails closed on a bad one', () => {
-  testSource({ verifyOnLoad: 'remote', verifyDataChecksum: true, dataChecksumSeed: 0 }).free();
-  testSource({ verifyOnLoad: 'none', integrityPolicy: 'optional' }).free();
-  assertThrows(() => testSource({ verifyOnLoad: 'sometimes' as VerifyOnLoad }));
-  assertThrows(() =>
-    testSource({
-      // A key too short to be an ed25519 public key: the source must not fall back to unverified.
-      signatureVerifier: { algorithm: 'ed25519', key: { format: 'raw', data: 'AAAA' } },
-    })
+  {
+    using _configured = testSource({
+      verifyOnLoad: 'remote',
+      verifyDataChecksum: true,
+      dataChecksumSeed: 0,
+    });
+    using _policy = testSource({ verifyOnLoad: 'none', integrityPolicy: 'optional' });
+  }
+  const badVerify = assertThrows(
+    () => testSource({ verifyOnLoad: 'sometimes' as VerifyOnLoad }),
+    WebviewBundleError
   );
+  // No verifier was given, so this is not a key failure.
+  assertEquals(badVerify.code, 'unknown');
+  const badKey = assertThrows(
+    () =>
+      testSource({
+        // A key too short to be an ed25519 public key: the source must not fall back to unverified.
+        signatureVerifier: { algorithm: 'ed25519', key: { format: 'raw', data: 'AAAA' } },
+      }),
+    WebviewBundleError
+  );
+  assertEquals(badKey.code, 'invalid_signature_options');
+});
+
+Deno.test('a misspelled option is rejected instead of silently ignored', () => {
+  const sourceError = assertThrows(
+    // A dropped `verifyOnLoad` would leave load verification off while the caller believes it is on.
+    () => testSource({ verifyOnload: 'remote' } as unknown as BundleSourceConfig),
+    WebviewBundleError
+  );
+  assert(sourceError.message.includes('verifyOnload'), sourceError.message);
+
+  using source = testSource();
+  const protocolError = assertThrows(
+    () =>
+      new BundleProtocol(source, {
+        verifyChecksum: false,
+      } as unknown as BundleProtocolOptions),
+    WebviewBundleError
+  );
+  assert(protocolError.message.includes('verifyChecksum'), protocolError.message);
+});
+
+Deno.test('BundleSource takes a data-checksum seed without disabling verification', () => {
+  // The source verifies entry checksums by default; passing only the seed must keep it on (the
+  // native default is pinned in `src/lib.rs`, where the read options are observable).
+  using seeded = testSource({ dataChecksumSeed: 1 });
+  assert(seeded instanceof BundleSource);
 });
 
 Deno.test('ProxyProtocol constructs and is disposable', () => {

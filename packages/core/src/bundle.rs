@@ -26,7 +26,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, As
 /// The checksum detects **corruption** (a damaged file, a truncated write). It is not a
 /// security control: the seed is not secret, so anything that can rewrite an entry can
 /// rewrite its checksum too. Use integrity and signature verification
-/// (see [`crate::source::BundleSourceOptions`]) to detect tampering.
+/// (see `BundleSourceOptions`, the `source` feature) to detect tampering.
 ///
 /// # Example
 ///

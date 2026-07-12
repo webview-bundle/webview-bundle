@@ -4,9 +4,9 @@ use tauri::http;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
 use wvb::protocol::BundleProtocolOptions;
+use wvb::remote;
 use wvb::source::BundleSourceOptions;
 use wvb::updater::UpdaterConfig;
-use wvb::{DataReadOptions, remote};
 
 pub use wvb::integrity::IntegrityPolicy;
 pub use wvb::protocol::{HostnameSegment, ProxyResolver, UriBundleResolver, UriPathResolver};
@@ -147,7 +147,13 @@ impl<R: Runtime> Source<R> {
 
   /// Verifies that a bundle's integrity string was signed by the matching key.
   ///
-  /// Has no effect unless [`Source::verify_on_load`] is set.
+  /// The signature signs the integrity string, so configuring a verifier also makes the
+  /// integrity check mandatory regardless of [`Source::integrity_policy`] — a signature over
+  /// an unchecked hash proves nothing about the bundle's bytes.
+  ///
+  /// **A verifier alone verifies nothing.** Load-time verification only runs on the bundles
+  /// [`Source::verify_on_load`] selects, which it does not by default; set it to
+  /// [`VerifyOnLoad::Remote`] (or [`VerifyOnLoad::All`]) as well.
   pub fn signature_verifier<F>(mut self, builder: F) -> Self
   where
     F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
@@ -157,10 +163,10 @@ impl<R: Runtime> Source<R> {
   }
 
   /// Verifies each entry's checksum as its data is read through this source
-  /// (default: `false`).
+  /// (default: `true`).
   ///
   /// This covers reads made through the source APIs; the bundle protocol serves requests
-  /// with its own [`BundleProtocolConfig::verify_data_checksum`], which defaults to `true`.
+  /// with its own [`BundleProtocolConfig::verify_data_checksum`].
   pub fn verify_data_checksum(mut self, verify: bool) -> Self {
     self.verify_data_checksum = Some(verify);
     self
@@ -184,14 +190,12 @@ impl<R: Runtime> Source<R> {
       let verifier = builder()?;
       options = options.signature_verifier(verifier);
     }
-    let mut data = DataReadOptions::default();
     if let Some(verify) = self.verify_data_checksum {
-      data = data.verify_checksum(verify);
+      options = options.verify_data_checksum(verify);
     }
     if let Some(seed) = self.data_checksum_seed {
-      data = data.checksum_seed(seed);
+      options = options.data_checksum_seed(seed);
     }
-    options = options.data(data);
     Ok(options)
   }
 

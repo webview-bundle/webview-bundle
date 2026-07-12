@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::{Arc, OnceLock};
 use tokio::runtime::Runtime;
+use wvb::http;
 use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{
   BundleProtocol, BundleProtocolOptions, HostnameSegment, Protocol, ProxyProtocol, ProxyResolver,
@@ -18,7 +19,6 @@ use wvb::signature::{
 };
 use wvb::source::{self, BundleSource, BundleSourceOptions, VerifyOnLoad};
 use wvb::updater::{Updater as CoreUpdater, UpdaterConfig};
-use wvb::{DataReadOptions, http};
 
 fn runtime() -> &'static Runtime {
   static RT: OnceLock<Runtime> = OnceLock::new();
@@ -50,7 +50,7 @@ unsafe fn cstr(ptr: *const c_char) -> String {
 }
 
 /// Create a `BundleSource` (`builtin_dir` read-only, `remote_dir` writable) with the default
-/// options (no load-time verification, no read-time data checksum).
+/// options (no load-time verification; entry data checksums verified on read, with seed `0`).
 ///
 /// # Safety
 /// `builtin_dir` and `remote_dir` must be valid NUL-terminated C strings.
@@ -126,7 +126,17 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
     None | Some(serde_json::Value::Null) => {}
     Some(sv) => options = options.signature_verifier(build_signature_verifier(sv)?),
   }
-  Some(options.data(parse_data_read_options(value)?))
+  // Only the keys the caller actually gave are overridden: `BundleSourceOptions` verifies data
+  // checksums by default, and replacing its `DataReadOptions` wholesale would turn that back off.
+  match value.get("verifyDataChecksum") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => options = options.verify_data_checksum(x.as_bool()?),
+  }
+  match value.get("dataChecksumSeed") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => options = options.data_checksum_seed(u32::try_from(x.as_u64()?).ok()?),
+  }
+  Some(options)
 }
 
 /// `integrityPolicy` string mapping shared by the source and the updater.
@@ -138,23 +148,8 @@ fn parse_integrity_policy(policy: &str) -> IntegrityPolicy {
   }
 }
 
-/// Read the `verifyDataChecksum` / `dataChecksumSeed` keys of `value`, leaving an absent key at
-/// its default (no verification). Returns `None` for an ill-typed value or an out-of-range seed.
-fn parse_data_read_options(value: &serde_json::Value) -> Option<DataReadOptions> {
-  let mut options = DataReadOptions::new();
-  match value.get("verifyDataChecksum") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(x) => options = options.verify_checksum(x.as_bool()?),
-  }
-  match value.get("dataChecksumSeed") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(x) => options = options.checksum_seed(u32::try_from(x.as_u64()?).ok()?),
-  }
-  Some(options)
-}
-
-/// Read the same two data-checksum keys for a protocol, whose defaults differ from a source's:
-/// verification is ON with seed `0` unless the key says otherwise.
+/// Read the same two data-checksum keys for a protocol, which carries its own options type but the
+/// same defaults: verification is ON with seed `0` unless the key says otherwise.
 fn parse_protocol_data_options(value: &serde_json::Value) -> Option<BundleProtocolOptions> {
   let mut options = BundleProtocolOptions::new();
   match value.get("verifyDataChecksum") {
@@ -1107,5 +1102,52 @@ pub unsafe extern "C" fn wvb_result_body_len(result: *const WvbResult) -> usize 
 pub unsafe extern "C" fn wvb_result_free(result: *mut WvbResult) {
   if !result.is_null() {
     drop(unsafe { Box::from_raw(result) });
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// The data options a source parsed from `raw` ends up with.
+  fn data_options(raw: &str) -> Option<wvb::DataReadOptions> {
+    let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+    let options = parse_source_options(&value)?;
+    Some(
+      BundleSource::builder()
+        .options(options)
+        .build()
+        .data_options(),
+    )
+  }
+
+  #[test]
+  fn source_verifies_data_checksums_by_default() {
+    let data = data_options("{}").unwrap();
+    assert!(data.verify_checksum);
+    assert_eq!(data.checksum_seed, 0);
+
+    // Overriding the seed must not turn verification back off.
+    let data = data_options(r#"{"dataChecksumSeed":7}"#).unwrap();
+    assert!(data.verify_checksum);
+    assert_eq!(data.checksum_seed, 7);
+
+    // Nor must an unrelated option.
+    let data = data_options(r#"{"verifyOnLoad":"remote"}"#).unwrap();
+    assert!(data.verify_checksum);
+  }
+
+  #[test]
+  fn source_data_checksum_can_be_turned_off() {
+    let data = data_options(r#"{"verifyDataChecksum":false}"#).unwrap();
+    assert!(!data.verify_checksum);
+  }
+
+  #[test]
+  fn source_options_fail_closed_on_a_bad_value() {
+    assert!(data_options(r#"{"verifyDataChecksum":"yes"}"#).is_none());
+    assert!(data_options(r#"{"dataChecksumSeed":-1}"#).is_none());
+    assert!(data_options(r#"{"dataChecksumSeed":4294967296}"#).is_none());
+    assert!(data_options(r#"{"verifyOnLoad":"sometimes"}"#).is_none());
   }
 }

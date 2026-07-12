@@ -17,7 +17,10 @@ import {
  * - `'remote'` — verify downloaded bundles only. Builtin bundles carry integrity metadata only
  *   if the app was packed with it, so this is the setting that works without changing how
  *   builtin bundles are built.
- * - `'all'` — also verify builtin bundles, which then must carry integrity metadata.
+ * - `'all'` — also hash builtin bundles. Whether a *missing* integrity string is an error is
+ *   decided by {@link BundleSourceConfig.integrityPolicy}, not by this setting: under the default
+ *   `'optional'` policy an unhashed builtin bundle still loads. Pair it with `'strict'` — or with
+ *   a `signatureVerifier`, which forces the integrity check — to require the metadata.
  */
 export type VerifyOnLoad = 'none' | 'remote' | 'all';
 
@@ -40,14 +43,36 @@ export interface BundleSourceConfig {
   signatureVerifier?: SignatureVerifierOptions;
   /**
    * Verify each entry's xxHash-32 checksum when its data is read through this source.
-   * Default: `false`. ({@link BundleProtocol} verifies by default and overrides this.)
+   * Default: `true`. ({@link BundleProtocol} verifies by default too, and overrides this.)
+   *
+   * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite an
+   * entry can rewrite its checksum. Use {@link BundleSourceConfig.signatureVerifier} to detect
+   * tampering.
    */
   verifyDataChecksum?: boolean;
   /** The seed the bundle's data checksums were built with. Default: `0`. */
   dataChecksumSeed?: number;
 }
 
+const CONFIG_KEYS: ReadonlySet<string> = new Set([
+  'builtinDir',
+  'remoteDir',
+  'verifyOnLoad',
+  'integrityPolicy',
+  'signatureVerifier',
+  'verifyDataChecksum',
+  'dataChecksumSeed',
+]);
+
 function serializeConfig(config: BundleSourceConfig): string {
+  // A misspelled security option (`verifyOnload`) would otherwise be dropped in silence, leaving
+  // verification off while the caller believes it is on. Rejecting here — rather than natively —
+  // keeps a newer TS working against an older shipped cdylib that knows fewer keys.
+  for (const key of Object.keys(config)) {
+    if (!CONFIG_KEYS.has(key)) {
+      throw new WebviewBundleError('unknown', `wvb: unknown BundleSource option '${key}'`);
+    }
+  }
   const { builtinDir: _builtin, remoteDir: _remote, signatureVerifier, ...options } = config;
   return JSON.stringify(
     signatureVerifier == null
@@ -89,12 +114,18 @@ export class BundleSource {
       cstr(serializeConfig(config))
     );
     if (this.#ptr === null) {
-      // A null source also means an option was ill-formed — e.g. a `signatureVerifier` that
-      // couldn't be built. Fail closed rather than read bundles unverified.
-      throw new WebviewBundleError(
-        'invalid_signature_options',
-        'wvb: failed to create BundleSource (check verifyOnLoad/integrityPolicy/signatureVerifier)'
-      );
+      // A null source means an option was ill-formed — a `verifyOnLoad`/checksum value the native
+      // side rejected, or a `signatureVerifier` it couldn't build. Fail closed rather than read
+      // bundles unverified; only blame the key when one was actually given.
+      throw config.signatureVerifier != null
+        ? new WebviewBundleError(
+            'invalid_signature_options',
+            'wvb: failed to create BundleSource (check verifyOnLoad/integrityPolicy/signatureVerifier)'
+          )
+        : new WebviewBundleError(
+            'unknown',
+            'wvb: failed to create BundleSource (check verifyOnLoad/integrityPolicy/verifyDataChecksum/dataChecksumSeed)'
+          );
     }
   }
 

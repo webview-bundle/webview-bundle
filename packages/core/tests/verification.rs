@@ -186,6 +186,28 @@ async fn protocol_honours_the_checksum_seed() {
   assert!(matches!(err, wvb::Error::ChecksumMismatch));
 }
 
+/// `LoadedDescriptor::get_data` is what the bindings read through directly, without going via
+/// the protocol, so it verifies by default too.
+#[tokio::test]
+async fn loaded_descriptor_verifies_by_default() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(app("1.0.0"))
+    .set_builtin_current_version("app", "1.0.0");
+
+  let data = app("1.0.0").bundle_data();
+  let offset = entry_data_offset(&data, INDEX);
+  system
+    .source()
+    .corrupt_builtin_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
+
+  let source = system.source().get_source();
+  let descriptor = source.load_descriptor("app").await.unwrap();
+  let err = descriptor.get_data(INDEX).await.unwrap_err();
+  assert!(matches!(err, wvb::Error::ChecksumMismatch));
+}
+
 /// The source's own read options apply to `LoadedDescriptor::get_data`, which bindings use
 /// directly, without going through the protocol.
 #[tokio::test]
@@ -285,9 +307,12 @@ async fn verify_on_load_remote_leaves_builtin_bundles_alone() {
   assert_eq!(resp.body().as_ref(), BODY);
 }
 
-/// ...whereas `All` does verify them, and so fails when the integrity is missing.
+/// ...whereas `All` does verify them, so a missing integrity string fails under `Strict`.
+///
+/// It is the policy, not the `All` variant, that decides whether *missing* metadata is an
+/// error — see `verify_on_load_all_under_optional_policy_allows_missing_integrity`.
 #[tokio::test]
-async fn verify_on_load_all_requires_builtin_integrity() {
+async fn verify_on_load_all_with_strict_policy_requires_builtin_integrity() {
   let mut system = MockSystem::new();
   system
     .source_mut()
@@ -301,6 +326,28 @@ async fn verify_on_load_all_requires_builtin_integrity() {
 
   let err = source.load_descriptor("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
+}
+
+/// `All` selects *which* bundles are hashed; [`IntegrityPolicy`] decides whether a bundle
+/// with no integrity string at all is an error. Under the default `Optional` policy it is
+/// not, so an unhashed builtin bundle still loads.
+#[tokio::test]
+async fn verify_on_load_all_under_optional_policy_allows_missing_integrity() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(app("1.0.0")) // no integrity metadata
+    .set_builtin_current_version("app", "1.0.0");
+
+  let options = BundleSourceOptions::new().verify_on_load(VerifyOnLoad::All);
+  let source = Arc::new(system.source().get_source_with(options));
+
+  let protocol = BundleProtocol::new(source);
+  let resp = protocol
+    .handle(get("https://app.wvb/index.html"))
+    .await
+    .unwrap();
+  assert_eq!(resp.body().as_ref(), BODY);
 }
 
 #[tokio::test]

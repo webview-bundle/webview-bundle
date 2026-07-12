@@ -2,8 +2,8 @@ use crate::bundle::{Bundle, BundleDescriptor, BundleDescriptorInner};
 use crate::integrity::IntegrityPolicy;
 use crate::signature::SignatureVerifierOptions;
 use std::sync::Arc;
+use wvb::signature;
 use wvb::source;
-use wvb::{DataReadOptions, signature};
 
 /// Whether a bundle was loaded from the builtin (read-only, shipped with the app)
 /// or the remote (writable, downloaded at runtime) directory.
@@ -161,8 +161,14 @@ pub enum VerifyOnLoad {
   None,
   /// Verify downloaded (remote) bundles only.
   Remote,
-  /// Verify both builtin and remote bundles. Requires the builtin manifest to carry
-  /// integrity (and, with a signature verifier, signature) metadata for every bundle.
+  /// Verify both builtin and remote bundles.
+  ///
+  /// Builtin bundles are hashed too, so the builtin manifest should carry integrity metadata
+  /// for every bundle. Whether a *missing* integrity string is an error is decided by
+  /// [`IntegrityPolicy`] rather than by this variant: under the default
+  /// [`IntegrityPolicy::Optional`] a builtin bundle with no integrity metadata still loads.
+  /// Pair this with [`IntegrityPolicy::Strict`] — or with a signature verifier, which forces
+  /// the integrity check — to require the metadata.
   All,
 }
 
@@ -186,9 +192,14 @@ pub struct BundleSourceOptions {
   /// Default: [`VerifyOnLoad::None`].
   pub verify_on_load: Option<VerifyOnLoad>,
   pub integrity_policy: Option<IntegrityPolicy>,
-  /// When set, bundles verified on load must also carry a valid signature.
+  /// Verifies that a bundle's integrity string was signed by the matching key. Configuring
+  /// a verifier also makes the integrity check mandatory, regardless of `integrity_policy`.
+  ///
+  /// **A verifier alone verifies nothing.** Load-time verification only runs on the bundles
+  /// `verify_on_load` selects, which by default is none of them; set it to
+  /// [`VerifyOnLoad::Remote`] (or [`VerifyOnLoad::All`]) as well.
   pub signature_verifier: Option<SignatureVerifierOptions>,
-  /// Verify each entry's xxHash-32 checksum when its data is read (default: `false`).
+  /// Verify each entry's xxHash-32 checksum when its data is read (default: `true`).
   pub verify_data_checksum: Option<bool>,
   /// The seed the bundle's data checksums were built with (default: `0`).
   pub data_checksum_seed: Option<u32>,
@@ -249,14 +260,12 @@ impl BundleSource {
       let verifier = signature::SignatureVerifier::try_from(verifier_opts)?;
       source_options = source_options.signature_verifier(verifier);
     }
-    let mut data = DataReadOptions::new();
     if let Some(verify) = options.verify_data_checksum {
-      data = data.verify_checksum(verify);
+      source_options = source_options.verify_data_checksum(verify);
     }
     if let Some(seed) = options.data_checksum_seed {
-      data = data.checksum_seed(seed);
+      source_options = source_options.data_checksum_seed(seed);
     }
-    source_options = source_options.data(data);
 
     Ok(Arc::new(BundleSource {
       inner: Arc::new(builder.options(source_options).build()),

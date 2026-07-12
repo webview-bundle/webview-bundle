@@ -6,7 +6,7 @@ use crate::signature::SignatureVerifier;
 use crate::source::{BundleManifestMetadata, BundleSource};
 #[cfg(feature = "integrity")]
 use crate::verify::VerifyOptions;
-use crate::{Bundle, BundleReader, Reader};
+use crate::{BundleDescriptor, BundleReader, Reader};
 use dashmap::DashMap;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -200,7 +200,9 @@ impl Updater {
 
     // Parse the staged file before activating it: a file that is not a well-formed bundle
     // must never become the active version, whether or not integrity is advertised for it.
-    Reader::<Bundle>::read(&mut BundleReader::new(Cursor::new(&data)))?;
+    // The descriptor covers the header and index; reading it as a full `Bundle` would copy
+    // the whole data section into a second buffer only to drop it.
+    Reader::<BundleDescriptor>::read(&mut BundleReader::new(Cursor::new(&data)))?;
 
     #[cfg(feature = "integrity")]
     self

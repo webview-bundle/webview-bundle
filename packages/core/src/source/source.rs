@@ -66,6 +66,7 @@ impl BundleSourceVersion {
 ///
 /// A bundle is verified once per version, when it is first read; the result is cached
 /// along with the descriptor, so serving a bundle does not re-hash it on every request.
+#[cfg(feature = "integrity")]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
@@ -81,8 +82,12 @@ pub enum VerifyOnLoad {
   Remote,
   /// Verify both builtin and remote bundles.
   ///
-  /// Requires the builtin manifest to carry integrity (and, with a signature verifier,
-  /// signature) metadata for every bundle, otherwise loading a builtin bundle fails.
+  /// Builtin bundles are hashed too, so the builtin manifest should carry integrity metadata
+  /// for every bundle. Whether a *missing* integrity string is an error is decided by
+  /// [`IntegrityPolicy`] rather than by this variant: under the default
+  /// [`IntegrityPolicy::Optional`] a builtin bundle with no integrity metadata still loads.
+  /// Pair this with [`IntegrityPolicy::Strict`] — or with a signature verifier, which forces
+  /// the integrity check — to require the metadata.
   All,
 }
 
@@ -90,23 +95,40 @@ pub enum VerifyOnLoad {
 ///
 /// Two independent layers:
 ///
-/// - **Load-time integrity/signature** ([`VerifyOnLoad`]): hashes the whole bundle file and
+/// - **Load-time integrity/signature** (`verify_on_load`): hashes the whole bundle file and
 ///   checks it against the integrity (and signature) recorded in the manifest. Paid once
 ///   per bundle version. Detects a file damaged or replaced since it was installed.
+///   Off by default; requires the `integrity` feature.
 /// - **Read-time data checksum** ([`DataReadOptions`]): checks each entry's xxHash-32 as it
 ///   is read. Cheap, per read, and catches corruption that happens after the bundle was
-///   loaded.
+///   loaded. On by default.
 ///
 /// The checksum is a corruption detector, not a security control — its seed is public, so
 /// whatever can rewrite an entry can rewrite its checksum. Only a signature detects
 /// deliberate tampering, because only it cannot be recomputed without the signing key.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct BundleSourceOptions {
+  #[cfg(feature = "integrity")]
   pub(crate) verify_on_load: VerifyOnLoad,
   pub(crate) data: DataReadOptions,
   #[cfg(feature = "integrity")]
   pub(crate) verify: VerifyOptions,
+}
+
+impl Default for BundleSourceOptions {
+  fn default() -> Self {
+    Self {
+      #[cfg(feature = "integrity")]
+      verify_on_load: VerifyOnLoad::default(),
+      // Entry data read through a source is verified by default, matching
+      // `BundleProtocol`. The `DataReadOptions` default stays off because it also serves
+      // `Bundle::get_data`, which has no way to learn the seed the bundle was built with.
+      data: DataReadOptions::new().verify_checksum(true),
+      #[cfg(feature = "integrity")]
+      verify: VerifyOptions::default(),
+    }
+  }
 }
 
 impl BundleSourceOptions {
@@ -116,17 +138,34 @@ impl BundleSourceOptions {
 
   /// Which bundles are verified against their manifest metadata when loaded
   /// (default: [`VerifyOnLoad::None`]).
+  #[cfg(feature = "integrity")]
   pub fn verify_on_load(mut self, verify: VerifyOnLoad) -> Self {
     self.verify_on_load = verify;
     self
   }
 
-  /// How entry data read through this source is checked
-  /// (default: [`DataReadOptions::default`], i.e. no verification).
+  /// How entry data read through this source is checked (default: verified, with seed `0`).
   ///
-  /// [`crate::protocol::BundleProtocol`] overrides this with its own options.
+  /// Replaces the options wholesale. Prefer [`BundleSourceOptions::verify_data_checksum`] and
+  /// [`BundleSourceOptions::data_checksum_seed`] to override one field without resetting the
+  /// other back to the [`DataReadOptions`] default, which is *not* the default used here.
+  ///
+  /// `BundleProtocol` (the `protocol` feature) overrides this with its own options.
   pub fn data(mut self, options: DataReadOptions) -> Self {
     self.data = options;
+    self
+  }
+
+  /// Verifies each entry's checksum when its data is read through this source
+  /// (default: `true`).
+  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
+    self.data = self.data.verify_checksum(verify);
+    self
+  }
+
+  /// The seed this source's bundles had their data checksums built with (default: `0`).
+  pub fn data_checksum_seed(mut self, seed: u32) -> Self {
+    self.data = self.data.checksum_seed(seed);
     self
   }
 
@@ -148,7 +187,9 @@ impl BundleSourceOptions {
   /// integrity check mandatory regardless of [`BundleSourceOptions::integrity_policy`] — a
   /// signature over an unchecked hash proves nothing about the bundle's bytes.
   ///
-  /// Has no effect unless [`BundleSourceOptions::verify_on_load`] is set.
+  /// **A verifier alone verifies nothing.** Load-time verification only runs when
+  /// [`BundleSourceOptions::verify_on_load`] selects the bundles to verify, which it does
+  /// not by default; set it to [`VerifyOnLoad::Remote`] (or [`VerifyOnLoad::All`]) as well.
   #[cfg(feature = "signature")]
   pub fn signature_verifier(mut self, verifier: SignatureVerifier) -> Self {
     self.verify.set_signature_verifier(verifier);
@@ -302,7 +343,7 @@ impl LoadedDescriptor {
 
   /// Reads the data for `path` with explicit read options, overriding the source's.
   ///
-  /// [`crate::protocol::BundleProtocol`] uses this to apply its own checksum options.
+  /// `BundleProtocol` (the `protocol` feature) uses this to apply its own checksum options.
   pub async fn get_data_with_options(
     &self,
     path: &str,

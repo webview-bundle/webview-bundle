@@ -1,3 +1,9 @@
+## Coding
+
+### About comment
+
+Do not write comments explaining the code as you write it. Comments should be used in only two cases: when necessary for documentation, or for parts of the code that are non-standard or difficult to understand.
+
 ## Committing
 
 - Before committing, make sure `just test` task to be passed. This task runs all builds and tests for the all packages.

@@ -143,8 +143,19 @@ describe('source', () => {
     expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('invalid_signature_options');
   });
 
-  it('does not verify entry checksums by default', async () => {
+  it('verifies entry checksums by default', async () => {
     const source = makeSource();
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptChecksum(source, '/index.html');
+
+    const loaded = await source.loadDescriptor('app');
+    const error = await loaded.getData('/index.html').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+  });
+
+  it('does not verify entry checksums when verifyDataChecksum is false', async () => {
+    const source = new BundleSource({ builtinDir, remoteDir, verifyDataChecksum: false });
     await install(source, '1.0.0', '<h1>v1</h1>');
     await corruptChecksum(source, '/index.html');
 

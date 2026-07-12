@@ -102,7 +102,7 @@ pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Pr
 ///     // Custom integrity verification
 ///     return true;
 ///   },
-///   signatureVerifier: async (data, signature) => {
+///   signatureVerifier: async (message, signature) => {
 ///     // Custom signature verification
 ///     return true;
 ///   },
@@ -115,7 +115,7 @@ pub struct UpdaterOptions {
   #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
   pub integrity_checker: Option<UpdateIntegrityChecker>,
   #[napi(
-    ts_type = "SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)"
+    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
   )]
   pub signature_verifier: Option<SignatureVerifier>,
 }

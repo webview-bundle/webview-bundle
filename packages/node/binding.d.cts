@@ -1199,7 +1199,7 @@ export type BundleResolverOptions =
  * @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
  * @property {Function} [integrityChecker] - Custom integrity verification function
  * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
- * @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: false)
+ * @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: true)
  * @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
  *
  * @example
@@ -1230,7 +1230,7 @@ export interface BundleSourceConfig {
   verifyOnLoad?: VerifyOnLoad
   integrityPolicy?: IntegrityPolicy
   integrityChecker?: (data: Uint8Array, integrity: string) => Promise<boolean>
-  signatureVerifier?: SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)
+  signatureVerifier?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
   verifyDataChecksum?: boolean
   dataChecksumSeed?: number
 }
@@ -1685,7 +1685,7 @@ export interface SignatureVerifyingKeyOptions {
  *     // Custom integrity verification
  *     return true;
  *   },
- *   signatureVerifier: async (data, signature) => {
+ *   signatureVerifier: async (message, signature) => {
  *     // Custom signature verification
  *     return true;
  *   },
@@ -1696,7 +1696,7 @@ export interface UpdaterOptions {
   channel?: string
   integrityPolicy?: IntegrityPolicy
   integrityChecker?: (data: Uint8Array, integrity: string) => Promise<boolean>
-  signatureVerifier?: SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)
+  signatureVerifier?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
 }
 
 /**
@@ -1756,8 +1756,8 @@ export type VerifyOnLoad = /** Never verify on load. Bundles are still verified 
 /** Verify downloaded (remote) bundles only. */
 'remote'|
 /**
- * Verify both builtin and remote bundles. Requires the builtin manifest to carry
- * integrity (and| with a signature verifier| signature) metadata for every bundle.
+ * Verify both builtin and remote bundles. Whether a bundle whose manifest carries no
+ * integrity metadata still loads is decided by `integrityPolicy` and not by this option.
  */
 'all';
 

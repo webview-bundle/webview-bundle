@@ -57,6 +57,28 @@ export interface BundleProtocolOptions {
   dataChecksumSeed?: number;
 }
 
+const PROTOCOL_OPTION_KEYS: ReadonlySet<string> = new Set([
+  'bundleResolver',
+  'pathResolver',
+  'verifyDataChecksum',
+  'dataChecksumSeed',
+]);
+
+/**
+ * Serialize the options, rejecting any key the binding does not know: a misspelled
+ * `verifyDataChecksum` would otherwise be dropped in silence, leaving the request served with a
+ * setting the caller did not ask for. Checking here — rather than natively — keeps a newer TS
+ * working against an older shipped cdylib that knows fewer keys.
+ */
+function serializeOptions(options: BundleProtocolOptions): string {
+  for (const key of Object.keys(options)) {
+    if (!PROTOCOL_OPTION_KEYS.has(key)) {
+      throw new WebviewBundleError('unknown', `wvb: unknown BundleProtocol option '${key}'`);
+    }
+  }
+  return JSON.stringify(options);
+}
+
 async function handleProtocol(
   ptr: Deno.PointerValue,
   method: string,
@@ -89,7 +111,7 @@ export class BundleProtocol {
     const lib = getLib();
     this.#ptr = lib.symbols.wvb_bundle_protocol_new(
       source.pointer,
-      cstr(options != null ? JSON.stringify(options) : '')
+      cstr(options != null ? serializeOptions(options) : '')
     );
     if (this.#ptr === null) {
       throw new WebviewBundleError('unknown', 'wvb: failed to create BundleProtocol');
