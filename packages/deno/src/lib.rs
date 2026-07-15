@@ -18,10 +18,11 @@ use wvb::signature::{
   RsaPssVerifier, SignatureVerifier,
 };
 use wvb::source::{
-  self, BundleSource, BundleSourceIntegrityOptions, BundleSourceOptions,
-  BundleSourceSignatureOptions, BundleSourceVerifyMode,
+  self, BundleSource, BundleSourceIntegrityCheckMode, BundleSourceIntegrityOptions,
+  BundleSourceOptions, BundleSourceSignatureOptions, BundleSourceSignatureVerifyMode,
 };
 use wvb::updater::{Updater as CoreUpdater, UpdaterConfig};
+use wvb::{DataReadChecksumOptions, DataReadOptions};
 
 fn runtime() -> &'static Runtime {
   static RT: OnceLock<Runtime> = OnceLock::new();
@@ -120,7 +121,7 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
       }
       match x.get("checkMode") {
         None | Some(serde_json::Value::Null) => {}
-        Some(m) => integrity = integrity.check_mode(parse_verify_mode(m.as_str()?)?),
+        Some(m) => integrity = integrity.check_mode(parse_integrity_check_mode(m.as_str()?)?),
       }
       options = options.integrity(integrity);
     }
@@ -140,20 +141,30 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
       }
       match x.get("verifyMode") {
         None | Some(serde_json::Value::Null) => {}
-        Some(m) => signature = signature.verify_mode(parse_verify_mode(m.as_str()?)?),
+        Some(m) => signature = signature.verify_mode(parse_signature_verify_mode(m.as_str()?)?),
       }
       options = options.signature(signature);
     }
   }
-  // Only the keys the caller actually gave are overridden: `BundleSourceOptions` verifies data
-  // checksums by default, and replacing its `DataReadOptions` wholesale would turn that back off.
-  match value.get("verifyDataChecksum") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(x) => options = options.verify_data_checksum(x.as_bool()?),
-  }
-  match value.get("dataChecksumSeed") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(x) => options = options.data_checksum_seed(u32::try_from(x.as_u64()?).ok()?),
+  // Only the keys the caller actually gave are applied: `DataReadOptions` verifies data checksums
+  // with seed `0` by default, so building from that default preserves the ones left unspecified.
+  let verify = match value.get("verifyDataChecksum") {
+    None | Some(serde_json::Value::Null) => None,
+    Some(x) => Some(x.as_bool()?),
+  };
+  let seed = match value.get("dataChecksumSeed") {
+    None | Some(serde_json::Value::Null) => None,
+    Some(x) => Some(u32::try_from(x.as_u64()?).ok()?),
+  };
+  if verify.is_some() || seed.is_some() {
+    let mut checksum = DataReadChecksumOptions::default();
+    if let Some(verify) = verify {
+      checksum = checksum.verify(verify);
+    }
+    if let Some(seed) = seed {
+      checksum = checksum.seed(seed);
+    }
+    options = options.data_read_options(DataReadOptions::default().checksum(checksum));
   }
   Some(options)
 }
@@ -169,11 +180,22 @@ fn parse_integrity_policy(policy: &str) -> Option<IntegrityPolicy> {
   }
 }
 
-/// `integrity.checkMode`/`signature.verifyMode` string mapping.
-fn parse_verify_mode(mode: &str) -> Option<BundleSourceVerifyMode> {
+/// `integrity.checkMode` string mapping. Returns `None` for an unknown value, so the caller can
+/// fail closed rather than pick a default.
+fn parse_integrity_check_mode(mode: &str) -> Option<BundleSourceIntegrityCheckMode> {
   match mode {
-    "all" => Some(BundleSourceVerifyMode::All),
-    "onlyRemote" => Some(BundleSourceVerifyMode::OnlyRemote),
+    "all" => Some(BundleSourceIntegrityCheckMode::All),
+    "onlyRemote" => Some(BundleSourceIntegrityCheckMode::OnlyRemote),
+    _ => None,
+  }
+}
+
+/// `signature.verifyMode` string mapping. Returns `None` for an unknown value, so the caller can
+/// fail closed rather than pick a default.
+fn parse_signature_verify_mode(mode: &str) -> Option<BundleSourceSignatureVerifyMode> {
+  match mode {
+    "all" => Some(BundleSourceSignatureVerifyMode::All),
+    "onlyRemote" => Some(BundleSourceSignatureVerifyMode::OnlyRemote),
     _ => None,
   }
 }
@@ -181,7 +203,7 @@ fn parse_verify_mode(mode: &str) -> Option<BundleSourceVerifyMode> {
 /// Read the same two data-checksum keys for a protocol, which carries its own options type but the
 /// same defaults: verification is ON with seed `0` unless the key says otherwise.
 fn parse_protocol_data_options(value: &serde_json::Value) -> Option<BundleProtocolOptions> {
-  let mut options = BundleProtocolOptions::new();
+  let mut options = BundleProtocolOptions::default();
   match value.get("verifyDataChecksum") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => options = options.verify_data_checksum(x.as_bool()?),
@@ -1149,36 +1171,44 @@ mod tests {
     parse_source_options(&value)
   }
 
-  /// The data options a source parsed from `raw` ends up with.
-  fn data_options(raw: &str) -> Option<wvb::DataReadOptions> {
-    Some(
-      BundleSource::builder()
-        .options(parsed(raw)?)
-        .build()
-        .data_read_options(),
+  fn debug(options: &BundleSourceOptions) -> String {
+    format!("{options:?}")
+  }
+
+  /// A `BundleSourceOptions` carrying only the given data-checksum overrides.
+  fn data_checksum(verify: bool, seed: u32) -> BundleSourceOptions {
+    BundleSourceOptions::default().data_read_options(
+      DataReadOptions::default()
+        .checksum(DataReadChecksumOptions::default().verify(verify).seed(seed)),
     )
   }
 
   #[test]
   fn source_verifies_data_checksums_by_default() {
-    let data = data_options("{}").unwrap();
-    assert!(data.checksum.verify);
-    assert_eq!(data.checksum.seed, 0);
+    assert_eq!(
+      debug(&parsed("{}").unwrap()),
+      debug(&BundleSourceOptions::default()),
+    );
 
     // Overriding the seed must not turn verification back off.
-    let data = data_options(r#"{"dataChecksumSeed":7}"#).unwrap();
-    assert!(data.checksum.verify);
-    assert_eq!(data.checksum.seed, 7);
+    assert_eq!(
+      debug(&parsed(r#"{"dataChecksumSeed":7}"#).unwrap()),
+      debug(&data_checksum(true, 7)),
+    );
 
-    // Nor must an unrelated option.
-    let data = data_options(r#"{"integrity":{"checkMode":"onlyRemote"}}"#).unwrap();
-    assert!(data.checksum.verify);
+    // Nor must an unrelated option (`onlyRemote` is itself the default check mode).
+    assert_eq!(
+      debug(&parsed(r#"{"integrity":{"checkMode":"onlyRemote"}}"#).unwrap()),
+      debug(&BundleSourceOptions::default()),
+    );
   }
 
   #[test]
   fn source_data_checksum_can_be_turned_off() {
-    let data = data_options(r#"{"verifyDataChecksum":false}"#).unwrap();
-    assert!(!data.checksum.verify);
+    assert_eq!(
+      debug(&parsed(r#"{"verifyDataChecksum":false}"#).unwrap()),
+      debug(&data_checksum(false, 0)),
+    );
   }
 
   #[test]

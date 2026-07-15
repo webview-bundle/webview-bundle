@@ -5,9 +5,10 @@ use tauri::{
 };
 
 pub use config::{
-  BundleProtocolConfig, BundleSourceVerifyMode, Config, ErrorResponse, HostnameSegment, Http,
-  IntegrityPolicy, Protocol, ProxyResolver, Remote, SignatureVerifier, Source, SourceIntegrity,
-  SourceSignature, Updater, UriBundleResolver, UriPathResolver, default_error_response,
+  BundleProtocolConfig, BundleSourceIntegrityCheckMode, BundleSourceSignatureVerifyMode, Config,
+  ErrorResponse, HostnameSegment, Http, IntegrityPolicy, Protocol, ProxyResolver, Remote,
+  SignatureVerifier, Source, SourceIntegrity, SourceSignature, Updater, UriBundleResolver,
+  UriPathResolver, default_error_response,
 };
 pub use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,

@@ -66,9 +66,15 @@
 //! }
 //! ```
 
+mod kind;
 mod manifest;
+mod options;
 mod source;
 mod utils;
+mod version;
 
+pub use kind::*;
 pub use manifest::*;
+pub use options::*;
 pub use source::*;
+pub use version::*;

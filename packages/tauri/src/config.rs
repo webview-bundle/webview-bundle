@@ -9,12 +9,13 @@ use wvb::source::{
   BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
 };
 use wvb::updater::UpdaterConfig;
+use wvb::{DataReadChecksumOptions, DataReadOptions};
 
 pub use wvb::integrity::IntegrityPolicy;
 pub use wvb::protocol::{HostnameSegment, ProxyResolver, UriBundleResolver, UriPathResolver};
 pub use wvb::remote::HttpConfig as Http;
 pub use wvb::signature::SignatureVerifier;
-pub use wvb::source::BundleSourceVerifyMode;
+pub use wvb::source::{BundleSourceIntegrityCheckMode, BundleSourceSignatureVerifyMode};
 
 type SignatureVerifierBuilder =
   Arc<dyn Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync>;
@@ -102,7 +103,7 @@ impl<R: Runtime> Dir<R> {
 #[derive(Clone, Default)]
 pub struct SourceIntegrity {
   pub(crate) policy: Option<IntegrityPolicy>,
-  pub(crate) check_mode: Option<BundleSourceVerifyMode>,
+  pub(crate) check_mode: Option<BundleSourceIntegrityCheckMode>,
 }
 
 impl SourceIntegrity {
@@ -118,8 +119,8 @@ impl SourceIntegrity {
     self
   }
 
-  /// Which bundles are checked on load (default: [`BundleSourceVerifyMode::OnlyRemote`]).
-  pub fn check_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
+  /// Which bundles are checked on load (default: [`BundleSourceIntegrityCheckMode::OnlyRemote`]).
+  pub fn check_mode(mut self, mode: BundleSourceIntegrityCheckMode) -> Self {
     self.check_mode = Some(mode);
     self
   }
@@ -129,7 +130,7 @@ impl SourceIntegrity {
 #[derive(Clone, Default)]
 pub struct SourceSignature {
   pub(crate) verify: Option<SignatureVerifierBuilder>,
-  pub(crate) verify_mode: Option<BundleSourceVerifyMode>,
+  pub(crate) verify_mode: Option<BundleSourceSignatureVerifyMode>,
 }
 
 impl SourceSignature {
@@ -150,8 +151,8 @@ impl SourceSignature {
   }
 
   /// Which bundles have their signature verified on load
-  /// (default: [`BundleSourceVerifyMode::OnlyRemote`]).
-  pub fn verify_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
+  /// (default: [`BundleSourceSignatureVerifyMode::OnlyRemote`]).
+  pub fn verify_mode(mut self, mode: BundleSourceSignatureVerifyMode) -> Self {
     self.verify_mode = Some(mode);
     self
   }
@@ -204,7 +205,7 @@ impl<R: Runtime> Source<R> {
   ///
   /// A bundle is verified once per version, not once per request. By default the check
   /// runs under the [`IntegrityPolicy::Optional`] policy on remote bundles only
-  /// ([`BundleSourceVerifyMode::OnlyRemote`]).
+  /// ([`BundleSourceIntegrityCheckMode::OnlyRemote`]).
   pub fn integrity(mut self, integrity: SourceIntegrity) -> Self {
     self.integrity = integrity;
     self
@@ -215,7 +216,7 @@ impl<R: Runtime> Source<R> {
   /// The signature signs a bundle's integrity string, not its bytes, and is verified
   /// independently of the integrity check — keep the [`Source::integrity`] policy enabled
   /// for the signature to also authenticate the bytes. By default verification applies to
-  /// remote bundles only ([`BundleSourceVerifyMode::OnlyRemote`]).
+  /// remote bundles only ([`BundleSourceSignatureVerifyMode::OnlyRemote`]).
   ///
   /// A bundle is verified once per version, not once per request.
   pub fn signature(mut self, signature: SourceSignature) -> Self {
@@ -258,11 +259,15 @@ impl<R: Runtime> Source<R> {
       signature = signature.verify_mode(mode);
     }
     options = options.signature(signature);
-    if let Some(verify) = self.verify_data_checksum {
-      options = options.verify_data_checksum(verify);
-    }
-    if let Some(seed) = self.data_checksum_seed {
-      options = options.data_checksum_seed(seed);
+    if self.verify_data_checksum.is_some() || self.data_checksum_seed.is_some() {
+      let mut checksum = DataReadChecksumOptions::default();
+      if let Some(verify) = self.verify_data_checksum {
+        checksum = checksum.verify(verify);
+      }
+      if let Some(seed) = self.data_checksum_seed {
+        checksum = checksum.seed(seed);
+      }
+      options = options.data_read_options(DataReadOptions::default().checksum(checksum));
     }
     Ok(options)
   }

@@ -129,7 +129,7 @@ impl BundleProtocolHandler {
       if let Some(path_resolver) = options.path_resolver {
         inner = inner.with_path_resolver(path_resolver.into());
       }
-      let mut protocol_options = protocol::BundleProtocolOptions::new();
+      let mut protocol_options = protocol::BundleProtocolOptions::default();
       if let Some(verify) = options.verify_data_checksum {
         protocol_options = protocol_options.verify_data_checksum(verify);
       }

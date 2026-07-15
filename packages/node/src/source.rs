@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wvb::integrity::IntegrityChecker;
 use wvb::source;
+use wvb::{DataReadChecksumOptions, DataReadOptions};
 
 /// The type of bundle source: builtin or remote.
 ///
@@ -247,7 +248,16 @@ pub enum BundleSourceVerifyMode {
   OnlyRemote,
 }
 
-impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
+impl From<BundleSourceVerifyMode> for source::BundleSourceIntegrityCheckMode {
+  fn from(value: BundleSourceVerifyMode) -> Self {
+    match value {
+      BundleSourceVerifyMode::All => Self::All,
+      BundleSourceVerifyMode::OnlyRemote => Self::OnlyRemote,
+    }
+  }
+}
+
+impl From<BundleSourceVerifyMode> for source::BundleSourceSignatureVerifyMode {
   fn from(value: BundleSourceVerifyMode) -> Self {
     match value {
       BundleSourceVerifyMode::All => Self::All,
@@ -367,11 +377,17 @@ fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOption
     }
     options = options.signature(signature_options);
   }
-  if let Some(verify) = config.verify_data_checksum.take() {
-    options = options.verify_data_checksum(verify);
-  }
-  if let Some(seed) = config.data_checksum_seed.take() {
-    options = options.data_checksum_seed(seed);
+  let verify_data_checksum = config.verify_data_checksum.take();
+  let data_checksum_seed = config.data_checksum_seed.take();
+  if verify_data_checksum.is_some() || data_checksum_seed.is_some() {
+    let mut checksum = DataReadChecksumOptions::default();
+    if let Some(verify) = verify_data_checksum {
+      checksum = checksum.verify(verify);
+    }
+    if let Some(seed) = data_checksum_seed {
+      checksum = checksum.seed(seed);
+    }
+    options = options.data_read_options(DataReadOptions::default().checksum(checksum));
   }
   options
 }

@@ -41,10 +41,6 @@ impl Default for BundleProtocolOptions {
 }
 
 impl BundleProtocolOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
   /// How entry data is read as it is served.
   pub fn data_read_options(mut self, options: DataReadOptions) -> Self {
     self.data_read_options = options;

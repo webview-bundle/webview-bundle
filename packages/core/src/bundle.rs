@@ -1,7 +1,7 @@
 use crate::builder::BundleBuilder;
 use crate::checksum::{CHECKSUM_LEN, make_checksum, parse_checksum};
-use crate::header::{Header, HeaderReader, HeaderWriter};
-use crate::index::{Index, IndexEntry, IndexReader, IndexWriter};
+use crate::header::{Header, HeaderReadOptions, HeaderReader, HeaderWriter};
+use crate::index::{Index, IndexEntry, IndexReadOptions, IndexReader, IndexWriter};
 use crate::reader::Reader;
 use crate::writer::Writer;
 use lz4_flex::decompress_size_prepended;
@@ -16,23 +16,22 @@ use crate::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
 /// How an entry's xxHash-32 checksum is treated when its data is read.
-///
-/// The checksum detects **corruption** (a damaged file, a truncated write). It is not a
-/// security control: the seed is not secret, so anything that can rewrite an entry can
-/// rewrite its checksum too. Use integrity and signature verification
-/// (see `BundleSourceOptions`, the `source` feature) to detect tampering.
-///
-/// The default leaves verification **off**: [`DataReadOptions::default`] backs the
-/// seed-unaware `Bundle::get_data`/`BundleDescriptor::get_data` paths, which have no way to
-/// learn the seed a bundle was built with. `BundleSourceOptions` and `BundleProtocolOptions`
-/// carry the seed, so they turn it on by default.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DataReadChecksumOptions {
-  /// Whether to verify each entry's checksum when its data is read (default: `false`).
+  /// Whether to verify each entry's checksum when its data is read (default: `true`).
   pub verify: bool,
   /// The seed the bundle's data checksums were built with
   /// ([`crate::BundleBuilderOptions::data_checksum_seed`], default: `0`).
   pub seed: u32,
+}
+
+impl Default for DataReadChecksumOptions {
+  fn default() -> Self {
+    Self {
+      verify: true,
+      seed: 0,
+    }
+  }
 }
 
 impl DataReadChecksumOptions {
@@ -429,21 +428,35 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncBundleDataReader<R> {
 
 pub struct BundleReader<R: Read + Seek> {
   r: R,
+  header_options: HeaderReadOptions,
+  index_options: IndexReadOptions,
 }
 
 impl<R: Read + Seek> BundleReader<R> {
   pub fn new(r: R) -> Self {
-    Self { r }
+    Self::new_with_options(r, Default::default(), Default::default())
+  }
+
+  pub fn new_with_options(
+    r: R,
+    header_options: HeaderReadOptions,
+    index_options: IndexReadOptions,
+  ) -> Self {
+    Self {
+      r,
+      header_options,
+      index_options,
+    }
   }
 
   pub fn read_header(&mut self) -> crate::Result<Header> {
-    let mut reader = HeaderReader::new(&mut self.r);
+    let mut reader = HeaderReader::new_with_options(&mut self.r, self.header_options);
     let header = reader.read()?;
     Ok(header)
   }
 
   pub fn read_index(&mut self, header: Header) -> crate::Result<Index> {
-    let mut reader = IndexReader::new(&mut self.r, header);
+    let mut reader = IndexReader::new_with_options(&mut self.r, header, self.index_options);
     let index = reader.read()?;
     Ok(index)
   }
@@ -479,22 +492,36 @@ impl<R: Read + Seek> Reader<Bundle> for BundleReader<R> {
 #[cfg(feature = "async")]
 pub struct AsyncBundleReader<R: AsyncRead + AsyncSeek + Unpin> {
   r: R,
+  header_options: HeaderReadOptions,
+  index_options: IndexReadOptions,
 }
 
 #[cfg(feature = "async")]
 impl<R: AsyncRead + AsyncSeek + Unpin> AsyncBundleReader<R> {
   pub fn new(r: R) -> Self {
-    Self { r }
+    Self::new_with_options(r, Default::default(), Default::default())
+  }
+
+  pub fn new_with_options(
+    r: R,
+    header_options: HeaderReadOptions,
+    index_options: IndexReadOptions,
+  ) -> Self {
+    Self {
+      r,
+      header_options,
+      index_options,
+    }
   }
 
   pub async fn read_header(&mut self) -> crate::Result<Header> {
-    let mut reader = AsyncHeaderReader::new(&mut self.r);
+    let mut reader = AsyncHeaderReader::new_with_options(&mut self.r, self.header_options);
     let header = reader.read().await?;
     Ok(header)
   }
 
   pub async fn read_index(&mut self, header: Header) -> crate::Result<Index> {
-    let mut reader = AsyncIndexReader::new(&mut self.r, header);
+    let mut reader = AsyncIndexReader::new_with_options(&mut self.r, header, self.index_options);
     let index = reader.read().await?;
     Ok(index)
   }
@@ -707,7 +734,7 @@ mod tests {
   }
 
   fn bundle_with_seed(seed: u32) -> Bundle {
-    let mut options = BundleBuilderOptions::new();
+    let mut options = BundleBuilderOptions::default();
     options.data_checksum_seed(seed);
     let mut builder = BundleBuilder::new_with_options(options);
     builder.insert_entry(
@@ -730,11 +757,10 @@ mod tests {
     assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
   }
 
-  /// The default read options are seed-unaware and so do not verify: a bundle built with a
-  /// non-zero seed still reads through the no-options path.
+  /// The default read options verify the checksum with the default seed `0`.
   #[test]
-  fn get_data_without_options_does_not_verify() {
-    let bundle = bundle_with_seed(42);
+  fn get_data_verifies_by_default() {
+    let bundle = bundle_with_seed(0);
     let html = bundle.get_data("/index.html").unwrap();
     assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
   }
@@ -768,8 +794,10 @@ mod tests {
     // Without verification the corruption is not reported as a checksum mismatch: it
     // either decompresses to garbage or fails inside lz4. This is why the checksum is
     // compared before decompression.
+    let unverified =
+      DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(false));
     assert!(!matches!(
-      bundle.get_data("/index.html"),
+      bundle.get_data_with_options("/index.html", unverified),
       Err(crate::Error::ChecksumMismatch)
     ));
   }

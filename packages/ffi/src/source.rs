@@ -4,6 +4,7 @@ use crate::signature::SignatureVerifierOptions;
 use std::sync::Arc;
 use wvb::signature;
 use wvb::source;
+use wvb::{DataReadChecksumOptions, DataReadOptions};
 
 /// Whether a bundle was loaded from the builtin (read-only, shipped with the app)
 /// or the remote (writable, downloaded at runtime) directory.
@@ -166,11 +167,20 @@ pub enum BundleSourceVerifyMode {
   OnlyRemote,
 }
 
-impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
+impl From<BundleSourceVerifyMode> for source::BundleSourceIntegrityCheckMode {
   fn from(v: BundleSourceVerifyMode) -> Self {
     match v {
-      BundleSourceVerifyMode::All => source::BundleSourceVerifyMode::All,
-      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceVerifyMode::OnlyRemote,
+      BundleSourceVerifyMode::All => source::BundleSourceIntegrityCheckMode::All,
+      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceIntegrityCheckMode::OnlyRemote,
+    }
+  }
+}
+
+impl From<BundleSourceVerifyMode> for source::BundleSourceSignatureVerifyMode {
+  fn from(v: BundleSourceVerifyMode) -> Self {
+    match v {
+      BundleSourceVerifyMode::All => source::BundleSourceSignatureVerifyMode::All,
+      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceSignatureVerifyMode::OnlyRemote,
     }
   }
 }
@@ -276,11 +286,16 @@ fn source_options(
     }
     source_options = source_options.signature(signature_options);
   }
-  if let Some(verify) = options.verify_data_checksum {
-    source_options = source_options.verify_data_checksum(verify);
-  }
-  if let Some(seed) = options.data_checksum_seed {
-    source_options = source_options.data_checksum_seed(seed);
+  if options.verify_data_checksum.is_some() || options.data_checksum_seed.is_some() {
+    let mut checksum = DataReadChecksumOptions::default();
+    if let Some(verify) = options.verify_data_checksum {
+      checksum = checksum.verify(verify);
+    }
+    if let Some(seed) = options.data_checksum_seed {
+      checksum = checksum.seed(seed);
+    }
+    source_options =
+      source_options.data_read_options(DataReadOptions::default().checksum(checksum));
   }
   Ok(source_options)
 }
@@ -546,14 +561,16 @@ mod tests {
       .integrity(
         source::BundleSourceIntegrityOptions::default()
           .policy(integrity::IntegrityPolicy::Strict)
-          .check_mode(source::BundleSourceVerifyMode::All),
+          .check_mode(source::BundleSourceIntegrityCheckMode::All),
       )
       .signature(
         source::BundleSourceSignatureOptions::default()
-          .verify_mode(source::BundleSourceVerifyMode::OnlyRemote),
+          .verify_mode(source::BundleSourceSignatureVerifyMode::OnlyRemote),
       )
-      .verify_data_checksum(false)
-      .data_checksum_seed(42);
+      .data_read_options(
+        DataReadOptions::default()
+          .checksum(DataReadChecksumOptions::default().verify(false).seed(42)),
+      );
 
     assert_eq!(
       format!("{:?}", source_options(options).unwrap()),

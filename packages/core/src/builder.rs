@@ -55,10 +55,6 @@ pub struct BundleBuilderOptions {
 }
 
 impl BundleBuilderOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
   pub fn header(&mut self, options: HeaderWriterOptions) -> &mut Self {
     self.header = options;
     self

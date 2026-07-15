@@ -61,10 +61,6 @@ pub struct UpdaterConfig {
 }
 
 impl UpdaterConfig {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
   pub fn channel(mut self, channel: impl Into<String>) -> Self {
     self.channel = Some(channel.into());
     self

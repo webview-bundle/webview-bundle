@@ -452,7 +452,7 @@ pub struct BuildOptions {
 
 impl From<BuildOptions> for BundleBuilderOptions {
   fn from(value: BuildOptions) -> Self {
-    let mut options = BundleBuilderOptions::new();
+    let mut options = BundleBuilderOptions::default();
     if let Some(header) = value.header {
       options.header(header.into());
     }
@@ -476,7 +476,7 @@ pub struct BuildHeaderOptions {
 
 impl From<BuildHeaderOptions> for HeaderWriterOptions {
   fn from(value: BuildHeaderOptions) -> Self {
-    let mut options = HeaderWriterOptions::new();
+    let mut options = HeaderWriterOptions::default();
     if let Some(seed) = value.checksum_seed {
       options.checksum_seed(seed);
     }
@@ -494,7 +494,7 @@ pub struct BuildIndexOptions {
 
 impl From<BuildIndexOptions> for IndexWriterOptions {
   fn from(value: BuildIndexOptions) -> Self {
-    let mut options = IndexWriterOptions::new();
+    let mut options = IndexWriterOptions::default();
     if let Some(seed) = value.checksum_seed {
       options.checksum_seed(seed);
     }

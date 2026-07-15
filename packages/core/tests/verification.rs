@@ -11,12 +11,12 @@ use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{BundleProtocol, BundleProtocolOptions, Protocol};
 use wvb::signature::{Ed25519Verifier, SignatureVerifier};
 use wvb::source::{
-  BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
-  BundleSourceVerifyMode,
+  BundleSourceIntegrityCheckMode, BundleSourceIntegrityOptions, BundleSourceOptions,
+  BundleSourceSignatureOptions, BundleSourceSignatureVerifyMode,
 };
 use wvb::testing::*;
 use wvb::updater::{Updater, UpdaterConfig};
-use wvb::{BundleBuilderOptions, BundleEntry};
+use wvb::{BundleBuilderOptions, BundleEntry, DataReadChecksumOptions, DataReadOptions};
 
 const INDEX: &str = "/index.html";
 const BODY: &[u8] = b"<h1>hello</h1>";
@@ -150,7 +150,7 @@ async fn protocol_verification_can_be_turned_off() {
 
   // Only the checksum is damaged, so with verification off the payload still decompresses.
   let protocol = BundleProtocol::new(Arc::new(system.source().get_source()))
-    .with_options(BundleProtocolOptions::new().verify_data_checksum(false));
+    .with_options(BundleProtocolOptions::default().verify_data_checksum(false));
   let resp = protocol
     .handle(get("https://app.wvb/index.html"))
     .await
@@ -161,7 +161,7 @@ async fn protocol_verification_can_be_turned_off() {
 /// A bundle packed with a non-zero seed must be served with the same seed.
 #[tokio::test]
 async fn protocol_honours_the_checksum_seed() {
-  let mut options = BundleBuilderOptions::new();
+  let mut options = BundleBuilderOptions::default();
   options.data_checksum_seed(42);
 
   let mut system = MockSystem::new();
@@ -173,7 +173,7 @@ async fn protocol_honours_the_checksum_seed() {
   let source = Arc::new(system.source().get_source());
 
   let matching = BundleProtocol::new(source.clone())
-    .with_options(BundleProtocolOptions::new().data_checksum_seed(42));
+    .with_options(BundleProtocolOptions::default().data_checksum_seed(42));
   let resp = matching
     .handle(get("https://app.wvb/index.html"))
     .await
@@ -227,11 +227,80 @@ async fn source_read_options_apply_to_loaded_descriptor() {
     .source()
     .corrupt_builtin_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
-  let options = BundleSourceOptions::default().verify_data_checksum(true);
+  let options = BundleSourceOptions::default().data_read_options(
+    DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(true)),
+  );
   let source = system.source().get_source_with(options);
   let descriptor = source.load_descriptor("app").await.unwrap();
   let err = descriptor.get_data(INDEX).await.unwrap_err();
   assert!(matches!(err, wvb::Error::ChecksumMismatch));
+}
+
+/// Reading a descriptor verifies the header checksum, so a damaged header is caught on load
+/// even without integrity metadata. The header checksum sits at a fixed 4-byte offset;
+/// flipping a byte of it leaves the header fields intact but breaks the checksum.
+#[tokio::test]
+async fn load_verifies_the_header_checksum() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(app("1.0.0"))
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .source()
+    .corrupt_builtin_bundle("app", "1.0.0", |data| data[13] ^= 0xff);
+
+  let source = system.source().get_source();
+  let err = source.load_descriptor("app").await.unwrap_err();
+  assert!(matches!(err, wvb::Error::InvalidHeaderChecksum));
+}
+
+/// Reading a descriptor verifies the index checksum too. The index checksum follows the
+/// index content, which begins after the 17-byte header; flipping its first byte breaks it.
+#[tokio::test]
+async fn load_verifies_the_index_checksum() {
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(app("1.0.0"))
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .source()
+    .corrupt_builtin_bundle("app", "1.0.0", |data| {
+      let index_size = u32::from_be_bytes([data[9], data[10], data[11], data[12]]) as usize;
+      data[17 + index_size] ^= 0xff;
+    });
+
+  let source = system.source().get_source();
+  let err = source.load_descriptor("app").await.unwrap_err();
+  assert!(matches!(err, wvb::Error::InvalidIndexChecksum));
+}
+
+/// Header/index verification can be turned off through the source's read options.
+#[tokio::test]
+async fn header_index_verification_can_be_turned_off() {
+  use wvb::{
+    HeaderReadChecksumOptions, HeaderReadOptions, IndexReadChecksumOptions, IndexReadOptions,
+  };
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(app("1.0.0"))
+    .set_builtin_current_version("app", "1.0.0");
+  system
+    .source()
+    .corrupt_builtin_bundle("app", "1.0.0", |data| data[13] ^= 0xff);
+
+  let options = BundleSourceOptions::default()
+    .header_read_options(
+      HeaderReadOptions::default().checksum(HeaderReadChecksumOptions::default().verify(false)),
+    )
+    .index_read_options(
+      IndexReadOptions::default().checksum(IndexReadChecksumOptions::default().verify(false)),
+    );
+  let source = system.source().get_source_with(options);
+  source.load_descriptor("app").await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +353,7 @@ async fn load_accepts_an_intact_remote_bundle() {
   assert_eq!(resp.body().as_ref(), BODY);
 }
 
-/// `BundleSourceVerifyMode::OnlyRemote` must not require integrity metadata on builtin
+/// `BundleSourceIntegrityCheckMode::OnlyRemote` must not require integrity metadata on builtin
 /// bundles, which is the whole reason the mode exists: builtin manifests carry no
 /// integrity unless the app was packed with it.
 #[tokio::test]
@@ -298,7 +367,7 @@ async fn check_mode_only_remote_leaves_builtin_bundles_alone() {
   let options = BundleSourceOptions::default().integrity(
     BundleSourceIntegrityOptions::default()
       .policy(IntegrityPolicy::Strict)
-      .check_mode(BundleSourceVerifyMode::OnlyRemote),
+      .check_mode(BundleSourceIntegrityCheckMode::OnlyRemote),
   );
   let source = Arc::new(system.source().get_source_with(options));
 
@@ -325,7 +394,7 @@ async fn check_mode_all_with_strict_policy_requires_builtin_integrity() {
   let options = BundleSourceOptions::default().integrity(
     BundleSourceIntegrityOptions::default()
       .policy(IntegrityPolicy::Strict)
-      .check_mode(BundleSourceVerifyMode::All),
+      .check_mode(BundleSourceIntegrityCheckMode::All),
   );
   let source = system.source().get_source_with(options);
 
@@ -344,8 +413,9 @@ async fn check_mode_all_under_optional_policy_allows_missing_integrity() {
     .add_builtin_bundle(app("1.0.0")) // no integrity metadata
     .set_builtin_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::default()
-    .integrity(BundleSourceIntegrityOptions::default().check_mode(BundleSourceVerifyMode::All));
+  let options = BundleSourceOptions::default().integrity(
+    BundleSourceIntegrityOptions::default().check_mode(BundleSourceIntegrityCheckMode::All),
+  );
   let source = Arc::new(system.source().get_source_with(options));
 
   let protocol = BundleProtocol::new(source);
@@ -521,7 +591,7 @@ async fn a_downloaded_bundle_verifies_on_load() {
     source.clone(),
     remote,
     Some(
-      UpdaterConfig::new()
+      UpdaterConfig::default()
         .integrity_policy(IntegrityPolicy::Strict)
         .signature_verifier(verifier()),
     ),
@@ -582,7 +652,7 @@ async fn signature_verify_mode_all_reaches_builtin_bundles() {
   let options = BundleSourceOptions::default().signature(
     BundleSourceSignatureOptions::default()
       .verify(verifier())
-      .verify_mode(BundleSourceVerifyMode::All),
+      .verify_mode(BundleSourceSignatureVerifyMode::All),
   );
   let source = system.source().get_source_with(options);
   let err = source.load_descriptor("app").await.unwrap_err();
@@ -629,7 +699,7 @@ async fn updater_rejects_a_bad_signature_on_download_with_integrity_off() {
     source,
     remote,
     Some(
-      UpdaterConfig::new()
+      UpdaterConfig::default()
         .integrity_policy(IntegrityPolicy::Off)
         .signature_verifier(verifier()),
     ),
@@ -667,7 +737,7 @@ async fn updater_installs_a_signed_but_mismatched_bundle_only_for_the_load_to_re
     source.clone(),
     remote,
     Some(
-      UpdaterConfig::new()
+      UpdaterConfig::default()
         .integrity_policy(IntegrityPolicy::Off)
         .signature_verifier(verifier()),
     ),

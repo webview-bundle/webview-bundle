@@ -258,10 +258,6 @@ pub struct IndexWriterOptions {
 }
 
 impl IndexWriterOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
   pub fn checksum_seed(&mut self, seed: u32) -> &mut Self {
     self.checksum_seed = seed;
     self
@@ -379,27 +375,49 @@ fn read_total(header: &Header) -> (u64, Vec<u8>) {
 pub struct IndexReader<R: Read + Seek> {
   r: R,
   header: Header,
-  options: IndexReaderOptions,
+  options: IndexReadOptions,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct IndexReaderOptions {
-  pub checksum_seed: u32,
-  pub verify_checksum: bool,
+/// How the index checksum is treated when the index is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IndexReadChecksumOptions {
+  /// Whether to verify the index checksum when the index is read (default: `true`).
+  pub verify: bool,
+  /// The seed the index checksum was built with
+  /// ([`IndexWriterOptions::checksum_seed`], default: `0`).
+  pub seed: u32,
 }
 
-impl IndexReaderOptions {
-  pub fn new() -> Self {
-    Self::default()
+impl Default for IndexReadChecksumOptions {
+  fn default() -> Self {
+    Self {
+      verify: true,
+      seed: 0,
+    }
   }
+}
 
-  pub fn checksum_seed(mut self, seed: u32) -> Self {
-    self.checksum_seed = seed;
+impl IndexReadChecksumOptions {
+  pub fn verify(mut self, verify: bool) -> Self {
+    self.verify = verify;
     self
   }
 
-  pub fn verify_checksum(mut self, verify: bool) -> Self {
-    self.verify_checksum = verify;
+  pub fn seed(mut self, seed: u32) -> Self {
+    self.seed = seed;
+    self
+  }
+}
+
+/// How the index is read out of a bundle.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct IndexReadOptions {
+  pub checksum: IndexReadChecksumOptions,
+}
+
+impl IndexReadOptions {
+  pub fn checksum(mut self, checksum: IndexReadChecksumOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
@@ -409,7 +427,7 @@ impl<R: Read + Seek> IndexReader<R> {
     Self::new_with_options(r, header, Default::default())
   }
 
-  pub fn new_with_options(r: R, header: Header, options: IndexReaderOptions) -> Self {
+  pub fn new_with_options(r: R, header: Header, options: IndexReadOptions) -> Self {
     Self { r, header, options }
   }
 
@@ -433,7 +451,7 @@ impl<R: Read + Seek> IndexReader<R> {
     self.r.seek(SeekFrom::Start(offset))?;
     self.r.read_exact(&mut buf)?;
 
-    let expected_checksum = make_checksum(self.options.checksum_seed, &buf);
+    let expected_checksum = make_checksum(self.options.checksum.seed, &buf);
     if checksum != expected_checksum {
       return Err(crate::Error::InvalidIndexChecksum);
     }
@@ -445,7 +463,7 @@ impl<R: Read + Seek> Reader<Index> for IndexReader<R> {
   fn read(&mut self) -> crate::Result<Index> {
     let index = self.read_index()?;
     let checksum = self.read_checksum()?;
-    if self.options.verify_checksum {
+    if self.options.checksum.verify {
       self.verify_checksum(checksum)?;
     }
     Ok(index)
@@ -456,7 +474,7 @@ impl<R: Read + Seek> Reader<Index> for IndexReader<R> {
 pub struct AsyncIndexReader<R: AsyncRead + AsyncSeek + Unpin> {
   r: R,
   header: Header,
-  options: IndexReaderOptions,
+  options: IndexReadOptions,
 }
 
 #[cfg(feature = "async")]
@@ -465,7 +483,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncIndexReader<R> {
     Self::new_with_options(r, header, Default::default())
   }
 
-  pub fn new_with_options(r: R, header: Header, options: IndexReaderOptions) -> Self {
+  pub fn new_with_options(r: R, header: Header, options: IndexReadOptions) -> Self {
     Self { r, header, options }
   }
 
@@ -489,7 +507,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncIndexReader<R> {
     self.r.seek(SeekFrom::Start(offset)).await?;
     self.r.read_exact(&mut buf).await?;
 
-    let expected_checksum = make_checksum(self.options.checksum_seed, &buf);
+    let expected_checksum = make_checksum(self.options.checksum.seed, &buf);
     if checksum != expected_checksum {
       return Err(crate::Error::InvalidIndexChecksum);
     }
@@ -502,7 +520,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncReader<Index> for AsyncIndexReader<R
   async fn read(&mut self) -> crate::Result<Index> {
     let index = self.read_index().await?;
     let checksum = self.read_checksum().await?;
-    if self.options.verify_checksum {
+    if self.options.checksum.verify {
       self.verify_checksum(checksum).await?;
     }
     Ok(index)
