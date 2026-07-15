@@ -29,12 +29,17 @@ export function wrapFunction<F extends AnyFunction>(fn: F): F {
 /**
  * Wrap a native class so a throwing constructor reports a webview-bundle error. A `Proxy` (rather
  * than a subclass) keeps `prototype` identical to the target's, so instances built by native code
- * still satisfy `instanceof`.
+ * still satisfy `instanceof`. An optional `validate` runs before construction to reject arguments
+ * the native layer would otherwise accept silently.
  */
-export function wrapClass<T extends AnyConstructor>(klass: T): T {
+export function wrapClass<T extends AnyConstructor>(
+  klass: T,
+  validate?: (args: unknown[]) => void
+): T {
   return new Proxy(klass, {
     construct(target, args, newTarget) {
       try {
+        validate?.(args);
         return Reflect.construct(target, args, newTarget);
       } catch (error) {
         throw toWebviewBundleError(error);

@@ -1,6 +1,6 @@
-use crate::DataReadOptions;
 use crate::protocol::uri::{UriBundleResolver, UriPathResolver};
 use crate::source::BundleSource;
+use crate::{DataReadChecksumOptions, DataReadOptions};
 use async_trait::async_trait;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_range::HttpRange;
@@ -12,13 +12,13 @@ use tokio::io::AsyncWriteExt;
 ///
 /// # Data checksum
 ///
-/// Every entry in a bundle carries an xxHash-32 checksum of its compressed bytes. With
-/// `verify_data_checksum` enabled (the default), the protocol recomputes it as it serves
+/// Every entry in a bundle carries an xxHash-32 checksum of its compressed bytes. When
+/// [`DataReadOptions`] verify it (the default), the protocol recomputes it as it serves
 /// each file and fails the request with [`crate::Error::ChecksumMismatch`] when the entry is
 /// corrupted, instead of handing damaged bytes to the webview. Bindings decide what response
 /// that error turns into.
 ///
-/// `data_checksum_seed` must match the seed the bundle was packed with
+/// The checksum seed must match the seed the bundle was packed with
 /// ([`crate::BundleBuilderOptions::data_checksum_seed`], default `0`).
 ///
 /// The checksum detects corruption, not tampering: the seed is not secret, so whatever can
@@ -27,17 +27,15 @@ use tokio::io::AsyncWriteExt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct BundleProtocolOptions {
-  /// Verify each entry's checksum as it is served (default: `true`).
-  pub verify_data_checksum: bool,
-  /// The seed the bundle's data checksums were built with (default: `0`).
-  pub data_checksum_seed: u32,
+  /// How entry data is read as it is served (default: checksum verification on, seed `0`).
+  pub data_read_options: DataReadOptions,
 }
 
 impl Default for BundleProtocolOptions {
   fn default() -> Self {
     Self {
-      verify_data_checksum: true,
-      data_checksum_seed: 0,
+      data_read_options: DataReadOptions::default()
+        .checksum(DataReadChecksumOptions::default().verify(true)),
     }
   }
 }
@@ -47,22 +45,28 @@ impl BundleProtocolOptions {
     Self::default()
   }
 
-  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
-    self.verify_data_checksum = verify;
+  /// How entry data is read as it is served.
+  pub fn data_read_options(mut self, options: DataReadOptions) -> Self {
+    self.data_read_options = options;
     self
   }
 
+  /// Verify each entry's checksum as it is served (default: `true`).
+  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
+    self.data_read_options.checksum.verify = verify;
+    self
+  }
+
+  /// The seed the bundle's data checksums were built with (default: `0`).
   pub fn data_checksum_seed(mut self, seed: u32) -> Self {
-    self.data_checksum_seed = seed;
+    self.data_read_options.checksum.seed = seed;
     self
   }
 }
 
 impl From<BundleProtocolOptions> for DataReadOptions {
   fn from(value: BundleProtocolOptions) -> Self {
-    DataReadOptions::new()
-      .verify_checksum(value.verify_data_checksum)
-      .checksum_seed(value.data_checksum_seed)
+    value.data_read_options
   }
 }
 

@@ -28,16 +28,16 @@ impl From<integrity::IntegrityAlgorithm> for IntegrityAlgorithm {
   }
 }
 
-/// Controls how the updater handles a missing or mismatched integrity digest.
+/// How a bundle's integrity metadata is treated when the integrity check runs.
 ///
-/// - `Strict`: reject bundles whose digest doesn't match.
-/// - `Optional`: verify when a digest is present, skip when absent.
-/// - `None`: skip integrity verification entirely.
+/// - `Strict`: integrity metadata is required; a bundle without it fails the check.
+/// - `Optional`: integrity metadata is checked when present and tolerated when missing.
+/// - `Off`: the integrity check is disabled.
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum IntegrityPolicy {
   Strict,
   Optional,
-  None,
+  Off,
 }
 
 impl From<IntegrityPolicy> for integrity::IntegrityPolicy {
@@ -45,7 +45,7 @@ impl From<IntegrityPolicy> for integrity::IntegrityPolicy {
     match v {
       IntegrityPolicy::Strict => integrity::IntegrityPolicy::Strict,
       IntegrityPolicy::Optional => integrity::IntegrityPolicy::Optional,
-      IntegrityPolicy::None => integrity::IntegrityPolicy::None,
+      IntegrityPolicy::Off => integrity::IntegrityPolicy::Off,
     }
   }
 }
@@ -55,7 +55,7 @@ impl From<integrity::IntegrityPolicy> for IntegrityPolicy {
     match v {
       integrity::IntegrityPolicy::Strict => IntegrityPolicy::Strict,
       integrity::IntegrityPolicy::Optional => IntegrityPolicy::Optional,
-      integrity::IntegrityPolicy::None => IntegrityPolicy::None,
+      integrity::IntegrityPolicy::Off => IntegrityPolicy::Off,
     }
   }
 }

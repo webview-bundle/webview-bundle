@@ -5,11 +5,9 @@ use crate::signature::SignatureVerifier;
 use crate::source::{
   BundleManifest, BundleManifestMetadata, ListBundleManifestItem, ReadOnly, ReadWrite, utils,
 };
-#[cfg(feature = "integrity")]
-use crate::verify::VerifyOptions;
 use crate::{
-  AsyncBundleReader, AsyncReader, Bundle, BundleDescriptor, BundleReader, DataReadOptions,
-  EXTENSION, MANIFEST_FILENAME, Reader, Writer,
+  AsyncBundleReader, AsyncReader, Bundle, BundleDescriptor, BundleReader, DataReadChecksumOptions,
+  DataReadOptions, EXTENSION, MANIFEST_FILENAME, Reader, Writer,
 };
 use dashmap::DashMap;
 use std::io::Cursor;
@@ -62,7 +60,7 @@ impl BundleSourceVersion {
   }
 }
 
-/// Which bundles are verified against their manifest metadata when loaded from disk.
+/// Which bundles a load-time verification applies to.
 ///
 /// A bundle is verified once per version, when it is first read; the result is cached
 /// along with the descriptor, so serving a bundle does not re-hash it on every request.
@@ -70,129 +68,167 @@ impl BundleSourceVersion {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub enum VerifyOnLoad {
-  /// Never verify on load. Bundles are still verified when downloaded and installed.
-  #[default]
-  None,
-  /// Verify downloaded (remote) bundles only.
-  ///
-  /// Builtin bundles ship inside the application and only carry integrity metadata if the
-  /// app was packed with it, so this is the setting that works without changes to how
-  /// builtin bundles are built.
-  Remote,
+pub enum BundleSourceVerifyMode {
   /// Verify both builtin and remote bundles.
   ///
-  /// Builtin bundles are hashed too, so the builtin manifest should carry integrity metadata
-  /// for every bundle. Whether a *missing* integrity string is an error is decided by
-  /// [`IntegrityPolicy`] rather than by this variant: under the default
-  /// [`IntegrityPolicy::Optional`] a builtin bundle with no integrity metadata still loads.
-  /// Pair this with [`IntegrityPolicy::Strict`] — or with a signature verifier, which forces
-  /// the integrity check — to require the metadata.
+  /// Builtin bundles ship inside the application, so the builtin manifest must carry the
+  /// metadata being verified for the check to have anything to work with.
   All,
+  /// Verify downloaded (remote) bundles only.
+  #[default]
+  OnlyRemote,
 }
 
-/// How a [`BundleSource`] verifies bundles it reads from disk.
+#[cfg(feature = "integrity")]
+impl BundleSourceVerifyMode {
+  fn selects(&self, kind: &BundleSourceKind) -> bool {
+    match self {
+      Self::All => true,
+      Self::OnlyRemote => *kind == BundleSourceKind::Remote,
+    }
+  }
+}
+
+/// How bundles are checked against the integrity recorded for them in the manifest when
+/// they are loaded from disk.
+#[cfg(feature = "integrity")]
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct BundleSourceIntegrityOptions {
+  pub(crate) policy: IntegrityPolicy,
+  pub(crate) check: IntegrityChecker,
+  pub(crate) check_mode: BundleSourceVerifyMode,
+}
+
+#[cfg(feature = "integrity")]
+impl BundleSourceIntegrityOptions {
+  /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
+  ///
+  /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
+  pub fn policy(mut self, policy: IntegrityPolicy) -> Self {
+    self.policy = policy;
+    self
+  }
+
+  /// The checker that validates bundle bytes against an integrity string
+  /// (default: [`IntegrityChecker::Default`]).
+  pub fn check(mut self, check: IntegrityChecker) -> Self {
+    self.check = check;
+    self
+  }
+
+  /// Which bundles are checked on load (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  pub fn check_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
+    self.check_mode = mode;
+    self
+  }
+}
+
+/// How bundle signatures are verified when bundles are loaded from disk.
 ///
-/// Two independent layers:
+/// A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
+/// bundle bytes; verifying it proves the integrity string is authentic. It is verified
+/// independently of the integrity check, so pair it with an enabled
+/// [`BundleSourceOptions::integrity`] to also authenticate the bytes — signature
+/// verification alone does not read them.
 ///
-/// - **Load-time integrity/signature** (`verify_on_load`): hashes the whole bundle file and
-///   checks it against the integrity (and signature) recorded in the manifest. Paid once
-///   per bundle version. Detects a file damaged or replaced since it was installed.
-///   Off by default; requires the `integrity` feature.
-/// - **Read-time data checksum** ([`DataReadOptions`]): checks each entry's xxHash-32 as it
-///   is read. Cheap, per read, and catches corruption that happens after the bundle was
-///   loaded. On by default.
-///
-/// The checksum is a corruption detector, not a security control — its seed is public, so
-/// whatever can rewrite an entry can rewrite its checksum. Only a signature detects
-/// deliberate tampering, because only it cannot be recomputed without the signing key.
+/// Because the two run independently, a bundle's **bytes** are only authenticated for the
+/// kinds selected by *both* [`BundleSourceSignatureOptions::verify_mode`] and
+/// [`BundleSourceIntegrityOptions::check_mode`] (under a policy other than
+/// [`IntegrityPolicy::Off`]). In particular, setting `verify_mode` to
+/// [`BundleSourceVerifyMode::All`] without also setting `check_mode` to `All` verifies the
+/// signature over a builtin bundle's integrity string while never checking that string
+/// against the bytes on disk — a swapped builtin file whose manifest is left intact loads.
+/// Align the two modes to close that gap.
+#[cfg(feature = "signature")]
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct BundleSourceSignatureOptions {
+  pub(crate) verify: Option<SignatureVerifier>,
+  pub(crate) verify_mode: BundleSourceVerifyMode,
+}
+
+#[cfg(feature = "signature")]
+impl BundleSourceSignatureOptions {
+  /// Verifies that a bundle's integrity string was signed by the matching key
+  /// (default: off).
+  pub fn verify(mut self, verifier: SignatureVerifier) -> Self {
+    self.verify = Some(verifier);
+    self
+  }
+
+  /// Which bundles have their signature verified on load
+  /// (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  ///
+  /// To authenticate the bytes of the selected bundles, keep
+  /// [`BundleSourceIntegrityOptions::check_mode`] aligned with this mode — see the type
+  /// docs.
+  pub fn verify_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
+    self.verify_mode = mode;
+    self
+  }
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct BundleSourceOptions {
+  pub(crate) data_read_options: DataReadOptions,
   #[cfg(feature = "integrity")]
-  pub(crate) verify_on_load: VerifyOnLoad,
-  pub(crate) data: DataReadOptions,
-  #[cfg(feature = "integrity")]
-  pub(crate) verify: VerifyOptions,
+  pub(crate) integrity: BundleSourceIntegrityOptions,
+  #[cfg(feature = "signature")]
+  pub(crate) signature: BundleSourceSignatureOptions,
 }
 
 impl Default for BundleSourceOptions {
   fn default() -> Self {
+    // Entry data read through a source is verified by default, unlike the seed-unaware
+    // `DataReadOptions::default()` that backs `Bundle::get_data`: a source knows the seed
+    // its bundles were built with (see [`BundleSourceOptions::data_checksum_seed`]).
     Self {
+      data_read_options: DataReadOptions::default()
+        .checksum(DataReadChecksumOptions::default().verify(true)),
       #[cfg(feature = "integrity")]
-      verify_on_load: VerifyOnLoad::default(),
-      // Entry data read through a source is verified by default, matching
-      // `BundleProtocol`. The `DataReadOptions` default stays off because it also serves
-      // `Bundle::get_data`, which has no way to learn the seed the bundle was built with.
-      data: DataReadOptions::new().verify_checksum(true),
-      #[cfg(feature = "integrity")]
-      verify: VerifyOptions::default(),
+      integrity: BundleSourceIntegrityOptions::default(),
+      #[cfg(feature = "signature")]
+      signature: BundleSourceSignatureOptions::default(),
     }
   }
 }
 
 impl BundleSourceOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  /// Which bundles are verified against their manifest metadata when loaded
-  /// (default: [`VerifyOnLoad::None`]).
-  #[cfg(feature = "integrity")]
-  pub fn verify_on_load(mut self, verify: VerifyOnLoad) -> Self {
-    self.verify_on_load = verify;
-    self
-  }
-
-  /// How entry data read through this source is checked (default: verified, with seed `0`).
-  ///
-  /// Replaces the options wholesale. Prefer [`BundleSourceOptions::verify_data_checksum`] and
-  /// [`BundleSourceOptions::data_checksum_seed`] to override one field without resetting the
-  /// other back to the [`DataReadOptions`] default, which is *not* the default used here.
+  /// How entry data read through this source is checked (default: checksum verification
+  /// on, with seed `0`).
   ///
   /// `BundleProtocol` (the `protocol` feature) overrides this with its own options.
-  pub fn data(mut self, options: DataReadOptions) -> Self {
-    self.data = options;
+  pub fn data_read_options(mut self, options: DataReadOptions) -> Self {
+    self.data_read_options = options;
     self
   }
 
   /// Verifies each entry's checksum when its data is read through this source
   /// (default: `true`).
   pub fn verify_data_checksum(mut self, verify: bool) -> Self {
-    self.data = self.data.verify_checksum(verify);
+    self.data_read_options.checksum.verify = verify;
     self
   }
 
   /// The seed this source's bundles had their data checksums built with (default: `0`).
   pub fn data_checksum_seed(mut self, seed: u32) -> Self {
-    self.data = self.data.checksum_seed(seed);
+    self.data_read_options.checksum.seed = seed;
     self
   }
 
+  /// How bundles are checked against their manifest integrity metadata on load.
   #[cfg(feature = "integrity")]
-  pub fn integrity_checker(mut self, checker: IntegrityChecker) -> Self {
-    self.verify.set_integrity_checker(checker);
+  pub fn integrity(mut self, options: BundleSourceIntegrityOptions) -> Self {
+    self.integrity = options;
     self
   }
 
-  #[cfg(feature = "integrity")]
-  pub fn integrity_policy(mut self, policy: IntegrityPolicy) -> Self {
-    self.verify.set_integrity_policy(policy);
-    self
-  }
-
-  /// Verifies that a bundle's integrity string was signed by the matching key.
-  ///
-  /// The signature signs the integrity string, so configuring a verifier also makes the
-  /// integrity check mandatory regardless of [`BundleSourceOptions::integrity_policy`] — a
-  /// signature over an unchecked hash proves nothing about the bundle's bytes.
-  ///
-  /// **A verifier alone verifies nothing.** Load-time verification only runs when
-  /// [`BundleSourceOptions::verify_on_load`] selects the bundles to verify, which it does
-  /// not by default; set it to [`VerifyOnLoad::Remote`] (or [`VerifyOnLoad::All`]) as well.
+  /// How bundle signatures are verified on load.
   #[cfg(feature = "signature")]
-  pub fn signature_verifier(mut self, verifier: SignatureVerifier) -> Self {
-    self.verify.set_signature_verifier(verifier);
+  pub fn signature(mut self, options: BundleSourceSignatureOptions) -> Self {
+    self.signature = options;
     self
   }
 }
@@ -251,8 +287,9 @@ impl BundleSourceBuilder {
 
   /// How bundles read through this source are verified.
   ///
-  /// By default entry checksums are verified as data is read, while load-time integrity and
-  /// signature verification is off — see [`BundleSourceOptions`].
+  /// By default entry checksums are verified as data is read, remote bundles are checked
+  /// against the integrity recorded in the manifest when loaded (under the optional
+  /// policy), and signature verification is off — see [`BundleSourceOptions`].
   #[must_use]
   pub fn options(mut self, options: BundleSourceOptions) -> Self {
     self.options = options;
@@ -319,7 +356,7 @@ pub struct BundleSource {
 pub struct LoadedDescriptor {
   descriptor: Arc<BundleDescriptor>,
   filepath: PathBuf,
-  data_options: DataReadOptions,
+  data_read_options: DataReadOptions,
 }
 
 impl LoadedDescriptor {
@@ -332,8 +369,8 @@ impl LoadedDescriptor {
   }
 
   /// The read options this descriptor's source was configured with.
-  pub fn data_options(&self) -> DataReadOptions {
-    self.data_options
+  pub fn data_read_options(&self) -> &DataReadOptions {
+    &self.data_read_options
   }
 
   /// Reads the data for `path`, lazily from the bundle file this descriptor was loaded
@@ -341,7 +378,9 @@ impl LoadedDescriptor {
   ///
   /// Returns `None` if the path doesn't exist in the bundle.
   pub async fn get_data(&self, path: &str) -> crate::Result<Option<Vec<u8>>> {
-    self.get_data_with_options(path, self.data_options).await
+    self
+      .get_data_with_options(path, self.data_read_options)
+      .await
   }
 
   /// Reads the data for `path` with explicit read options, overriding the source's.
@@ -441,9 +480,10 @@ impl BundleSource {
     self.filepath_for(bundle_name, &ver)
   }
 
-  /// The read options this source applies to entry data (see [`BundleSourceOptions::data`]).
-  pub fn data_options(&self) -> DataReadOptions {
-    self.options.data
+  /// The read options this source applies to entry data
+  /// (see [`BundleSourceOptions::data_read_options`]).
+  pub fn data_read_options(&self) -> DataReadOptions {
+    self.options.data_read_options
   }
 
   async fn resolve_version(&self, bundle_name: &str) -> crate::Result<BundleSourceVersion> {
@@ -464,22 +504,29 @@ impl BundleSource {
     }
   }
 
-  /// Whether bundles of this kind are verified against their manifest metadata on load.
+  /// Whether the integrity of bundles of this kind is checked on load.
   #[cfg(feature = "integrity")]
-  fn verifies_on_load(&self, kind: &BundleSourceKind) -> bool {
-    match self.options.verify_on_load {
-      VerifyOnLoad::None => false,
-      VerifyOnLoad::Remote => *kind == BundleSourceKind::Remote,
-      VerifyOnLoad::All => true,
+  fn checks_integrity_on_load(&self, kind: &BundleSourceKind) -> bool {
+    self.options.integrity.policy != IntegrityPolicy::Off
+      && self.options.integrity.check_mode.selects(kind)
+  }
+
+  /// The signature verifier applied to bundles of this kind on load, if any.
+  #[cfg(feature = "signature")]
+  fn signature_verifier_on_load(&self, kind: &BundleSourceKind) -> Option<&SignatureVerifier> {
+    match self.options.signature.verify_mode.selects(kind) {
+      true => self.options.signature.verify.as_ref(),
+      false => None,
     }
   }
 
-  /// Reads and verifies a bundle file against the integrity/signature recorded for it in
-  /// the manifest.
+  /// Verifies a bundle file against the integrity and signature recorded for it in the
+  /// manifest, as selected by [`BundleSourceOptions::integrity`] and
+  /// [`BundleSourceOptions::signature`]. The two checks run independently.
   ///
-  /// Returns the raw bytes when verification ran — the caller parses the bundle from them
-  /// rather than re-reading the file — and `None` when this source does not verify this
-  /// kind of bundle, leaving the caller on its lazy read path.
+  /// Returns the raw bytes when the integrity check read the file — the caller parses the
+  /// bundle from them rather than re-reading it — and `None` otherwise, leaving the caller
+  /// on its lazy read path.
   async fn verified_bytes(
     &self,
     filepath: &Path,
@@ -488,9 +535,18 @@ impl BundleSource {
   ) -> crate::Result<Option<Vec<u8>>> {
     #[cfg(feature = "integrity")]
     {
-      if !self.verifies_on_load(&version.kind) {
+      let check_integrity = self.checks_integrity_on_load(&version.kind);
+      #[cfg(feature = "signature")]
+      let signature_verifier = self.signature_verifier_on_load(&version.kind);
+      #[cfg(feature = "signature")]
+      let verify_signature = signature_verifier.is_some();
+      #[cfg(not(feature = "signature"))]
+      let verify_signature = false;
+
+      if !check_integrity && !verify_signature {
         return Ok(None);
       }
+
       let metadata = match version.kind {
         BundleSourceKind::Builtin => {
           self
@@ -505,17 +561,35 @@ impl BundleSource {
       }
       .unwrap_or_default();
 
-      let data = read_file(filepath).await?;
-      self
-        .options
-        .verify
-        .verify(
+      // The signature covers the integrity string, not the file, so only the integrity
+      // check needs the bytes — and only when integrity metadata is actually present. A
+      // missing string is resolved by the policy alone (Strict fails, Optional passes)
+      // without reading the file, keeping the no-metadata case on the lazy path.
+      let data = match check_integrity && metadata.integrity.is_some() {
+        true => Some(read_file(filepath).await?),
+        false => None,
+      };
+      if check_integrity {
+        crate::integrity::verify_integrity(
+          self.options.integrity.policy,
+          &self.options.integrity.check,
           metadata.integrity.as_deref(),
-          metadata.signature.as_deref(),
-          &data,
+          data.as_deref().unwrap_or_default(),
         )
         .await?;
-      Ok(Some(data))
+      }
+
+      #[cfg(feature = "signature")]
+      if let Some(verifier) = signature_verifier {
+        crate::signature::verify_signature(
+          verifier,
+          metadata.integrity.as_deref(),
+          metadata.signature.as_deref(),
+        )
+        .await?;
+      }
+
+      Ok(data)
     }
     #[cfg(not(feature = "integrity"))]
     {
@@ -657,7 +731,7 @@ impl BundleSource {
     Ok(Arc::new(LoadedDescriptor {
       descriptor,
       filepath,
-      data_options: self.options.data,
+      data_read_options: self.options.data_read_options,
     }))
   }
 

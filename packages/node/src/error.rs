@@ -63,6 +63,8 @@ error_codes! {
   InvalidHeaderName => "invalid_header_name",
   InvalidHeaderValue => "invalid_header_value",
   InvalidSignatureOptions => "invalid_signature_options",
+  /// A binding-side validation failure with no more specific code, e.g. an unknown option key.
+  Unknown => "unknown",
   Napi => "napi",
 }
 

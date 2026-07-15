@@ -6,13 +6,14 @@ import {
   type BundleProtocolOptions,
   BundleSource,
   type BundleSourceConfig,
+  type BundleSourceVerifyMode,
   type HttpResponse,
+  type IntegrityPolicy,
   loadLib,
   type PathResolver,
   ProxyProtocol,
   Remote,
   Updater,
-  type VerifyOnLoad,
   WebviewBundleError,
 } from './mod.ts';
 
@@ -177,36 +178,67 @@ Deno.test('BundleProtocol verifies the data checksum of what it serves by defaul
 Deno.test('BundleSource accepts verification options and fails closed on a bad one', () => {
   {
     using _configured = testSource({
-      verifyOnLoad: 'remote',
+      integrity: { policy: 'optional', checkMode: 'onlyRemote' },
       verifyDataChecksum: true,
       dataChecksumSeed: 0,
     });
-    using _policy = testSource({ verifyOnLoad: 'none', integrityPolicy: 'optional' });
+    using _off = testSource({ integrity: { policy: 'off' }, signature: { verifyMode: 'all' } });
   }
-  const badVerify = assertThrows(
-    () => testSource({ verifyOnLoad: 'sometimes' as VerifyOnLoad }),
+  const badMode = assertThrows(
+    () => testSource({ integrity: { checkMode: 'sometimes' as BundleSourceVerifyMode } }),
     WebviewBundleError
   );
   // No verifier was given, so this is not a key failure.
-  assertEquals(badVerify.code, 'unknown');
+  assertEquals(badMode.code, 'unknown');
+  const badPolicy = assertThrows(
+    // 'none' was the old spelling of 'off'; it must fail closed rather than pick a default.
+    () => testSource({ integrity: { policy: 'none' as IntegrityPolicy } }),
+    WebviewBundleError
+  );
+  assertEquals(badPolicy.code, 'unknown');
   const badKey = assertThrows(
     () =>
       testSource({
         // A key too short to be an ed25519 public key: the source must not fall back to unverified.
-        signatureVerifier: { algorithm: 'ed25519', key: { format: 'raw', data: 'AAAA' } },
+        signature: { verify: { algorithm: 'ed25519', key: { format: 'raw', data: 'AAAA' } } },
       }),
     WebviewBundleError
   );
   assertEquals(badKey.code, 'invalid_signature_options');
 });
 
-Deno.test('a misspelled option is rejected instead of silently ignored', () => {
-  const sourceError = assertThrows(
-    // A dropped `verifyOnLoad` would leave load verification off while the caller believes it is on.
-    () => testSource({ verifyOnload: 'remote' } as unknown as BundleSourceConfig),
+Deno.test('integrity options round-trip: strict + all rejects the unhashed builtin on load', async () => {
+  // The builtin fixture manifest carries no integrity string, so `strict` must refuse to load it
+  // when `checkMode: 'all'` selects builtin bundles — while the default `'onlyRemote'` mode
+  // leaves them alone.
+  using strict = testSource({ integrity: { policy: 'strict', checkMode: 'all' } });
+  using strictProtocol = new BundleProtocol(strict);
+  const error = await assertRejects(
+    () => strictProtocol.handle('get', 'bundle://app/index.html'),
     WebviewBundleError
   );
-  assert(sourceError.message.includes('verifyOnload'), sourceError.message);
+  assertEquals(error.code, 'core.integrity_verify_failed');
+
+  using remoteOnly = testSource({ integrity: { policy: 'strict' } });
+  using protocol = new BundleProtocol(remoteOnly);
+  assertEquals((await protocol.handle('get', 'bundle://app/index.html')).status, 200);
+});
+
+Deno.test('a misspelled option is rejected instead of silently ignored', () => {
+  const sourceError = assertThrows(
+    // A dropped `verifyDataChecksum` would leave verification in a state the caller did not ask for.
+    () => testSource({ verifyDatachecksum: true } as unknown as BundleSourceConfig),
+    WebviewBundleError
+  );
+  assert(sourceError.message.includes('verifyDatachecksum'), sourceError.message);
+
+  const nestedError = assertThrows(
+    // A dropped `integrity.checkMode` would leave builtin bundles unverified while the caller
+    // believes they are covered.
+    () => testSource({ integrity: { checkmode: 'all' } } as unknown as BundleSourceConfig),
+    WebviewBundleError
+  );
+  assert(nestedError.message.includes('checkmode'), nestedError.message);
 
   using source = testSource();
   const protocolError = assertThrows(
@@ -251,6 +283,16 @@ Deno.test('Updater constructs with a source + remote and propagates errors', asy
   using updater = new Updater(source, remote, { channel: 'stable', integrityPolicy: 'strict' });
   assert(updater instanceof Updater);
   await assertRejects(() => updater.listRemotes());
+});
+
+Deno.test('Updater fails closed on an unknown integrityPolicy value', () => {
+  using source = testSource();
+  using remote = new Remote('http://127.0.0.1:59999', { http: { connectTimeout: 2000 } });
+  // 'none' was the old spelling of 'off'; it must fail construction rather than be ignored.
+  assertThrows(
+    () => new Updater(source, remote, { integrityPolicy: 'none' as IntegrityPolicy }),
+    WebviewBundleError
+  );
 });
 
 Deno.test('BundleSource exposes source operations over the builtin fixture', async () => {

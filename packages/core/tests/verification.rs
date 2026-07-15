@@ -10,10 +10,13 @@ use std::sync::Arc;
 use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{BundleProtocol, BundleProtocolOptions, Protocol};
 use wvb::signature::{Ed25519Verifier, SignatureVerifier};
-use wvb::source::{BundleSourceOptions, VerifyOnLoad};
+use wvb::source::{
+  BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
+  BundleSourceVerifyMode,
+};
 use wvb::testing::*;
 use wvb::updater::{Updater, UpdaterConfig};
-use wvb::{BundleBuilderOptions, BundleEntry, DataReadOptions};
+use wvb::{BundleBuilderOptions, BundleEntry};
 
 const INDEX: &str = "/index.html";
 const BODY: &[u8] = b"<h1>hello</h1>";
@@ -224,7 +227,7 @@ async fn source_read_options_apply_to_loaded_descriptor() {
     .source()
     .corrupt_builtin_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
-  let options = BundleSourceOptions::new().data(DataReadOptions::new().verify_checksum(true));
+  let options = BundleSourceOptions::default().verify_data_checksum(true);
   let source = system.source().get_source_with(options);
   let descriptor = source.load_descriptor("app").await.unwrap();
   let err = descriptor.get_data(INDEX).await.unwrap_err();
@@ -253,9 +256,8 @@ async fn load_detects_a_corrupted_remote_bundle() {
     .source()
     .corrupt_remote_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::Remote)
-    .integrity_policy(IntegrityPolicy::Strict);
+  let options = BundleSourceOptions::default()
+    .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Strict));
   let source = system.source().get_source_with(options);
 
   let err = source.load_descriptor("app").await.unwrap_err();
@@ -270,9 +272,8 @@ async fn load_accepts_an_intact_remote_bundle() {
     .add_remote_bundle(app("1.0.0").with_auto_integrity())
     .set_remote_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::Remote)
-    .integrity_policy(IntegrityPolicy::Strict);
+  let options = BundleSourceOptions::default()
+    .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Strict));
   let source = Arc::new(system.source().get_source_with(options));
 
   let protocol = BundleProtocol::new(source);
@@ -283,20 +284,22 @@ async fn load_accepts_an_intact_remote_bundle() {
   assert_eq!(resp.body().as_ref(), BODY);
 }
 
-/// `VerifyOnLoad::Remote` must not require integrity metadata on builtin bundles, which is
-/// the whole reason it is not a plain on/off flag: builtin manifests carry no integrity
-/// unless the app was packed with it.
+/// `BundleSourceVerifyMode::OnlyRemote` must not require integrity metadata on builtin
+/// bundles, which is the whole reason the mode exists: builtin manifests carry no
+/// integrity unless the app was packed with it.
 #[tokio::test]
-async fn verify_on_load_remote_leaves_builtin_bundles_alone() {
+async fn check_mode_only_remote_leaves_builtin_bundles_alone() {
   let mut system = MockSystem::new();
   system
     .source_mut()
     .add_builtin_bundle(app("1.0.0")) // no integrity metadata
     .set_builtin_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::Remote)
-    .integrity_policy(IntegrityPolicy::Strict);
+  let options = BundleSourceOptions::default().integrity(
+    BundleSourceIntegrityOptions::default()
+      .policy(IntegrityPolicy::Strict)
+      .check_mode(BundleSourceVerifyMode::OnlyRemote),
+  );
   let source = Arc::new(system.source().get_source_with(options));
 
   let protocol = BundleProtocol::new(source);
@@ -309,19 +312,21 @@ async fn verify_on_load_remote_leaves_builtin_bundles_alone() {
 
 /// ...whereas `All` does verify them, so a missing integrity string fails under `Strict`.
 ///
-/// It is the policy, not the `All` variant, that decides whether *missing* metadata is an
-/// error — see `verify_on_load_all_under_optional_policy_allows_missing_integrity`.
+/// It is the policy, not the `All` mode, that decides whether *missing* metadata is an
+/// error — see `check_mode_all_under_optional_policy_allows_missing_integrity`.
 #[tokio::test]
-async fn verify_on_load_all_with_strict_policy_requires_builtin_integrity() {
+async fn check_mode_all_with_strict_policy_requires_builtin_integrity() {
   let mut system = MockSystem::new();
   system
     .source_mut()
     .add_builtin_bundle(app("1.0.0"))
     .set_builtin_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::All)
-    .integrity_policy(IntegrityPolicy::Strict);
+  let options = BundleSourceOptions::default().integrity(
+    BundleSourceIntegrityOptions::default()
+      .policy(IntegrityPolicy::Strict)
+      .check_mode(BundleSourceVerifyMode::All),
+  );
   let source = system.source().get_source_with(options);
 
   let err = source.load_descriptor("app").await.unwrap_err();
@@ -332,14 +337,15 @@ async fn verify_on_load_all_with_strict_policy_requires_builtin_integrity() {
 /// with no integrity string at all is an error. Under the default `Optional` policy it is
 /// not, so an unhashed builtin bundle still loads.
 #[tokio::test]
-async fn verify_on_load_all_under_optional_policy_allows_missing_integrity() {
+async fn check_mode_all_under_optional_policy_allows_missing_integrity() {
   let mut system = MockSystem::new();
   system
     .source_mut()
     .add_builtin_bundle(app("1.0.0")) // no integrity metadata
     .set_builtin_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::new().verify_on_load(VerifyOnLoad::All);
+  let options = BundleSourceOptions::default()
+    .integrity(BundleSourceIntegrityOptions::default().check_mode(BundleSourceVerifyMode::All));
   let source = Arc::new(system.source().get_source_with(options));
 
   let protocol = BundleProtocol::new(source);
@@ -350,8 +356,10 @@ async fn verify_on_load_all_under_optional_policy_allows_missing_integrity() {
   assert_eq!(resp.body().as_ref(), BODY);
 }
 
+/// By default the integrity check applies to remote bundles under the optional policy, so
+/// a remote bundle whose manifest carries integrity metadata is hashed on load.
 #[tokio::test]
-async fn verify_on_load_defaults_to_off() {
+async fn integrity_check_defaults_to_only_remote_under_the_optional_policy() {
   let bundle = app("1.0.0").with_auto_integrity();
 
   let mut system = MockSystem::new();
@@ -366,8 +374,30 @@ async fn verify_on_load_defaults_to_off() {
     .source()
     .corrupt_remote_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
-  // Loading succeeds: nothing hashes the file. The corruption is still caught on read, by
-  // the entry checksum — the two layers are complementary.
+  let source = system.source().get_source();
+  let err = source.load_descriptor("app").await.unwrap_err();
+  assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
+}
+
+/// Under the default (optional) policy a remote bundle without integrity metadata is not
+/// hashed on load. Corruption is still caught on read, by the entry checksum — the two
+/// layers are complementary.
+#[tokio::test]
+async fn a_remote_bundle_without_integrity_metadata_loads_by_default() {
+  let bundle = app("1.0.0"); // no integrity metadata
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_remote_bundle(bundle.clone())
+    .set_remote_current_version("app", "1.0.0");
+
+  let data = bundle.bundle_data();
+  let offset = entry_data_offset(&data, INDEX);
+  system
+    .source()
+    .corrupt_remote_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
+
   let source = Arc::new(system.source().get_source());
   source.load_descriptor("app").await.unwrap();
 
@@ -391,9 +421,8 @@ async fn load_verifies_the_signature() {
     .add_remote_bundle(bundle)
     .set_remote_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::Remote)
-    .signature_verifier(verifier());
+  let options = BundleSourceOptions::default()
+    .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = Arc::new(system.source().get_source_with(options));
 
   let protocol = BundleProtocol::new(source);
@@ -419,19 +448,20 @@ async fn load_rejects_a_tampered_bundle_whose_integrity_was_updated() {
     .add_remote_bundle(tampered)
     .set_remote_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::Remote)
-    .signature_verifier(verifier());
+  let options = BundleSourceOptions::default()
+    .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = system.source().get_source_with(options);
 
   let err = source.load_descriptor("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
 }
 
-/// Configuring a verifier makes the integrity check mandatory even under
-/// `IntegrityPolicy::None`: a signature over an unchecked hash proves nothing.
+/// Integrity and signature verification run independently. The signature authenticates the
+/// integrity *string*, not the bytes it describes: with the integrity policy off, a validly
+/// signed bundle loads even when the advertised hash does not match its bytes. Keeping the
+/// integrity check enabled is what closes that gap.
 #[tokio::test]
-async fn a_signature_verifier_forces_the_integrity_check() {
+async fn signature_verification_runs_independently_of_the_integrity_check() {
   let integrity_of_other_bytes = MockBundle::new("app", "1.0.0")
     .with_entry(INDEX, BundleEntry::new(b"other", "text/html", None))
     .with_auto_integrity();
@@ -447,14 +477,18 @@ async fn a_signature_verifier_forces_the_integrity_check() {
     .add_remote_bundle(bundle)
     .set_remote_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::Remote)
-    .integrity_policy(IntegrityPolicy::None)
-    .signature_verifier(verifier());
+  // Integrity off: only the signature is verified, and it is valid over the advertised
+  // string — the mismatched hash goes unnoticed.
+  let options = BundleSourceOptions::default()
+    .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Off))
+    .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = system.source().get_source_with(options);
+  source.load_descriptor("app").await.unwrap();
 
-  // The signature is valid over the advertised integrity string — but that string does not
-  // describe this bundle's bytes.
+  // Under the default (optional) policy the integrity check runs too and catches it.
+  let options = BundleSourceOptions::default()
+    .signature(BundleSourceSignatureOptions::default().verify(verifier()));
+  let source = system.source().get_source_with(options);
   let err = source.load_descriptor("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
 }
@@ -478,10 +512,9 @@ async fn a_downloaded_bundle_verifies_on_load() {
     )
     .set_bundle_current_version("app", "2.0.0");
 
-  let options = BundleSourceOptions::new()
-    .verify_on_load(VerifyOnLoad::Remote)
-    .integrity_policy(IntegrityPolicy::Strict)
-    .signature_verifier(verifier());
+  let options = BundleSourceOptions::default()
+    .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Strict))
+    .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = Arc::new(system.source().get_source_with(options));
   let remote = Arc::new(system.remote().get_remote());
   let updater = Updater::new(
@@ -503,4 +536,148 @@ async fn a_downloaded_bundle_verifies_on_load() {
     .await
     .unwrap();
   assert_eq!(resp.body().as_ref(), b"<h1>v2</h1>");
+}
+
+/// With the integrity check off, the signature is the only load-time check left. It runs on
+/// the lazy read path (no bytes are read for it), so it must still fail closed — and the
+/// once-per-version cache must not remember the failure as a success.
+#[tokio::test]
+async fn a_bad_signature_fails_the_load_even_with_integrity_off() {
+  let bundle = app("1.0.0").with_auto_integrity().with_signature(sign(
+    b"sha256:a-message-that-was-not-this-bundles-integrity",
+  ));
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_remote_bundle(bundle)
+    .set_remote_current_version("app", "1.0.0");
+
+  let options = BundleSourceOptions::default()
+    .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Off))
+    .signature(BundleSourceSignatureOptions::default().verify(verifier()));
+  let source = system.source().get_source_with(options);
+
+  let err = source.load_descriptor("app").await.unwrap_err();
+  assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
+  // A retry re-runs the check rather than caching the error as a loaded descriptor.
+  let err = source.load_descriptor("app").await.unwrap_err();
+  assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
+}
+
+/// `verify_mode` selects which bundle kinds have their signature checked, independently of
+/// the integrity mode: `All` reaches builtin bundles too.
+#[tokio::test]
+async fn signature_verify_mode_all_reaches_builtin_bundles() {
+  let bundle = app("1.0.0")
+    .with_auto_integrity()
+    .with_signature(sign(b"sha256:not-this-bundles-integrity"));
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(bundle)
+    .set_builtin_current_version("app", "1.0.0");
+
+  let options = BundleSourceOptions::default().signature(
+    BundleSourceSignatureOptions::default()
+      .verify(verifier())
+      .verify_mode(BundleSourceVerifyMode::All),
+  );
+  let source = system.source().get_source_with(options);
+  let err = source.load_descriptor("app").await.unwrap_err();
+  assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
+}
+
+/// ...whereas the default `OnlyRemote` leaves a builtin bundle's signature unchecked.
+#[tokio::test]
+async fn signature_verify_mode_only_remote_leaves_builtin_bundles_alone() {
+  let bundle = app("1.0.0")
+    .with_auto_integrity()
+    .with_signature(sign(b"sha256:not-this-bundles-integrity"));
+
+  let mut system = MockSystem::new();
+  system
+    .source_mut()
+    .add_builtin_bundle(bundle)
+    .set_builtin_current_version("app", "1.0.0");
+
+  let options = BundleSourceOptions::default()
+    .signature(BundleSourceSignatureOptions::default().verify(verifier()));
+  let source = system.source().get_source_with(options);
+  source.load_descriptor("app").await.unwrap();
+}
+
+/// The updater verifies the signature on download independently of the integrity policy, so
+/// a bad signature is rejected even when the policy is off.
+#[tokio::test]
+async fn updater_rejects_a_bad_signature_on_download_with_integrity_off() {
+  let mut system = MockSystem::new();
+  system
+    .remote_mut()
+    .add_bundle(
+      MockBundle::new("app", "2.0.0")
+        .with_entry(INDEX, BundleEntry::new(b"<h1>v2</h1>", "text/html", None))
+        .with_auto_integrity()
+        .with_signature(sign(b"sha256:not-this-bundles-integrity")),
+    )
+    .set_bundle_current_version("app", "2.0.0");
+
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let updater = Updater::new(
+    source,
+    remote,
+    Some(
+      UpdaterConfig::new()
+        .integrity_policy(IntegrityPolicy::Off)
+        .signature_verifier(verifier()),
+    ),
+  );
+
+  let err = updater.download("app", None).await.unwrap_err();
+  assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
+}
+
+/// With the integrity policy off, the updater installs a validly-signed bundle even when its
+/// advertised integrity does not describe its bytes (the decoupling). The source's own
+/// default-policy integrity check on load is what closes that gap.
+#[tokio::test]
+async fn updater_installs_a_signed_but_mismatched_bundle_only_for_the_load_to_reject_it() {
+  let integrity_of_other_bytes = MockBundle::new("app", "2.0.0")
+    .with_entry(INDEX, BundleEntry::new(b"other", "text/html", None))
+    .with_auto_integrity();
+  let advertised = integrity_of_other_bytes.integrity().unwrap().to_string();
+
+  let mut system = MockSystem::new();
+  system
+    .remote_mut()
+    .add_bundle(
+      MockBundle::new("app", "2.0.0")
+        .with_entry(INDEX, BundleEntry::new(b"<h1>v2</h1>", "text/html", None))
+        .with_integrity(advertised.clone())
+        .with_signature(sign(advertised.as_bytes())),
+    )
+    .set_bundle_current_version("app", "2.0.0");
+
+  // The source verifies on load under its default (optional) policy.
+  let source = Arc::new(system.source().get_source());
+  let remote = Arc::new(system.remote().get_remote());
+  let updater = Updater::new(
+    source.clone(),
+    remote,
+    Some(
+      UpdaterConfig::new()
+        .integrity_policy(IntegrityPolicy::Off)
+        .signature_verifier(verifier()),
+    ),
+  );
+
+  // Integrity off + a valid signature over the advertised string: the updater accepts it.
+  updater.download("app", None).await.unwrap();
+  updater.install("app", "2.0.0").await.unwrap();
+
+  // But loading it re-checks integrity, and the advertised hash does not match the bytes.
+  let err = source.load_descriptor("app").await.unwrap_err();
+  assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
 }

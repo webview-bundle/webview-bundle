@@ -62,7 +62,7 @@
 //! - `updater`: Automatic bundle updates
 //! - `protocol`: Custom protocol handlers for serving bundles
 //! - `protocol-proxy`: Proxy protocol to local servers
-//! - `integrity`: SHA3-based integrity verification
+//! - `integrity`: SHA-2 based integrity verification
 //! - `signature`: Digital signature verification (ECDSA, Ed25519, RSA)
 //! - `full`: Enable all features
 //!
@@ -145,5 +145,3 @@ pub mod source;
 pub mod testing;
 #[cfg(feature = "updater")]
 pub mod updater;
-#[cfg(feature = "integrity")]
-pub(crate) mod verify;

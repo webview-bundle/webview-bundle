@@ -5,14 +5,16 @@ use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
 use wvb::protocol::BundleProtocolOptions;
 use wvb::remote;
-use wvb::source::BundleSourceOptions;
+use wvb::source::{
+  BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
+};
 use wvb::updater::UpdaterConfig;
 
 pub use wvb::integrity::IntegrityPolicy;
 pub use wvb::protocol::{HostnameSegment, ProxyResolver, UriBundleResolver, UriPathResolver};
 pub use wvb::remote::HttpConfig as Http;
 pub use wvb::signature::SignatureVerifier;
-pub use wvb::source::VerifyOnLoad;
+pub use wvb::source::BundleSourceVerifyMode;
 
 type SignatureVerifierBuilder =
   Arc<dyn Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync>;
@@ -39,6 +41,15 @@ impl Updater {
     self
   }
 
+  /// Verifies that each bundle's integrity string was signed by the matching key.
+  ///
+  /// The signature signs the integrity string, not the bundle bytes, and is verified
+  /// independently of [`Updater::integrity_policy`] — keep the policy enabled
+  /// ([`IntegrityPolicy::Strict`] or [`IntegrityPolicy::Optional`], not
+  /// [`IntegrityPolicy::Off`]) for the signature to also authenticate the downloaded
+  /// bytes.
+  ///
+  /// The builder runs once, when the plugin initializes; its error aborts setup.
   pub fn signature_verifier<F>(mut self, builder: F) -> Self
   where
     F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
@@ -86,13 +97,72 @@ impl<R: Runtime> Dir<R> {
   }
 }
 
+/// How bundles are checked against their manifest integrity metadata when they are
+/// loaded from disk.
+#[derive(Clone, Default)]
+pub struct SourceIntegrity {
+  pub(crate) policy: Option<IntegrityPolicy>,
+  pub(crate) check_mode: Option<BundleSourceVerifyMode>,
+}
+
+impl SourceIntegrity {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
+  ///
+  /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
+  pub fn policy(mut self, policy: IntegrityPolicy) -> Self {
+    self.policy = Some(policy);
+    self
+  }
+
+  /// Which bundles are checked on load (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  pub fn check_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
+    self.check_mode = Some(mode);
+    self
+  }
+}
+
+/// How bundle signatures are verified when bundles are loaded from disk.
+#[derive(Clone, Default)]
+pub struct SourceSignature {
+  pub(crate) verify: Option<SignatureVerifierBuilder>,
+  pub(crate) verify_mode: Option<BundleSourceVerifyMode>,
+}
+
+impl SourceSignature {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// Verifies that a bundle's integrity string was signed by the matching key
+  /// (default: off).
+  ///
+  /// The builder runs once, when the plugin initializes; its error aborts setup.
+  pub fn verify<F>(mut self, builder: F) -> Self
+  where
+    F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
+  {
+    self.verify = Some(Arc::new(builder));
+    self
+  }
+
+  /// Which bundles have their signature verified on load
+  /// (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  pub fn verify_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
+    self.verify_mode = Some(mode);
+    self
+  }
+}
+
 #[derive(Clone, Default)]
 pub struct Source<R: Runtime> {
   pub(crate) builtin_dir: Option<Dir<R>>,
   pub(crate) remote_dir: Option<Dir<R>>,
-  pub(crate) verify_on_load: Option<VerifyOnLoad>,
-  pub(crate) integrity_policy: Option<IntegrityPolicy>,
-  pub(crate) signature_verifier: Option<SignatureVerifierBuilder>,
+  pub(crate) integrity: SourceIntegrity,
+  pub(crate) signature: SourceSignature,
   pub(crate) verify_data_checksum: Option<bool>,
   pub(crate) data_checksum_seed: Option<u32>,
 }
@@ -102,9 +172,8 @@ impl<R: Runtime> Source<R> {
     Self {
       builtin_dir: None,
       remote_dir: None,
-      verify_on_load: None,
-      integrity_policy: None,
-      signature_verifier: None,
+      integrity: SourceIntegrity::default(),
+      signature: SourceSignature::default(),
       verify_data_checksum: None,
       data_checksum_seed: None,
     }
@@ -130,35 +199,27 @@ impl<R: Runtime> Source<R> {
     self
   }
 
-  /// Which bundles are verified against their manifest integrity/signature metadata when
-  /// they are loaded from disk (default: [`VerifyOnLoad::None`]).
+  /// How bundles are checked against their manifest integrity metadata when they are
+  /// loaded from disk.
+  ///
+  /// A bundle is verified once per version, not once per request. By default the check
+  /// runs under the [`IntegrityPolicy::Optional`] policy on remote bundles only
+  /// ([`BundleSourceVerifyMode::OnlyRemote`]).
+  pub fn integrity(mut self, integrity: SourceIntegrity) -> Self {
+    self.integrity = integrity;
+    self
+  }
+
+  /// How bundle signatures are verified when bundles are loaded from disk.
+  ///
+  /// The signature signs a bundle's integrity string, not its bytes, and is verified
+  /// independently of the integrity check — keep the [`Source::integrity`] policy enabled
+  /// for the signature to also authenticate the bytes. By default verification applies to
+  /// remote bundles only ([`BundleSourceVerifyMode::OnlyRemote`]).
   ///
   /// A bundle is verified once per version, not once per request.
-  pub fn verify_on_load(mut self, verify: VerifyOnLoad) -> Self {
-    self.verify_on_load = Some(verify);
-    self
-  }
-
-  /// How a bundle's integrity metadata is treated when verifying on load.
-  pub fn integrity_policy(mut self, policy: IntegrityPolicy) -> Self {
-    self.integrity_policy = Some(policy);
-    self
-  }
-
-  /// Verifies that a bundle's integrity string was signed by the matching key.
-  ///
-  /// The signature signs the integrity string, so configuring a verifier also makes the
-  /// integrity check mandatory regardless of [`Source::integrity_policy`] — a signature over
-  /// an unchecked hash proves nothing about the bundle's bytes.
-  ///
-  /// **A verifier alone verifies nothing.** Load-time verification only runs on the bundles
-  /// [`Source::verify_on_load`] selects, which it does not by default; set it to
-  /// [`VerifyOnLoad::Remote`] (or [`VerifyOnLoad::All`]) as well.
-  pub fn signature_verifier<F>(mut self, builder: F) -> Self
-  where
-    F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
-  {
-    self.signature_verifier = Some(Arc::new(builder));
+  pub fn signature(mut self, signature: SourceSignature) -> Self {
+    self.signature = signature;
     self
   }
 
@@ -180,16 +241,23 @@ impl<R: Runtime> Source<R> {
 
   pub(crate) fn build_options(&self) -> crate::Result<BundleSourceOptions> {
     let mut options = BundleSourceOptions::default();
-    if let Some(verify) = self.verify_on_load {
-      options = options.verify_on_load(verify);
+    let mut integrity = BundleSourceIntegrityOptions::default();
+    if let Some(policy) = self.integrity.policy {
+      integrity = integrity.policy(policy);
     }
-    if let Some(policy) = self.integrity_policy {
-      options = options.integrity_policy(policy);
+    if let Some(mode) = self.integrity.check_mode {
+      integrity = integrity.check_mode(mode);
     }
-    if let Some(ref builder) = self.signature_verifier {
+    options = options.integrity(integrity);
+    let mut signature = BundleSourceSignatureOptions::default();
+    if let Some(ref builder) = self.signature.verify {
       let verifier = builder()?;
-      options = options.signature_verifier(verifier);
+      signature = signature.verify(verifier);
     }
+    if let Some(mode) = self.signature.verify_mode {
+      signature = signature.verify_mode(mode);
+    }
+    options = options.signature(signature);
     if let Some(verify) = self.verify_data_checksum {
       options = options.verify_data_checksum(verify);
     }

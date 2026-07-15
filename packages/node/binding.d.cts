@@ -935,6 +935,10 @@ export declare class Remote {
  * The updater coordinates between a local bundle source and remote server,
  * handling update checks, downloads, integrity verification, and signature validation.
  *
+ * Integrity and signature are verified independently; because a signature signs the
+ * integrity string rather than the bundle bytes, keep `integrityPolicy` enabled so the
+ * signature also authenticates the downloaded bytes.
+ *
  * @example
  * ```typescript
  * import { Updater, BundleSource, Remote } from '@wvb/node';
@@ -1195,10 +1199,8 @@ export type BundleResolverOptions =
  * @property {string} remoteDir - Directory containing remote bundles
  * @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
  * @property {string} [remoteManifestFilepath] - Custom manifest path for remote
- * @property {VerifyOnLoad} [verifyOnLoad] - Which bundles are verified against their manifest metadata when loaded (default: 'none')
- * @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
- * @property {Function} [integrityChecker] - Custom integrity verification function
- * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+ * @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
+ * @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
  * @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: true)
  * @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
  *
@@ -1213,12 +1215,11 @@ export type BundleResolverOptions =
  *
  * @example
  * ```typescript
- * // Verify downloaded bundles against the integrity recorded in the manifest.
+ * // Require downloaded bundles to match the integrity recorded in the manifest.
  * const source = new BundleSource({
  *   builtinDir: './bundles/builtin',
  *   remoteDir: './bundles/remote',
- *   verifyOnLoad: 'remote',
- *   integrityPolicy: 'strict',
+ *   integrity: { policy: 'strict' },
  * });
  * ```
  */
@@ -1227,12 +1228,24 @@ export interface BundleSourceConfig {
   remoteDir: string
   builtinManifestFilepath?: string
   remoteManifestFilepath?: string
-  verifyOnLoad?: VerifyOnLoad
-  integrityPolicy?: IntegrityPolicy
-  integrityChecker?: (data: Uint8Array, integrity: string) => Promise<boolean>
-  signatureVerifier?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
+  integrity?: BundleSourceIntegrityOptions
+  signature?: BundleSourceSignatureOptions
   verifyDataChecksum?: boolean
   dataChecksumSeed?: number
+}
+
+/**
+ * How bundles are checked against the integrity recorded for them in the manifest when
+ * they are loaded from disk.
+ *
+ * @property {IntegrityPolicy} [policy] - How a bundle's integrity metadata is treated (default: 'optional'; 'off' disables the check)
+ * @property {Function} [check] - Custom checker that validates bundle bytes against an integrity string
+ * @property {BundleSourceVerifyMode} [checkMode] - Which bundles are checked on load (default: 'onlyRemote')
+ */
+export interface BundleSourceIntegrityOptions {
+  policy?: IntegrityPolicy
+  check?: (data: Uint8Array, integrity: string) => Promise<boolean>
+  checkMode?: BundleSourceVerifyMode
 }
 
 /**
@@ -1244,6 +1257,39 @@ export type BundleSourceKind = /** Bundles shipped with the application (read-on
 'builtin'|
 /** Downloaded bundles (takes priority over builtin) */
 'remote';
+
+/**
+ * How bundle signatures are verified when bundles are loaded from disk.
+ *
+ * A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
+ * bundle bytes; verifying it proves the integrity string is authentic. It is verified
+ * independently of the integrity check, so pair it with an enabled integrity policy to
+ * also authenticate the bytes — signature verification alone does not read them.
+ *
+ * @property {SignatureVerifierOptions | Function} [verify] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+ * @property {BundleSourceVerifyMode} [verifyMode] - Which bundles have their signature verified on load (default: 'onlyRemote')
+ */
+export interface BundleSourceSignatureOptions {
+  verify?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
+  verifyMode?: BundleSourceVerifyMode
+}
+
+/**
+ * Which bundles a load-time verification applies to.
+ *
+ * A bundle is verified once per version, when it is first read; the result is cached
+ * with the descriptor, so serving a bundle does not re-hash it on every request.
+ *
+ * @enum {string}
+ */
+export type BundleSourceVerifyMode = /**
+ * Verify both builtin and remote bundles. Builtin bundles ship inside the application|
+ * so the builtin manifest must carry the metadata being verified for the check to have
+ * anything to work with.
+ */
+'all'|
+/** Verify downloaded (remote) bundles only. */
+'onlyRemote';
 
 /**
  * Bundle version with source kind information.
@@ -1328,6 +1374,8 @@ export type ErrorCode =  'core.io'|
 'invalid_header_name'|
 'invalid_header_value'|
 'invalid_signature_options'|
+/** r" A binding-side validation failure with no more specific code| e.g. an unknown option key. */
+'unknown'|
 'napi';
 
 /**
@@ -1440,7 +1488,7 @@ export type IntegrityPolicy = /** Require integrity verification for all bundles
 /** Verify integrity if provided| but allow operations without it. */
 'optional'|
 /** Skip integrity verification entirely. */
-'none';
+'off';
 
 /**
  * Information about a bundle from list operations.
@@ -1660,7 +1708,7 @@ export interface SignatureVerifyingKeyOptions {
  * @property {string} [channel] - Update channel (e.g., "stable", "beta")
  * @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
  * @property {Function} [integrityChecker] - Custom integrity verification function
- * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+ * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes. Verified independently of `integrityPolicy` — the signature signs the integrity string, not the bundle bytes, so keep the policy enabled ('strict' or 'optional') for the signature to also authenticate the downloaded bytes.
  *
  * @example
  * ```typescript
@@ -1742,24 +1790,6 @@ export type VerifyingKeyFormat = /** SubjectPublicKeyInfo DER format (binary) */
 'sec1'|
 /** Raw key bytes (Ed25519 only| 32 bytes) */
 'raw';
-
-/**
- * Which bundles are verified against their manifest metadata when loaded from disk.
- *
- * A bundle is verified once per version, when it is first read; the result is cached
- * with the descriptor, so serving a bundle does not re-hash it on every request.
- *
- * @enum {string}
- */
-export type VerifyOnLoad = /** Never verify on load. Bundles are still verified when downloaded and installed. */
-'none'|
-/** Verify downloaded (remote) bundles only. */
-'remote'|
-/**
- * Verify both builtin and remote bundles. Whether a bundle whose manifest carries no
- * integrity metadata still loads is decided by `integrityPolicy` and not by this option.
- */
-'all';
 
 export type Version =  'v1';
 

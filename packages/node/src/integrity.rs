@@ -68,7 +68,7 @@ pub enum IntegrityPolicy {
   /// Verify integrity if provided, but allow operations without it.
   Optional,
   /// Skip integrity verification entirely.
-  None,
+  Off,
 }
 
 impl From<integrity::IntegrityPolicy> for IntegrityPolicy {
@@ -76,7 +76,7 @@ impl From<integrity::IntegrityPolicy> for IntegrityPolicy {
     match value {
       integrity::IntegrityPolicy::Strict => Self::Strict,
       integrity::IntegrityPolicy::Optional => Self::Optional,
-      integrity::IntegrityPolicy::None => Self::None,
+      integrity::IntegrityPolicy::Off => Self::Off,
     }
   }
 }
@@ -86,7 +86,7 @@ impl From<IntegrityPolicy> for integrity::IntegrityPolicy {
     match value {
       IntegrityPolicy::Strict => Self::Strict,
       IntegrityPolicy::Optional => Self::Optional,
-      IntegrityPolicy::None => Self::None,
+      IntegrityPolicy::Off => Self::Off,
     }
   }
 }

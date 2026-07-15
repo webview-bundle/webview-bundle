@@ -77,7 +77,7 @@ pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Pr
 /// @property {string} [channel] - Update channel (e.g., "stable", "beta")
 /// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
 /// @property {Function} [integrityChecker] - Custom integrity verification function
-/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes. Verified independently of `integrityPolicy` — the signature signs the integrity string, not the bundle bytes, so keep the policy enabled ('strict' or 'optional') for the signature to also authenticate the downloaded bytes.
 ///
 /// @example
 /// ```typescript
@@ -156,6 +156,10 @@ impl From<UpdaterOptions> for updater::UpdaterConfig {
 ///
 /// The updater coordinates between a local bundle source and remote server,
 /// handling update checks, downloads, integrity verification, and signature validation.
+///
+/// Integrity and signature are verified independently; because a signature signs the
+/// integrity string rather than the bundle bytes, keep `integrityPolicy` enabled so the
+/// signature also authenticates the downloaded bytes.
 ///
 /// @example
 /// ```typescript

@@ -31,10 +31,12 @@ export {
   type BundleManifestMetadata,
   BundleSource,
   type BundleSourceConfig,
+  type BundleSourceIntegrityOptions,
+  type BundleSourceSignatureOptions,
   type BundleSourceType,
+  type BundleSourceVerifyMode,
   type BundleSourceVersion,
   type ListBundleItem,
-  type VerifyOnLoad,
 } from './source.ts';
 export {
   type BundleUpdateInfo,

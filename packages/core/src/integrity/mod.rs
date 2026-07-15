@@ -13,41 +13,38 @@
 //! ```no_run
 //! # #[cfg(feature = "integrity")]
 //! # async {
-//! use wvb::integrity::{Integrity, IntegrityChecker};
-//! use wvb::{Bundle, BundleBuilder};
+//! use wvb::integrity::{Integrity, IntegrityAlgorithm, IntegrityChecker};
 //!
-//! // Create a bundle
-//! let bundle = Bundle::builder()
-//!     .add_file("/index.html", b"<html></html>", None)
-//!     .build();
+//! let data = b"<html></html>";
 //!
-//! // Generate integrity hash
-//! let integrity = Integrity::from_bundle(&bundle).unwrap();
-//! let hash_string = integrity.to_string();
-//! println!("Integrity: {}", hash_string);
+//! // Compute an integrity string over some bytes.
+//! let integrity = Integrity::compute(IntegrityAlgorithm::Sha256, data).serialize();
+//! println!("Integrity: {integrity}");
 //!
-//! // Verify integrity
-//! let checker = IntegrityChecker::new(hash_string);
-//! assert!(checker.verify(&bundle).is_ok());
+//! // Verify bytes against it.
+//! IntegrityChecker::Default.check(&integrity, data).await.unwrap();
 //! # };
 //! ```
 //!
 //! ## Integrity Policy
 //!
-//! Control when integrity verification is required:
+//! [`IntegrityPolicy`] controls how a bundle's integrity metadata is treated when the
+//! check runs — required ([`IntegrityPolicy::Strict`]), checked when present
+//! ([`IntegrityPolicy::Optional`]), or disabled ([`IntegrityPolicy::Off`]). It is applied
+//! through [`crate::source::BundleSourceOptions::integrity`] (on load) and
+//! [`crate::updater::UpdaterConfig::integrity_policy`] (on download/install).
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "integrity", feature = "remote"))]
-//! # async {
+//! # #[cfg(all(feature = "integrity", feature = "source"))]
+//! # {
 //! use wvb::integrity::IntegrityPolicy;
-//! use wvb::remote::{Remote, RemoteConfig};
+//! use wvb::source::{BundleSourceIntegrityOptions, BundleSourceOptions};
 //!
-//! // Require integrity for all downloads
-//! let config = RemoteConfig::default()
-//!     .integrity_policy(IntegrityPolicy::RequireForAll);
-//!
-//! let remote = Remote::new_with_config("https://updates.example.com", config);
-//! # };
+//! // Require integrity metadata on every bundle this source verifies on load.
+//! let options = BundleSourceOptions::default()
+//!     .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Strict));
+//! # let _ = options;
+//! # }
 //! ```
 
 mod checker;

@@ -231,31 +231,61 @@ impl LoadedDescriptor {
   }
 }
 
-/// Which bundles are verified against their manifest metadata when loaded from disk.
+/// Which bundles a load-time verification applies to.
 ///
 /// A bundle is verified once per version, when it is first read; the result is cached
 /// with the descriptor, so serving a bundle does not re-hash it on every request.
 ///
 /// @enum {string}
-#[napi(string_enum = "lowercase")]
-pub enum VerifyOnLoad {
-  /// Never verify on load. Bundles are still verified when downloaded and installed.
-  None,
-  /// Verify downloaded (remote) bundles only.
-  Remote,
-  /// Verify both builtin and remote bundles. Whether a bundle whose manifest carries no
-  /// integrity metadata still loads is decided by `integrityPolicy` and not by this option.
+#[napi(string_enum = "camelCase")]
+pub enum BundleSourceVerifyMode {
+  /// Verify both builtin and remote bundles. Builtin bundles ship inside the application,
+  /// so the builtin manifest must carry the metadata being verified for the check to have
+  /// anything to work with.
   All,
+  /// Verify downloaded (remote) bundles only.
+  OnlyRemote,
 }
 
-impl From<VerifyOnLoad> for source::VerifyOnLoad {
-  fn from(value: VerifyOnLoad) -> Self {
+impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
+  fn from(value: BundleSourceVerifyMode) -> Self {
     match value {
-      VerifyOnLoad::None => Self::None,
-      VerifyOnLoad::Remote => Self::Remote,
-      VerifyOnLoad::All => Self::All,
+      BundleSourceVerifyMode::All => Self::All,
+      BundleSourceVerifyMode::OnlyRemote => Self::OnlyRemote,
     }
   }
+}
+
+/// How bundles are checked against the integrity recorded for them in the manifest when
+/// they are loaded from disk.
+///
+/// @property {IntegrityPolicy} [policy] - How a bundle's integrity metadata is treated (default: 'optional'; 'off' disables the check)
+/// @property {Function} [check] - Custom checker that validates bundle bytes against an integrity string
+/// @property {BundleSourceVerifyMode} [checkMode] - Which bundles are checked on load (default: 'onlyRemote')
+#[napi(object, object_to_js = false)]
+pub struct BundleSourceIntegrityOptions {
+  pub policy: Option<IntegrityPolicy>,
+  #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
+  pub check: Option<UpdateIntegrityChecker>,
+  pub check_mode: Option<BundleSourceVerifyMode>,
+}
+
+/// How bundle signatures are verified when bundles are loaded from disk.
+///
+/// A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
+/// bundle bytes; verifying it proves the integrity string is authentic. It is verified
+/// independently of the integrity check, so pair it with an enabled integrity policy to
+/// also authenticate the bytes — signature verification alone does not read them.
+///
+/// @property {SignatureVerifierOptions | Function} [verify] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+/// @property {BundleSourceVerifyMode} [verifyMode] - Which bundles have their signature verified on load (default: 'onlyRemote')
+#[napi(object, object_to_js = false)]
+pub struct BundleSourceSignatureOptions {
+  #[napi(
+    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
+  )]
+  pub verify: Option<SignatureVerifier>,
+  pub verify_mode: Option<BundleSourceVerifyMode>,
 }
 
 /// Configuration for creating a bundle source.
@@ -264,10 +294,8 @@ impl From<VerifyOnLoad> for source::VerifyOnLoad {
 /// @property {string} remoteDir - Directory containing remote bundles
 /// @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
 /// @property {string} [remoteManifestFilepath] - Custom manifest path for remote
-/// @property {VerifyOnLoad} [verifyOnLoad] - Which bundles are verified against their manifest metadata when loaded (default: 'none')
-/// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
-/// @property {Function} [integrityChecker] - Custom integrity verification function
-/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+/// @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
+/// @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
 /// @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: true)
 /// @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
 ///
@@ -282,12 +310,11 @@ impl From<VerifyOnLoad> for source::VerifyOnLoad {
 ///
 /// @example
 /// ```typescript
-/// // Verify downloaded bundles against the integrity recorded in the manifest.
+/// // Require downloaded bundles to match the integrity recorded in the manifest.
 /// const source = new BundleSource({
 ///   builtinDir: './bundles/builtin',
 ///   remoteDir: './bundles/remote',
-///   verifyOnLoad: 'remote',
-///   integrityPolicy: 'strict',
+///   integrity: { policy: 'strict' },
 /// });
 /// ```
 #[napi(object, object_to_js = false)]
@@ -296,44 +323,49 @@ pub struct BundleSourceConfig {
   pub remote_dir: String,
   pub builtin_manifest_filepath: Option<String>,
   pub remote_manifest_filepath: Option<String>,
-  pub verify_on_load: Option<VerifyOnLoad>,
-  pub integrity_policy: Option<IntegrityPolicy>,
-  #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
-  pub integrity_checker: Option<UpdateIntegrityChecker>,
-  #[napi(
-    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
-  )]
-  pub signature_verifier: Option<SignatureVerifier>,
+  pub integrity: Option<BundleSourceIntegrityOptions>,
+  pub signature: Option<BundleSourceSignatureOptions>,
   pub verify_data_checksum: Option<bool>,
   pub data_checksum_seed: Option<u32>,
 }
 
 fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOptions {
   let mut options = source::BundleSourceOptions::default();
-  if let Some(verify_on_load) = config.verify_on_load.take() {
-    options = options.verify_on_load(verify_on_load.into());
+  if let Some(integrity) = config.integrity.take() {
+    let mut integrity_options = source::BundleSourceIntegrityOptions::default();
+    if let Some(policy) = integrity.policy {
+      integrity_options = integrity_options.policy(policy.into());
+    }
+    if let Some(checker) = integrity.check {
+      integrity_options = integrity_options.check(IntegrityChecker::Custom(Arc::new(
+        move |data, integrity| {
+          let buffer = Buffer::from(data);
+          let integrity = integrity.to_string();
+          let callback = Arc::clone(&checker);
+          Box::pin(async move {
+            let ret = callback
+              .invoke_async((buffer, integrity).into())
+              .await?
+              .await?;
+            Ok(ret)
+          })
+        },
+      )));
+    }
+    if let Some(mode) = integrity.check_mode {
+      integrity_options = integrity_options.check_mode(mode.into());
+    }
+    options = options.integrity(integrity_options);
   }
-  if let Some(policy) = config.integrity_policy.take() {
-    options = options.integrity_policy(policy.into());
-  }
-  if let Some(checker) = config.integrity_checker.take() {
-    options = options.integrity_checker(IntegrityChecker::Custom(Arc::new(
-      move |data, integrity| {
-        let buffer = Buffer::from(data);
-        let integrity = integrity.to_string();
-        let callback = Arc::clone(&checker);
-        Box::pin(async move {
-          let ret = callback
-            .invoke_async((buffer, integrity).into())
-            .await?
-            .await?;
-          Ok(ret)
-        })
-      },
-    )));
-  }
-  if let Some(verifier) = config.signature_verifier.take() {
-    options = options.signature_verifier(verifier.inner);
+  if let Some(signature) = config.signature.take() {
+    let mut signature_options = source::BundleSourceSignatureOptions::default();
+    if let Some(verifier) = signature.verify {
+      signature_options = signature_options.verify(verifier.inner);
+    }
+    if let Some(mode) = signature.verify_mode {
+      signature_options = signature_options.verify_mode(mode.into());
+    }
+    options = options.signature(signature_options);
   }
   if let Some(verify) = config.verify_data_checksum.take() {
     options = options.verify_data_checksum(verify);

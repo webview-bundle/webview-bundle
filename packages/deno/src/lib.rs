@@ -17,7 +17,10 @@ use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
   RsaPssVerifier, SignatureVerifier,
 };
-use wvb::source::{self, BundleSource, BundleSourceOptions, VerifyOnLoad};
+use wvb::source::{
+  self, BundleSource, BundleSourceIntegrityOptions, BundleSourceOptions,
+  BundleSourceSignatureOptions, BundleSourceVerifyMode,
+};
 use wvb::updater::{Updater as CoreUpdater, UpdaterConfig};
 
 fn runtime() -> &'static Runtime {
@@ -50,7 +53,8 @@ unsafe fn cstr(ptr: *const c_char) -> String {
 }
 
 /// Create a `BundleSource` (`builtin_dir` read-only, `remote_dir` writable) with the default
-/// options (no load-time verification; entry data checksums verified on read, with seed `0`).
+/// options (remote bundles checked against their manifest integrity on load, under the optional
+/// policy; no signature verification; entry data checksums verified on read, with seed `0`).
 ///
 /// # Safety
 /// `builtin_dir` and `remote_dir` must be valid NUL-terminated C strings.
@@ -63,9 +67,8 @@ pub unsafe extern "C" fn wvb_source_new(
 }
 
 /// Create a `BundleSource` with options. `options_json` is null/empty or a JSON object with
-/// `verifyOnLoad`, `integrityPolicy`, `signatureVerifier`, `verifyDataChecksum` and/or
-/// `dataChecksumSeed`; an unparsable option returns null rather than silently reading bundles
-/// unverified.
+/// `integrity`, `signature`, `verifyDataChecksum` and/or `dataChecksumSeed`; an unparsable option
+/// returns null rather than silently reading bundles unverified.
 ///
 /// # Safety
 /// `builtin_dir`/`remote_dir` must be valid NUL-terminated C strings; `options_json` must be null
@@ -103,28 +106,44 @@ pub unsafe extern "C" fn wvb_source_new_with_options(
 /// Parse a source `options` JSON object (camelCase, mirroring `BundleSourceOptions` in the other
 /// bindings). Returns `None` for an unknown or ill-typed value, so the caller can fail closed.
 fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions> {
-  let mut options = BundleSourceOptions::new();
-  match value.get("verifyOnLoad") {
+  let mut options = BundleSourceOptions::default();
+  match value.get("integrity") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => {
-      let verify = match x.as_str()? {
-        "none" => VerifyOnLoad::None,
-        "remote" => VerifyOnLoad::Remote,
-        "all" => VerifyOnLoad::All,
-        _ => return None,
-      };
-      options = options.verify_on_load(verify);
+      if !x.is_object() {
+        return None;
+      }
+      let mut integrity = BundleSourceIntegrityOptions::default();
+      match x.get("policy") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(p) => integrity = integrity.policy(parse_integrity_policy(p.as_str()?)?),
+      }
+      match x.get("checkMode") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(m) => integrity = integrity.check_mode(parse_verify_mode(m.as_str()?)?),
+      }
+      options = options.integrity(integrity);
     }
   }
-  match value.get("integrityPolicy") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(x) => options = options.integrity_policy(parse_integrity_policy(x.as_str()?)),
-  }
-  // A present-but-unbuildable signatureVerifier fails closed (null source) rather than silently
+  // A present-but-unbuildable signature verifier fails closed (null source) rather than silently
   // reading bundles unverified.
-  match value.get("signatureVerifier") {
+  match value.get("signature") {
     None | Some(serde_json::Value::Null) => {}
-    Some(sv) => options = options.signature_verifier(build_signature_verifier(sv)?),
+    Some(x) => {
+      if !x.is_object() {
+        return None;
+      }
+      let mut signature = BundleSourceSignatureOptions::default();
+      match x.get("verify") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(sv) => signature = signature.verify(build_signature_verifier(sv)?),
+      }
+      match x.get("verifyMode") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(m) => signature = signature.verify_mode(parse_verify_mode(m.as_str()?)?),
+      }
+      options = options.signature(signature);
+    }
   }
   // Only the keys the caller actually gave are overridden: `BundleSourceOptions` verifies data
   // checksums by default, and replacing its `DataReadOptions` wholesale would turn that back off.
@@ -139,12 +158,23 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
   Some(options)
 }
 
-/// `integrityPolicy` string mapping shared by the source and the updater.
-fn parse_integrity_policy(policy: &str) -> IntegrityPolicy {
+/// `integrity.policy`/`integrityPolicy` string mapping shared by the source and the updater.
+/// Returns `None` for an unknown value, so the caller can fail closed rather than pick a default.
+fn parse_integrity_policy(policy: &str) -> Option<IntegrityPolicy> {
   match policy {
-    "optional" => IntegrityPolicy::Optional,
-    "none" => IntegrityPolicy::None,
-    _ => IntegrityPolicy::Strict,
+    "strict" => Some(IntegrityPolicy::Strict),
+    "optional" => Some(IntegrityPolicy::Optional),
+    "off" => Some(IntegrityPolicy::Off),
+    _ => None,
+  }
+}
+
+/// `integrity.checkMode`/`signature.verifyMode` string mapping.
+fn parse_verify_mode(mode: &str) -> Option<BundleSourceVerifyMode> {
+  match mode {
+    "all" => Some(BundleSourceVerifyMode::All),
+    "onlyRemote" => Some(BundleSourceVerifyMode::OnlyRemote),
+    _ => None,
   }
 }
 
@@ -634,8 +664,8 @@ pub unsafe extern "C" fn wvb_remote_download_version(
   }
 }
 
-/// Build a core `SignatureVerifier` from a `signatureVerifier` JSON object
-/// (`{ algorithm, key: { format, data } }`.
+/// Build a core `SignatureVerifier` from a verifier JSON object (the source's `signature.verify`
+/// or the updater's `signatureVerifier`): `{ algorithm, key: { format, data } }`.
 ///
 /// For the PEM key formats `data` is the PEM text; for the binary formats (`spkiDer`/`pkcs1Der`
 /// /`sec1`/`raw`) it is standard base64. Returns `None` on any parse, base64-decode, unsupported
@@ -729,8 +759,13 @@ pub unsafe extern "C" fn wvb_updater_new(
     if let Some(channel) = value.get("channel").and_then(|x| x.as_str()) {
       config = config.channel(channel.to_string());
     }
-    if let Some(policy) = value.get("integrityPolicy").and_then(|x| x.as_str()) {
-      config = config.integrity_policy(parse_integrity_policy(policy));
+    // An unknown policy value fails closed (null updater) rather than being silently ignored.
+    match value.get("integrityPolicy") {
+      None | Some(serde_json::Value::Null) => {}
+      Some(x) => match x.as_str().and_then(parse_integrity_policy) {
+        Some(policy) => config = config.integrity_policy(policy),
+        None => return std::ptr::null_mut(),
+      },
     }
     // A present-but-unbuildable signatureVerifier fails closed (null updater) rather than silently
     // serving updates unverified.
@@ -1109,45 +1144,76 @@ pub unsafe extern "C" fn wvb_result_free(result: *mut WvbResult) {
 mod tests {
   use super::*;
 
+  fn parsed(raw: &str) -> Option<BundleSourceOptions> {
+    let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+    parse_source_options(&value)
+  }
+
   /// The data options a source parsed from `raw` ends up with.
   fn data_options(raw: &str) -> Option<wvb::DataReadOptions> {
-    let value: serde_json::Value = serde_json::from_str(raw).unwrap();
-    let options = parse_source_options(&value)?;
     Some(
       BundleSource::builder()
-        .options(options)
+        .options(parsed(raw)?)
         .build()
-        .data_options(),
+        .data_read_options(),
     )
   }
 
   #[test]
   fn source_verifies_data_checksums_by_default() {
     let data = data_options("{}").unwrap();
-    assert!(data.verify_checksum);
-    assert_eq!(data.checksum_seed, 0);
+    assert!(data.checksum.verify);
+    assert_eq!(data.checksum.seed, 0);
 
     // Overriding the seed must not turn verification back off.
     let data = data_options(r#"{"dataChecksumSeed":7}"#).unwrap();
-    assert!(data.verify_checksum);
-    assert_eq!(data.checksum_seed, 7);
+    assert!(data.checksum.verify);
+    assert_eq!(data.checksum.seed, 7);
 
     // Nor must an unrelated option.
-    let data = data_options(r#"{"verifyOnLoad":"remote"}"#).unwrap();
-    assert!(data.verify_checksum);
+    let data = data_options(r#"{"integrity":{"checkMode":"onlyRemote"}}"#).unwrap();
+    assert!(data.checksum.verify);
   }
 
   #[test]
   fn source_data_checksum_can_be_turned_off() {
     let data = data_options(r#"{"verifyDataChecksum":false}"#).unwrap();
-    assert!(!data.verify_checksum);
+    assert!(!data.checksum.verify);
+  }
+
+  #[test]
+  fn source_options_accept_the_nested_verification_shape() {
+    assert!(parsed(r#"{"integrity":{"policy":"strict","checkMode":"all"}}"#).is_some());
+    assert!(parsed(r#"{"integrity":{"policy":"off"}}"#).is_some());
+    assert!(parsed(r#"{"signature":{"verifyMode":"all"}}"#).is_some());
   }
 
   #[test]
   fn source_options_fail_closed_on_a_bad_value() {
-    assert!(data_options(r#"{"verifyDataChecksum":"yes"}"#).is_none());
-    assert!(data_options(r#"{"dataChecksumSeed":-1}"#).is_none());
-    assert!(data_options(r#"{"dataChecksumSeed":4294967296}"#).is_none());
-    assert!(data_options(r#"{"verifyOnLoad":"sometimes"}"#).is_none());
+    assert!(parsed(r#"{"verifyDataChecksum":"yes"}"#).is_none());
+    assert!(parsed(r#"{"dataChecksumSeed":-1}"#).is_none());
+    assert!(parsed(r#"{"dataChecksumSeed":4294967296}"#).is_none());
+    assert!(parsed(r#"{"integrity":"strict"}"#).is_none());
+    assert!(parsed(r#"{"integrity":{"policy":"none"}}"#).is_none());
+    assert!(parsed(r#"{"integrity":{"checkMode":"remote"}}"#).is_none());
+    assert!(parsed(r#"{"signature":{"verifyMode":"sometimes"}}"#).is_none());
+  }
+
+  #[test]
+  fn integrity_policy_fails_closed_on_an_unknown_value() {
+    assert!(matches!(
+      parse_integrity_policy("strict"),
+      Some(IntegrityPolicy::Strict)
+    ));
+    assert!(matches!(
+      parse_integrity_policy("optional"),
+      Some(IntegrityPolicy::Optional)
+    ));
+    assert!(matches!(
+      parse_integrity_policy("off"),
+      Some(IntegrityPolicy::Off)
+    ));
+    // The old spelling of 'off' must not silently map to a different policy.
+    assert!(parse_integrity_policy("none").is_none());
   }
 }

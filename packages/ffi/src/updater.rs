@@ -43,7 +43,9 @@ pub struct UpdaterOptions {
   /// Release channel (e.g. `"stable"`, `"beta"`). Passed as a query parameter to the remote.
   pub channel: Option<String>,
   pub integrity_policy: Option<IntegrityPolicy>,
-  /// When set, the updater verifies the bundle signature before applying an update.
+  /// When set, the updater verifies the bundle signature over its integrity string before
+  /// applying an update. Verified independently of `integrity_policy` — keep the policy
+  /// enabled for the signature to also authenticate the bundle bytes.
   pub signature_verifier: Option<SignatureVerifierOptions>,
 }
 

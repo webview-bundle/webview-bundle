@@ -172,6 +172,25 @@ impl SignatureVerifier {
   }
 }
 
+/// Verifies that `signature` is a valid signature over the `integrity` string.
+///
+/// The signature signs the integrity string (e.g. `sha256:<base64>`), not the bundle
+/// bytes. A verifier with no integrity string to verify against is a misconfiguration
+/// ([`crate::Error::IntegrityRequired`]); a missing signature fails with
+/// [`crate::Error::SignatureNotExists`].
+pub(crate) async fn verify_signature(
+  verifier: &SignatureVerifier,
+  integrity: Option<&str>,
+  signature: Option<&str>,
+) -> crate::Result<()> {
+  let message = integrity.ok_or(crate::Error::IntegrityRequired)?;
+  let signature = signature.ok_or(crate::Error::SignatureNotExists)?;
+  if !verifier.verify(message.as_bytes(), signature).await? {
+    return Err(crate::Error::SignatureVerifyFailed);
+  }
+  Ok(())
+}
+
 /// Trait for implementing signature verification algorithms.
 ///
 /// Implement this trait to create custom signature verifiers that can be
@@ -188,4 +207,59 @@ pub trait Verifier: Send + Sync + 'static {
     message: &[u8],
     signature: &str,
   ) -> impl std::future::Future<Output = crate::Result<bool>>;
+}
+
+#[cfg(all(test, feature = "signature-edd25519"))]
+mod tests {
+  use super::*;
+  use base64ct::{Base64, Encoding};
+  use ed25519_dalek::{Signer, SigningKey};
+
+  fn verifier_and_sign(message: &str) -> (SignatureVerifier, String) {
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let signature = Base64::encode_string(&signing_key.sign(message.as_bytes()).to_bytes());
+    let verifier =
+      Ed25519Verifier::from_public_key_bytes(&signing_key.verifying_key().to_bytes()).unwrap();
+    (SignatureVerifier::Ed25519(Arc::new(verifier)), signature)
+  }
+
+  #[tokio::test]
+  async fn verifies_over_the_integrity_string() {
+    let integrity = "sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=";
+    let (verifier, signature) = verifier_and_sign(integrity);
+    verify_signature(&verifier, Some(integrity), Some(&signature))
+      .await
+      .unwrap();
+  }
+
+  #[tokio::test]
+  async fn verifier_without_integrity_is_a_misconfiguration() {
+    let (verifier, signature) = verifier_and_sign("sha256:whatever");
+    let err = verify_signature(&verifier, None, Some(&signature))
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::IntegrityRequired));
+  }
+
+  #[tokio::test]
+  async fn missing_signature_fails() {
+    let (verifier, _) = verifier_and_sign("sha256:whatever");
+    let err = verify_signature(&verifier, Some("sha256:whatever"), None)
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::SignatureNotExists));
+  }
+
+  #[tokio::test]
+  async fn wrong_signature_fails() {
+    let (verifier, signature) = verifier_and_sign("sha256:a-different-message");
+    let err = verify_signature(
+      &verifier,
+      Some("sha256:the-actual-message"),
+      Some(&signature),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, crate::Error::SignatureVerifyFailed));
+  }
 }

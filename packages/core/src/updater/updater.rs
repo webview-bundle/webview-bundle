@@ -4,8 +4,6 @@ use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
 #[cfg(feature = "signature")]
 use crate::signature::SignatureVerifier;
 use crate::source::{BundleManifestMetadata, BundleSource};
-#[cfg(feature = "integrity")]
-use crate::verify::VerifyOptions;
 use crate::{BundleDescriptor, BundleReader, Reader};
 use dashmap::DashMap;
 use std::io::Cursor;
@@ -55,7 +53,11 @@ impl From<&RemoteBundleInfo> for BundleManifestMetadata {
 pub struct UpdaterConfig {
   pub(crate) channel: Option<String>,
   #[cfg(feature = "integrity")]
-  pub(crate) verify: VerifyOptions,
+  pub(crate) integrity_policy: IntegrityPolicy,
+  #[cfg(feature = "integrity")]
+  pub(crate) integrity_checker: IntegrityChecker,
+  #[cfg(feature = "signature")]
+  pub(crate) signature_verifier: Option<SignatureVerifier>,
 }
 
 impl UpdaterConfig {
@@ -70,25 +72,52 @@ impl UpdaterConfig {
 
   #[cfg(feature = "integrity")]
   pub fn integrity_checker(mut self, checker: IntegrityChecker) -> Self {
-    self.verify.set_integrity_checker(checker);
+    self.integrity_checker = checker;
     self
   }
 
+  /// How a bundle's integrity metadata is treated when it is downloaded or installed
+  /// (default: [`IntegrityPolicy::Optional`]). [`IntegrityPolicy::Off`] disables the check.
   #[cfg(feature = "integrity")]
   pub fn integrity_policy(mut self, policy: IntegrityPolicy) -> Self {
-    self.verify.set_integrity_policy(policy);
+    self.integrity_policy = policy;
     self
   }
 
   /// Verifies that each bundle's integrity string was signed by the matching key.
   ///
-  /// The signature signs the integrity string, so configuring a verifier also makes the
-  /// integrity check mandatory regardless of [`UpdaterConfig::integrity_policy`] — a
-  /// signature over an unchecked hash proves nothing about the bundle's bytes.
+  /// The signature signs the integrity string, not the bundle bytes, and is verified
+  /// independently of the integrity check — keep [`UpdaterConfig::integrity_policy`]
+  /// enabled for the signature to authenticate the bytes too.
   #[cfg(feature = "signature")]
   pub fn signature_verifier(mut self, verifier: SignatureVerifier) -> Self {
-    self.verify.set_signature_verifier(verifier);
+    self.signature_verifier = Some(verifier);
     self
+  }
+
+  /// Verifies `data` against the integrity and signature advertised for it. The two
+  /// checks run independently.
+  #[cfg(feature = "integrity")]
+  async fn verify(
+    &self,
+    integrity: Option<&str>,
+    signature: Option<&str>,
+    data: &[u8],
+  ) -> crate::Result<()> {
+    crate::integrity::verify_integrity(
+      self.integrity_policy,
+      &self.integrity_checker,
+      integrity,
+      data,
+    )
+    .await?;
+    #[cfg(feature = "signature")]
+    if let Some(verifier) = &self.signature_verifier {
+      crate::signature::verify_signature(verifier, integrity, signature).await?;
+    }
+    #[cfg(not(feature = "signature"))]
+    let _ = signature;
+    Ok(())
   }
 }
 
@@ -158,7 +187,6 @@ impl Updater {
     #[cfg(feature = "integrity")]
     self
       .config
-      .verify
       .verify(info.integrity.as_deref(), info.signature.as_deref(), &data)
       .await?;
 
@@ -207,7 +235,6 @@ impl Updater {
     #[cfg(feature = "integrity")]
     self
       .config
-      .verify
       .verify(
         metadata.integrity.as_deref(),
         metadata.signature.as_deref(),

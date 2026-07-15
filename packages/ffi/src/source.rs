@@ -151,57 +151,81 @@ pub struct BundleSourceConfig {
   pub remote_manifest_filepath: Option<String>,
 }
 
-/// Which bundles are verified against their manifest metadata when loaded from disk.
+/// Which bundles a load-time verification applies to.
 ///
 /// A bundle is verified once per version, when it is first read; the result is cached with
 /// the descriptor, so serving a bundle does not re-hash it on every request.
 #[derive(uniffi::Enum, Clone, Debug)]
-pub enum VerifyOnLoad {
-  /// Never verify on load. Bundles are still verified when downloaded and installed.
-  None,
-  /// Verify downloaded (remote) bundles only.
-  Remote,
+pub enum BundleSourceVerifyMode {
   /// Verify both builtin and remote bundles.
   ///
-  /// Builtin bundles are hashed too, so the builtin manifest should carry integrity metadata
-  /// for every bundle. Whether a *missing* integrity string is an error is decided by
-  /// [`IntegrityPolicy`] rather than by this variant: under the default
-  /// [`IntegrityPolicy::Optional`] a builtin bundle with no integrity metadata still loads.
-  /// Pair this with [`IntegrityPolicy::Strict`] — or with a signature verifier, which forces
-  /// the integrity check — to require the metadata.
+  /// Builtin bundles ship inside the application, so the builtin manifest must carry the
+  /// metadata being verified for the check to have anything to work with.
   All,
+  /// Verify downloaded (remote) bundles only. This is the default.
+  OnlyRemote,
 }
 
-impl From<VerifyOnLoad> for source::VerifyOnLoad {
-  fn from(v: VerifyOnLoad) -> Self {
+impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
+  fn from(v: BundleSourceVerifyMode) -> Self {
     match v {
-      VerifyOnLoad::None => source::VerifyOnLoad::None,
-      VerifyOnLoad::Remote => source::VerifyOnLoad::Remote,
-      VerifyOnLoad::All => source::VerifyOnLoad::All,
+      BundleSourceVerifyMode::All => source::BundleSourceVerifyMode::All,
+      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceVerifyMode::OnlyRemote,
     }
   }
 }
 
+/// How bundles are checked against the integrity recorded for them in the manifest when
+/// they are loaded from disk.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct BundleSourceIntegrityOptions {
+  /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
+  ///
+  /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
+  #[uniffi(default = None)]
+  pub policy: Option<IntegrityPolicy>,
+  /// Which bundles are checked on load (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  #[uniffi(default = None)]
+  pub check_mode: Option<BundleSourceVerifyMode>,
+}
+
+/// How bundle signatures are verified when bundles are loaded from disk.
+///
+/// A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
+/// bundle bytes; verifying it proves the integrity string is authentic. It is verified
+/// independently of the integrity check, so pair it with an enabled
+/// [`BundleSourceOptions::integrity`] to also authenticate the bytes — signature
+/// verification alone does not read them.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct BundleSourceSignatureOptions {
+  /// Verifies that a bundle's integrity string was signed by the matching key
+  /// (default: off).
+  #[uniffi(default = None)]
+  pub verify: Option<SignatureVerifierOptions>,
+  /// Which bundles have their signature verified on load
+  /// (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  #[uniffi(default = None)]
+  pub verify_mode: Option<BundleSourceVerifyMode>,
+}
+
 /// Optional verification settings for a [`BundleSource`].
 ///
-/// Two independent layers: load-time integrity/signature verification of the whole bundle
-/// file ([`VerifyOnLoad`], paid once per version), and the per-read entry checksum applied
-/// by [`LoadedDescriptor::get_data`].
+/// Three independent layers: load-time integrity checking and signature verification of
+/// the whole bundle file (each paid once per version), and the per-read entry checksum
+/// applied by [`LoadedDescriptor::get_data`].
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BundleSourceOptions {
-  /// Default: [`VerifyOnLoad::None`].
-  pub verify_on_load: Option<VerifyOnLoad>,
-  pub integrity_policy: Option<IntegrityPolicy>,
-  /// Verifies that a bundle's integrity string was signed by the matching key. Configuring
-  /// a verifier also makes the integrity check mandatory, regardless of `integrity_policy`.
-  ///
-  /// **A verifier alone verifies nothing.** Load-time verification only runs on the bundles
-  /// `verify_on_load` selects, which by default is none of them; set it to
-  /// [`VerifyOnLoad::Remote`] (or [`VerifyOnLoad::All`]) as well.
-  pub signature_verifier: Option<SignatureVerifierOptions>,
+  /// How bundles are checked against their manifest integrity metadata on load.
+  #[uniffi(default = None)]
+  pub integrity: Option<BundleSourceIntegrityOptions>,
+  /// How bundle signatures are verified on load.
+  #[uniffi(default = None)]
+  pub signature: Option<BundleSourceSignatureOptions>,
   /// Verify each entry's xxHash-32 checksum when its data is read (default: `true`).
+  #[uniffi(default = None)]
   pub verify_data_checksum: Option<bool>,
   /// The seed the bundle's data checksums were built with (default: `0`).
+  #[uniffi(default = None)]
   pub data_checksum_seed: Option<u32>,
 }
 
@@ -230,16 +254,27 @@ fn source_builder(config: BundleSourceConfig) -> source::BundleSourceBuilder {
 fn source_options(
   options: BundleSourceOptions,
 ) -> Result<source::BundleSourceOptions, crate::Error> {
-  let mut source_options = source::BundleSourceOptions::new();
-  if let Some(verify_on_load) = options.verify_on_load {
-    source_options = source_options.verify_on_load(verify_on_load.into());
+  let mut source_options = source::BundleSourceOptions::default();
+  if let Some(integrity) = options.integrity {
+    let mut integrity_options = source::BundleSourceIntegrityOptions::default();
+    if let Some(policy) = integrity.policy {
+      integrity_options = integrity_options.policy(policy.into());
+    }
+    if let Some(mode) = integrity.check_mode {
+      integrity_options = integrity_options.check_mode(mode.into());
+    }
+    source_options = source_options.integrity(integrity_options);
   }
-  if let Some(policy) = options.integrity_policy {
-    source_options = source_options.integrity_policy(policy.into());
-  }
-  if let Some(verifier_opts) = options.signature_verifier {
-    let verifier = signature::SignatureVerifier::try_from(verifier_opts)?;
-    source_options = source_options.signature_verifier(verifier);
+  if let Some(sig) = options.signature {
+    let mut signature_options = source::BundleSourceSignatureOptions::default();
+    if let Some(verifier_opts) = sig.verify {
+      let verifier = signature::SignatureVerifier::try_from(verifier_opts)?;
+      signature_options = signature_options.verify(verifier);
+    }
+    if let Some(mode) = sig.verify_mode {
+      signature_options = signature_options.verify_mode(mode.into());
+    }
+    source_options = source_options.signature(signature_options);
   }
   if let Some(verify) = options.verify_data_checksum {
     source_options = source_options.verify_data_checksum(verify);
@@ -484,5 +519,60 @@ impl BundleSource {
   ) -> Result<Vec<String>, crate::Error> {
     let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
     Ok(removed)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wvb::integrity;
+
+  #[test]
+  fn source_options_maps_nested_records() {
+    let options = BundleSourceOptions {
+      integrity: Some(BundleSourceIntegrityOptions {
+        policy: Some(IntegrityPolicy::Strict),
+        check_mode: Some(BundleSourceVerifyMode::All),
+      }),
+      signature: Some(BundleSourceSignatureOptions {
+        verify: None,
+        verify_mode: Some(BundleSourceVerifyMode::OnlyRemote),
+      }),
+      verify_data_checksum: Some(false),
+      data_checksum_seed: Some(42),
+    };
+
+    let expected = source::BundleSourceOptions::default()
+      .integrity(
+        source::BundleSourceIntegrityOptions::default()
+          .policy(integrity::IntegrityPolicy::Strict)
+          .check_mode(source::BundleSourceVerifyMode::All),
+      )
+      .signature(
+        source::BundleSourceSignatureOptions::default()
+          .verify_mode(source::BundleSourceVerifyMode::OnlyRemote),
+      )
+      .verify_data_checksum(false)
+      .data_checksum_seed(42);
+
+    assert_eq!(
+      format!("{:?}", source_options(options).unwrap()),
+      format!("{expected:?}"),
+    );
+  }
+
+  #[test]
+  fn source_options_all_none_equals_default() {
+    let options = BundleSourceOptions {
+      integrity: None,
+      signature: None,
+      verify_data_checksum: None,
+      data_checksum_seed: None,
+    };
+
+    assert_eq!(
+      format!("{:?}", source_options(options).unwrap()),
+      format!("{:?}", source::BundleSourceOptions::default()),
+    );
   }
 }

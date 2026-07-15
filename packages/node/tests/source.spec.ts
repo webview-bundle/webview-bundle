@@ -129,10 +129,11 @@ describe('source', () => {
         new BundleSource({
           builtinDir,
           remoteDir,
-          verifyOnLoad: 'remote',
-          signatureVerifier: {
-            algorithm: 'ed25519',
-            key: { format: 'sec1', data: Buffer.alloc(32) },
+          signature: {
+            verify: {
+              algorithm: 'ed25519',
+              key: { format: 'sec1', data: Buffer.alloc(32) },
+            },
           },
         });
       } catch (e) {
@@ -141,6 +142,42 @@ describe('source', () => {
     })();
     expect(isWebviewBundleError(error)).toBe(true);
     expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('invalid_signature_options');
+  });
+
+  it('rejects an unknown top-level config key instead of silently ignoring it', () => {
+    const error = (() => {
+      try {
+        // A dropped `verifyDataChecksum` (misspelled) would leave verification in a state the
+        // caller did not ask for.
+        new BundleSource({
+          builtinDir,
+          remoteDir,
+          verifyChecksum: true,
+        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
+    expect((error as Error).message).toContain('verifyChecksum');
+  });
+
+  it('rejects an unknown nested integrity key (fails closed)', () => {
+    const error = (() => {
+      try {
+        new BundleSource({
+          builtinDir,
+          remoteDir,
+          integrity: { checkmode: 'all' },
+        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
+    expect((error as Error).message).toContain('checkmode');
   });
 
   it('verifies entry checksums by default', async () => {

@@ -46,7 +46,7 @@ export interface BundleProtocolOptions {
    * A corrupted entry rejects with the `core.checksum_mismatch` error code instead of handing
    * damaged bytes to the webview. This detects corruption, not tampering: the seed is not
    * secret, so whatever can rewrite an entry can rewrite its checksum. Use
-   * {@link BundleSourceConfig.signatureVerifier} to detect tampering.
+   * {@link BundleSourceConfig.signature} to detect tampering.
    */
   verifyDataChecksum?: boolean;
   /**

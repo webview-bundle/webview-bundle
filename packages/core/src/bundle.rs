@@ -15,47 +15,47 @@ use crate::{
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
-/// How entry data is read out of a bundle's data section.
-///
-/// Each entry in the data section is stored as its LZ4-compressed bytes followed by a
-/// 4-byte xxHash-32 checksum of those bytes, seeded with the seed the bundle was built
-/// with ([`crate::BundleBuilderOptions::data_checksum_seed`]). With `verify_checksum`
-/// enabled, reading an entry recomputes that checksum and fails with
-/// [`crate::Error::ChecksumMismatch`] when it does not match.
+/// How an entry's xxHash-32 checksum is treated when its data is read.
 ///
 /// The checksum detects **corruption** (a damaged file, a truncated write). It is not a
 /// security control: the seed is not secret, so anything that can rewrite an entry can
 /// rewrite its checksum too. Use integrity and signature verification
 /// (see `BundleSourceOptions`, the `source` feature) to detect tampering.
 ///
-/// # Example
-///
-/// ```
-/// use wvb::DataReadOptions;
-///
-/// let options = DataReadOptions::new().verify_checksum(true).checksum_seed(0);
-/// assert!(options.verify_checksum);
-/// ```
+/// The default leaves verification **off**: [`DataReadOptions::default`] backs the
+/// seed-unaware `Bundle::get_data`/`BundleDescriptor::get_data` paths, which have no way to
+/// learn the seed a bundle was built with. `BundleSourceOptions` and `BundleProtocolOptions`
+/// carry the seed, so they turn it on by default.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct DataReadOptions {
-  /// Whether to verify each entry's checksum when its data is read.
-  pub verify_checksum: bool,
-  /// The seed the bundle's data checksums were built with.
-  pub checksum_seed: u32,
+pub struct DataReadChecksumOptions {
+  /// Whether to verify each entry's checksum when its data is read (default: `false`).
+  pub verify: bool,
+  /// The seed the bundle's data checksums were built with
+  /// ([`crate::BundleBuilderOptions::data_checksum_seed`], default: `0`).
+  pub seed: u32,
 }
 
-impl DataReadOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  pub fn verify_checksum(mut self, verify: bool) -> Self {
-    self.verify_checksum = verify;
+impl DataReadChecksumOptions {
+  pub fn verify(mut self, verify: bool) -> Self {
+    self.verify = verify;
     self
   }
 
-  pub fn checksum_seed(mut self, seed: u32) -> Self {
-    self.checksum_seed = seed;
+  pub fn seed(mut self, seed: u32) -> Self {
+    self.seed = seed;
+    self
+  }
+}
+
+/// How entry data is read out of a bundle's data section.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DataReadOptions {
+  pub checksum: DataReadChecksumOptions,
+}
+
+impl DataReadOptions {
+  pub fn checksum(mut self, checksum: DataReadChecksumOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
@@ -114,8 +114,7 @@ impl BundleDescriptor {
     self.get_data_with_options(reader, path, DataReadOptions::default())
   }
 
-  /// Reads the data from the bundle, verifying the entry checksum when
-  /// [`DataReadOptions::verify_checksum`] is set.
+  /// Reads the data from the bundle with options.
   ///
   /// Returns `None` if the path doesn't exist in the bundle, and
   /// [`crate::Error::ChecksumMismatch`] if the entry's data is corrupted.
@@ -319,34 +318,25 @@ impl Bundle {
   }
 }
 
-/// The read plan for an entry: where its data starts, and a buffer sized to hold it.
-///
-/// When the checksum is to be verified the buffer also covers the 4-byte checksum that
-/// immediately follows the data, so both are fetched in a single read.
 fn read_entry(entry: &IndexEntry, options: &DataReadOptions) -> (u64, Vec<u8>) {
   let len = entry.len() as usize;
-  let len = match options.verify_checksum {
+  // When the checksum is to be verified the buffer also covers the 4-byte checksum.
+  let len = match options.checksum.verify {
     true => len + CHECKSUM_LEN,
     false => len,
   };
   (entry.offset(), vec![0u8; len])
 }
 
-/// Decompresses an entry, first checking its trailing checksum when `options` asks for it.
-///
-/// `buf` is the entry's compressed bytes, followed by the 4-byte checksum when verifying.
-/// The checksum covers the compressed bytes, so it is checked *before* decompression:
-/// corruption then surfaces as [`crate::Error::ChecksumMismatch`] rather than as an opaque
-/// decompression failure.
 fn parse_entry(
   buf: &[u8],
   entry: &IndexEntry,
   options: &DataReadOptions,
 ) -> crate::Result<Vec<u8>> {
-  let data = match options.verify_checksum {
+  let data = match options.checksum.verify {
     true => {
       let (data, checksum) = buf.split_at(entry.len() as usize);
-      if make_checksum(options.checksum_seed, data) != parse_checksum(checksum) {
+      if make_checksum(options.checksum.seed, data) != parse_checksum(checksum) {
         return Err(crate::Error::ChecksumMismatch);
       }
       data
@@ -727,33 +717,39 @@ mod tests {
     builder.build().unwrap()
   }
 
+  fn verifying(seed: u32) -> DataReadOptions {
+    DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(true).seed(seed))
+  }
+
   #[test]
   fn get_data_verifies_checksum() {
     let bundle = bundle_with_seed(0);
-    let options = DataReadOptions::new().verify_checksum(true);
     let html = bundle
-      .get_data_with_options("/index.html", options)
+      .get_data_with_options("/index.html", verifying(0))
       .unwrap();
+    assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
+  }
+
+  /// The default read options are seed-unaware and so do not verify: a bundle built with a
+  /// non-zero seed still reads through the no-options path.
+  #[test]
+  fn get_data_without_options_does_not_verify() {
+    let bundle = bundle_with_seed(42);
+    let html = bundle.get_data("/index.html").unwrap();
     assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
   }
 
   #[test]
   fn get_data_verifies_checksum_with_seed() {
     let bundle = bundle_with_seed(42);
-    let options = DataReadOptions::new()
-      .verify_checksum(true)
-      .checksum_seed(42);
     let html = bundle
-      .get_data_with_options("/index.html", options)
+      .get_data_with_options("/index.html", verifying(42))
       .unwrap();
     assert_eq!(html.unwrap(), INDEX_HTML.as_bytes());
 
     // Reading with the wrong seed recomputes a different checksum.
-    let wrong_seed = DataReadOptions::new()
-      .verify_checksum(true)
-      .checksum_seed(0);
     let err = bundle
-      .get_data_with_options("/index.html", wrong_seed)
+      .get_data_with_options("/index.html", verifying(0))
       .unwrap_err();
     assert!(matches!(err, crate::Error::ChecksumMismatch));
   }
@@ -764,9 +760,8 @@ mod tests {
     // Corrupt a byte of the compressed payload, leaving its stored checksum intact.
     bundle.data[4] ^= 0xff;
 
-    let options = DataReadOptions::new().verify_checksum(true);
     let err = bundle
-      .get_data_with_options("/index.html", options)
+      .get_data_with_options("/index.html", verifying(0))
       .unwrap_err();
     assert!(matches!(err, crate::Error::ChecksumMismatch));
 
@@ -785,9 +780,8 @@ mod tests {
     let offset = checksum_offset(&bundle, "/index.html");
     bundle.data[offset] ^= 0xff;
 
-    let options = DataReadOptions::new().verify_checksum(true);
     let err = bundle
-      .get_data_with_options("/index.html", options)
+      .get_data_with_options("/index.html", verifying(0))
       .unwrap_err();
     assert!(matches!(err, crate::Error::ChecksumMismatch));
   }
@@ -803,7 +797,7 @@ mod tests {
 
     let mut reader = BundleReader::new(Cursor::new(&raw));
     let descriptor: BundleDescriptor = reader.read().unwrap();
-    let options = DataReadOptions::new().verify_checksum(true);
+    let options = verifying(0);
 
     let html = descriptor
       .async_get_data_with_options(Cursor::new(&raw), "/index.html", options)

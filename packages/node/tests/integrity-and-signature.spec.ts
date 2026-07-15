@@ -11,6 +11,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import {
   BundleBuilder,
   BundleSource,
+  type ErrorCode,
+  isWebviewBundleError,
   Remote,
   Updater,
   writeBundleIntoBuffer,
@@ -178,5 +180,61 @@ describe('integrity + signature verification (producer -> core)', () => {
     await publish('app', '0.2.0', { tamperSignature: true });
     const { updater } = setup();
     await expect(updater.download('app', '0.2.0')).rejects.toThrowError();
+  });
+
+  it('loadDescriptor rejects a remote bundle whose recorded integrity is wrong; policy off loads it', async () => {
+    const builder = new BundleBuilder();
+    builder.insertEntry('/index.html', Buffer.from('<h1>remote</h1>', 'utf8'));
+    const bundle = builder.build();
+    // A well-formed sha256 integrity over unrelated bytes: it parses, then fails to match the file.
+    const wrongIntegrity = await makeIntegrity(
+      { algorithm: 'sha256' },
+      Buffer.from('not the bundle bytes')
+    );
+
+    const source = new BundleSource({ builtinDir, remoteDir });
+    await source.writeRemoteBundle('app', '1.0.0', bundle, { integrity: wrongIntegrity });
+    await source.updateRemoteVersion('app', '1.0.0');
+
+    // Default config verifies remote bundles under the 'optional' policy: a present-but-wrong
+    // integrity is rejected on load.
+    const error = await source.loadDescriptor('app').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.integrity_verify_failed');
+
+    const off = new BundleSource({ builtinDir, remoteDir, integrity: { policy: 'off' } });
+    const loaded = await off.loadDescriptor('app');
+    expect(await loaded.getData('/index.html')).toEqual(Buffer.from('<h1>remote</h1>', 'utf8'));
+  });
+
+  it("checkMode 'all' rejects an unhashed builtin on load; the default 'onlyRemote' serves it", async () => {
+    const builder = new BundleBuilder();
+    builder.insertEntry('/index.html', Buffer.from('<h1>builtin</h1>', 'utf8'));
+    const bundleBuf = Buffer.from(writeBundleIntoBuffer(builder.build()));
+    await fs.mkdir(path.join(builtinDir, 'app'), { recursive: true });
+    await fs.writeFile(path.join(builtinDir, 'app', 'app_1.0.0.wvb'), bundleBuf);
+    await fs.writeFile(
+      path.join(builtinDir, 'manifest.json'),
+      JSON.stringify({
+        manifestVersion: 1,
+        entries: { app: { versions: { '1.0.0': {} }, currentVersion: '1.0.0' } },
+      })
+    );
+
+    // The builtin manifest carries no integrity string, so strict verification of builtin
+    // bundles must refuse to load it.
+    const strict = new BundleSource({
+      builtinDir,
+      remoteDir,
+      integrity: { policy: 'strict', checkMode: 'all' },
+    });
+    const error = await strict.loadDescriptor('app').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.integrity_verify_failed');
+
+    // The default 'onlyRemote' mode leaves builtin bundles alone, so the same bundle loads.
+    const source = new BundleSource({ builtinDir, remoteDir });
+    const loaded = await source.loadDescriptor('app');
+    expect(await loaded.getData('/index.html')).toEqual(Buffer.from('<h1>builtin</h1>', 'utf8'));
   });
 });

@@ -7,46 +7,63 @@ import {
 } from './updater.ts';
 
 /**
- * Which bundles are verified against the integrity/signature recorded in their manifest when
- * they are loaded from disk.
+ * Which bundles a load-time verification applies to.
  *
  * A bundle is verified once per version, when it is first read, so serving it does not re-hash
  * it on every request.
  *
- * - `'none'` (default) — never verify on load; bundles are still verified when downloaded.
- * - `'remote'` — verify downloaded bundles only. Builtin bundles carry integrity metadata only
- *   if the app was packed with it, so this is the setting that works without changing how
- *   builtin bundles are built.
- * - `'all'` — also hash builtin bundles. Whether a *missing* integrity string is an error is
- *   decided by {@link BundleSourceConfig.integrityPolicy}, not by this setting: under the default
- *   `'optional'` policy an unhashed builtin bundle still loads. Pair it with `'strict'` — or with
- *   a `signatureVerifier`, which forces the integrity check — to require the metadata.
+ * - `'onlyRemote'` (default) — verify downloaded bundles only. Builtin bundles carry the
+ *   metadata being verified only if the app was packed with it, so this is the setting that
+ *   works without changing how builtin bundles are built.
+ * - `'all'` — also verify builtin bundles, which requires the builtin manifest to carry the
+ *   metadata being verified.
  */
-export type VerifyOnLoad = 'none' | 'remote' | 'all';
+export type BundleSourceVerifyMode = 'all' | 'onlyRemote';
+
+/**
+ * How bundles are checked against the integrity recorded for them in the manifest when they are
+ * loaded from disk.
+ */
+export interface BundleSourceIntegrityOptions {
+  /**
+   * How a bundle's integrity metadata is treated. Default: `'optional'` — checked when present,
+   * tolerated when missing. `'strict'` requires it; `'off'` disables the check entirely.
+   */
+  policy?: IntegrityPolicy;
+  /** Which bundles are checked on load. Default: `'onlyRemote'`. */
+  checkMode?: BundleSourceVerifyMode;
+}
+
+/**
+ * How bundle signatures are verified when bundles are loaded from disk.
+ *
+ * A bundle's signature signs its integrity string, not the bundle bytes; verifying it proves the
+ * integrity string is authentic. It is verified independently of the integrity check, so pair it
+ * with an enabled {@link BundleSourceConfig.integrity} to also authenticate the bytes — signature
+ * verification alone does not read them.
+ */
+export interface BundleSourceSignatureOptions {
+  /** Verify that a bundle's integrity string was signed by the matching key. Default: off. */
+  verify?: SignatureVerifierOptions;
+  /** Which bundles have their signature verified on load. Default: `'onlyRemote'`. */
+  verifyMode?: BundleSourceVerifyMode;
+}
 
 export interface BundleSourceConfig {
   /** Read-only directory of builtin bundles. */
   builtinDir: string;
   /** Writable directory for downloaded remote bundles. */
   remoteDir: string;
-  /** Which bundles are verified when loaded from disk. Default: `'none'`. */
-  verifyOnLoad?: VerifyOnLoad;
-  /** How a missing or mismatched integrity is treated on load. */
-  integrityPolicy?: IntegrityPolicy;
-  /**
-   * Verify that a bundle's integrity string was signed by the matching key.
-   *
-   * The signature signs the integrity string, so setting this also makes the integrity check
-   * mandatory whatever {@link BundleSourceConfig.integrityPolicy} says — a signature over an
-   * unchecked hash proves nothing about the bundle's bytes.
-   */
-  signatureVerifier?: SignatureVerifierOptions;
+  /** How bundles are checked against their manifest integrity metadata on load. */
+  integrity?: BundleSourceIntegrityOptions;
+  /** How bundle signatures are verified on load. */
+  signature?: BundleSourceSignatureOptions;
   /**
    * Verify each entry's xxHash-32 checksum when its data is read through this source.
    * Default: `true`. ({@link BundleProtocol} verifies by default too, and overrides this.)
    *
    * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite an
-   * entry can rewrite its checksum. Use {@link BundleSourceConfig.signatureVerifier} to detect
+   * entry can rewrite its checksum. Use {@link BundleSourceConfig.signature} to detect
    * tampering.
    */
   verifyDataChecksum?: boolean;
@@ -57,27 +74,45 @@ export interface BundleSourceConfig {
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'builtinDir',
   'remoteDir',
-  'verifyOnLoad',
-  'integrityPolicy',
-  'signatureVerifier',
+  'integrity',
+  'signature',
   'verifyDataChecksum',
   'dataChecksumSeed',
 ]);
+const INTEGRITY_KEYS: ReadonlySet<string> = new Set(['policy', 'checkMode']);
+const SIGNATURE_KEYS: ReadonlySet<string> = new Set(['verify', 'verifyMode']);
 
-function serializeConfig(config: BundleSourceConfig): string {
-  // A misspelled security option (`verifyOnload`) would otherwise be dropped in silence, leaving
-  // verification off while the caller believes it is on.
-  for (const key of Object.keys(config)) {
-    if (!CONFIG_KEYS.has(key)) {
-      throw new WebviewBundleError('unknown', `wvb: unknown BundleSource option '${key}'`);
+function assertKnownKeys(what: string, value: object, known: ReadonlySet<string>): void {
+  for (const key of Object.keys(value)) {
+    if (!known.has(key)) {
+      throw new WebviewBundleError('unknown', `wvb: unknown ${what} option '${key}'`);
     }
   }
-  const { builtinDir: _builtin, remoteDir: _remote, signatureVerifier, ...options } = config;
-  return JSON.stringify(
-    signatureVerifier == null
-      ? options
-      : { ...options, signatureVerifier: serializeSignatureVerifier(signatureVerifier) }
-  );
+}
+
+function serializeConfig(config: BundleSourceConfig): string {
+  // A misspelled security option (`integrity.checkmode`) would otherwise be dropped in silence,
+  // leaving verification off while the caller believes it is on.
+  assertKnownKeys('BundleSource', config, CONFIG_KEYS);
+  const { builtinDir: _builtin, remoteDir: _remote, integrity, signature, ...options } = config;
+  if (integrity != null) {
+    assertKnownKeys('BundleSource integrity', integrity, INTEGRITY_KEYS);
+  }
+  if (signature != null) {
+    assertKnownKeys('BundleSource signature', signature, SIGNATURE_KEYS);
+  }
+  return JSON.stringify({
+    ...options,
+    ...(integrity != null ? { integrity } : {}),
+    ...(signature != null
+      ? {
+          signature:
+            signature.verify == null
+              ? signature
+              : { ...signature, verify: serializeSignatureVerifier(signature.verify) },
+        }
+      : {}),
+  });
 }
 
 export type BundleSourceType = 'builtin' | 'remote';
@@ -113,17 +148,17 @@ export class BundleSource {
       cstr(serializeConfig(config))
     );
     if (this.#ptr === null) {
-      // A null source means an option was ill-formed — a `verifyOnLoad`/checksum value the native
-      // side rejected, or a `signatureVerifier` it couldn't build. Fail closed rather than read
-      // bundles unverified; only blame the key when one was actually given.
-      throw config.signatureVerifier != null
+      // A null source means an option was ill-formed — an `integrity`/checksum value the native
+      // side rejected, or a `signature.verify` key it couldn't build. Fail closed rather than
+      // read bundles unverified; only blame the key when one was actually given.
+      throw config.signature?.verify != null
         ? new WebviewBundleError(
             'invalid_signature_options',
-            'wvb: failed to create BundleSource (check verifyOnLoad/integrityPolicy/signatureVerifier)'
+            'wvb: failed to create BundleSource (check integrity/signature.verify)'
           )
         : new WebviewBundleError(
             'unknown',
-            'wvb: failed to create BundleSource (check verifyOnLoad/integrityPolicy/verifyDataChecksum/dataChecksumSeed)'
+            'wvb: failed to create BundleSource (check integrity/signature/verifyDataChecksum/dataChecksumSeed)'
           );
     }
   }
