@@ -49,6 +49,19 @@ export interface BundleSourceSignatureOptions {
   verifyMode?: BundleSourceVerifyMode;
 }
 
+/**
+ * How a bundle section's xxHash checksum is verified when that section is read through this source.
+ *
+ * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
+ * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
+ */
+export interface ReadChecksumOptions {
+  /** Verify the section's checksum when it is read. Default: `true`. */
+  verify?: boolean;
+  /** The seed the section's checksum was built with. Default: `0`. */
+  seed?: number;
+}
+
 export interface BundleSourceConfig {
   /** Read-only directory of builtin bundles. */
   builtinDir: string;
@@ -59,16 +72,21 @@ export interface BundleSourceConfig {
   /** How bundle signatures are verified on load. */
   signature?: BundleSourceSignatureOptions;
   /**
-   * Verify each entry's xxHash-32 checksum when its data is read through this source.
-   * Default: `true`. ({@link BundleProtocol} verifies by default too, and overrides this.)
-   *
-   * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite an
-   * entry can rewrite its checksum. Use {@link BundleSourceConfig.signature} to detect
-   * tampering.
+   * How each entry's data checksum is verified when its data is read through this source.
+   * Default: `{ verify: true, seed: 0 }`. ({@link BundleProtocol} verifies by default too, and
+   * overrides this.)
    */
-  verifyDataChecksum?: boolean;
-  /** The seed the bundle's data checksums were built with. Default: `0`. */
-  dataChecksumSeed?: number;
+  dataReadOptions?: ReadChecksumOptions;
+  /**
+   * How a bundle's header checksum is verified when its descriptor is read on load.
+   * Default: `{ verify: true, seed: 0 }`.
+   */
+  headerReadOptions?: ReadChecksumOptions;
+  /**
+   * How a bundle's index checksum is verified when its descriptor is read on load.
+   * Default: `{ verify: true, seed: 0 }`.
+   */
+  indexReadOptions?: ReadChecksumOptions;
 }
 
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
@@ -76,11 +94,14 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'remoteDir',
   'integrity',
   'signature',
-  'verifyDataChecksum',
-  'dataChecksumSeed',
+  'dataReadOptions',
+  'headerReadOptions',
+  'indexReadOptions',
 ]);
 const INTEGRITY_KEYS: ReadonlySet<string> = new Set(['policy', 'checkMode']);
 const SIGNATURE_KEYS: ReadonlySet<string> = new Set(['verify', 'verifyMode']);
+const READ_CHECKSUM_KEYS: ReadonlySet<string> = new Set(['verify', 'seed']);
+const READ_OPTION_GROUPS = ['dataReadOptions', 'headerReadOptions', 'indexReadOptions'] as const;
 
 function assertKnownKeys(what: string, value: object, known: ReadonlySet<string>): void {
   for (const key of Object.keys(value)) {
@@ -100,6 +121,12 @@ function serializeConfig(config: BundleSourceConfig): string {
   }
   if (signature != null) {
     assertKnownKeys('BundleSource signature', signature, SIGNATURE_KEYS);
+  }
+  for (const group of READ_OPTION_GROUPS) {
+    const value = config[group];
+    if (value != null) {
+      assertKnownKeys(`BundleSource ${group}`, value, READ_CHECKSUM_KEYS);
+    }
   }
   return JSON.stringify({
     ...options,
@@ -158,7 +185,7 @@ export class BundleSource {
           )
         : new WebviewBundleError(
             'unknown',
-            'wvb: failed to create BundleSource (check integrity/signature/verifyDataChecksum/dataChecksumSeed)'
+            'wvb: failed to create BundleSource (check integrity/signature/dataReadOptions/headerReadOptions/indexReadOptions)'
           );
     }
   }

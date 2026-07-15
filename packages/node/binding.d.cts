@@ -709,8 +709,8 @@ export declare class LoadedDescriptor {
    * source's active version changes meanwhile. Returns `null` if the path does not
    * exist in the bundle.
    *
-   * The entry's checksum is verified when the source was created with
-   * `verifyDataChecksum`; a corrupted entry rejects with the `core.checksum_mismatch`
+   * The entry's checksum is verified when the source's `dataReadOptions.verify` is
+   * enabled (the default); a corrupted entry rejects with the `core.checksum_mismatch`
    * error code.
    *
    * @param {string} path - File path in the bundle (e.g., "/index.html")
@@ -1201,8 +1201,9 @@ export type BundleResolverOptions =
  * @property {string} [remoteManifestFilepath] - Custom manifest path for remote
  * @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
  * @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
- * @property {boolean} [verifyDataChecksum] - Verify each entry's xxHash-32 checksum when its data is read (default: true)
- * @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
+ * @property {ReadChecksumOptions} [dataReadOptions] - Verify each entry's checksum when its data is read (default: verify true, seed 0)
+ * @property {ReadChecksumOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded (default: verify true, seed 0)
+ * @property {ReadChecksumOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded (default: verify true, seed 0)
  *
  * @example
  * ```typescript
@@ -1222,6 +1223,17 @@ export type BundleResolverOptions =
  *   integrity: { policy: 'strict' },
  * });
  * ```
+ *
+ * @example
+ * ```typescript
+ * // Turn off data checksum verification and seed the index checksum.
+ * const source = new BundleSource({
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
+ *   dataReadOptions: { verify: false },
+ *   indexReadOptions: { seed: 42 },
+ * });
+ * ```
  */
 export interface BundleSourceConfig {
   builtinDir: string
@@ -1230,8 +1242,9 @@ export interface BundleSourceConfig {
   remoteManifestFilepath?: string
   integrity?: BundleSourceIntegrityOptions
   signature?: BundleSourceSignatureOptions
-  verifyDataChecksum?: boolean
-  dataChecksumSeed?: number
+  dataReadOptions?: ReadChecksumOptions
+  headerReadOptions?: ReadChecksumOptions
+  indexReadOptions?: ReadChecksumOptions
 }
 
 /**
@@ -1566,6 +1579,17 @@ export declare function readBundle(filepath: string): Promise<Bundle>
  * ```
  */
 export declare function readBundleFromBuffer(buffer: Buffer): Bundle
+
+/**
+ * Checksum verification for one bundle read section (header, index, or data).
+ *
+ * @property {boolean} [verify] - Verify this section's xxHash-32 checksum on read (default: true)
+ * @property {number} [seed] - Seed the section's checksum was built with (default: 0)
+ */
+export interface ReadChecksumOptions {
+  verify?: boolean
+  seed?: number
+}
 
 /**
  * Complete bundle information from remote server.

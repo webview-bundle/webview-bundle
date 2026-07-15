@@ -179,8 +179,9 @@ Deno.test('BundleSource accepts verification options and fails closed on a bad o
   {
     using _configured = testSource({
       integrity: { policy: 'optional', checkMode: 'onlyRemote' },
-      verifyDataChecksum: true,
-      dataChecksumSeed: 0,
+      dataReadOptions: { verify: true, seed: 0 },
+      headerReadOptions: { verify: true },
+      indexReadOptions: { verify: false, seed: 2 },
     });
     using _off = testSource({ integrity: { policy: 'off' }, signature: { verifyMode: 'all' } });
   }
@@ -226,11 +227,11 @@ Deno.test('integrity options round-trip: strict + all rejects the unhashed built
 
 Deno.test('a misspelled option is rejected instead of silently ignored', () => {
   const sourceError = assertThrows(
-    // A dropped `verifyDataChecksum` would leave verification in a state the caller did not ask for.
-    () => testSource({ verifyDatachecksum: true } as unknown as BundleSourceConfig),
+    // A dropped `dataReadOptions.verify` would leave verification in a state the caller did not ask for.
+    () => testSource({ dataReadOptions: { verifyy: true } } as unknown as BundleSourceConfig),
     WebviewBundleError
   );
-  assert(sourceError.message.includes('verifyDatachecksum'), sourceError.message);
+  assert(sourceError.message.includes('verifyy'), sourceError.message);
 
   const nestedError = assertThrows(
     // A dropped `integrity.checkMode` would leave builtin bundles unverified while the caller
@@ -254,7 +255,7 @@ Deno.test('a misspelled option is rejected instead of silently ignored', () => {
 Deno.test('BundleSource takes a data-checksum seed without disabling verification', () => {
   // The source verifies entry checksums by default; passing only the seed must keep it on (the
   // native default is pinned in `src/lib.rs`, where the read options are observable).
-  using seeded = testSource({ dataChecksumSeed: 1 });
+  using seeded = testSource({ dataReadOptions: { seed: 1 } });
   assert(seeded instanceof BundleSource);
 });
 

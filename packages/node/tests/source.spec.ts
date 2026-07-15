@@ -108,8 +108,18 @@ describe('source', () => {
     await fs.writeFile(filepath, raw);
   }
 
-  it('verifies entry checksums on read when verifyDataChecksum is set', async () => {
-    const source = new BundleSource({ builtinDir, remoteDir, verifyDataChecksum: true });
+  // Flips a byte of the header's stored 4-byte checksum (fixed offset 13), leaving the header
+  // fields intact: a load that verifies the header checksum fails, a load that does not still
+  // parses the bundle.
+  async function corruptHeaderChecksum(source: BundleSource) {
+    const filepath = await source.resolveFilepath('app');
+    const raw = await fs.readFile(filepath);
+    raw[13] = raw[13]! ^ 0xff;
+    await fs.writeFile(filepath, raw);
+  }
+
+  it('verifies entry checksums on read when dataReadOptions.verify is set', async () => {
+    const source = new BundleSource({ builtinDir, remoteDir, dataReadOptions: { verify: true } });
     await install(source, '1.0.0', '<h1>v1</h1>');
     await corruptChecksum(source, '/index.html');
 
@@ -147,8 +157,8 @@ describe('source', () => {
   it('rejects an unknown top-level config key instead of silently ignoring it', () => {
     const error = (() => {
       try {
-        // A dropped `verifyDataChecksum` (misspelled) would leave verification in a state the
-        // caller did not ask for.
+        // A misspelled security option would leave verification in a state the caller did not
+        // ask for.
         new BundleSource({
           builtinDir,
           remoteDir,
@@ -191,10 +201,33 @@ describe('source', () => {
     expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
   });
 
-  it('does not verify entry checksums when verifyDataChecksum is false', async () => {
-    const source = new BundleSource({ builtinDir, remoteDir, verifyDataChecksum: false });
+  it('does not verify entry checksums when dataReadOptions.verify is false', async () => {
+    const source = new BundleSource({ builtinDir, remoteDir, dataReadOptions: { verify: false } });
     await install(source, '1.0.0', '<h1>v1</h1>');
     await corruptChecksum(source, '/index.html');
+
+    const loaded = await source.loadDescriptor('app');
+    expect(await loaded.getData('/index.html')).toEqual(Buffer.from('<h1>v1</h1>', 'utf8'));
+  });
+
+  it('verifies the header checksum on load by default', async () => {
+    const source = makeSource();
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptHeaderChecksum(source);
+
+    const error = await source.loadDescriptor('app').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.invalid_header_checksum');
+  });
+
+  it('loads a header-corrupted bundle when headerReadOptions.verify is false', async () => {
+    const source = new BundleSource({
+      builtinDir,
+      remoteDir,
+      headerReadOptions: { verify: false },
+    });
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptHeaderChecksum(source);
 
     const loaded = await source.loadDescriptor('app');
     expect(await loaded.getData('/index.html')).toEqual(Buffer.from('<h1>v1</h1>', 'utf8'));

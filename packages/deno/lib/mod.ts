@@ -37,6 +37,7 @@ export {
   type BundleSourceVerifyMode,
   type BundleSourceVersion,
   type ListBundleItem,
+  type ReadChecksumOptions,
 } from './source.ts';
 export {
   type BundleUpdateInfo,

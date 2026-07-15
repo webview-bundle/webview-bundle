@@ -24,11 +24,13 @@ const BUNDLE_SOURCE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'remoteManifestFilepath',
   'integrity',
   'signature',
-  'verifyDataChecksum',
-  'dataChecksumSeed',
+  'dataReadOptions',
+  'headerReadOptions',
+  'indexReadOptions',
 ]);
 const INTEGRITY_KEYS: ReadonlySet<string> = new Set(['policy', 'check', 'checkMode']);
 const SIGNATURE_KEYS: ReadonlySet<string> = new Set(['verify', 'verifyMode']);
+const READ_OPTIONS_KEYS: ReadonlySet<string> = new Set(['verify', 'seed']);
 
 function assertKnownKeys(what: string, value: object, known: ReadonlySet<string>): void {
   for (const key of Object.keys(value)) {
@@ -46,12 +48,27 @@ function validateBundleSourceConfig(args: unknown[]): void {
     return;
   }
   assertKnownKeys('BundleSource', config, BUNDLE_SOURCE_CONFIG_KEYS);
-  const { integrity, signature } = config as { integrity?: unknown; signature?: unknown };
+  const { integrity, signature, dataReadOptions, headerReadOptions, indexReadOptions } = config as {
+    integrity?: unknown;
+    signature?: unknown;
+    dataReadOptions?: unknown;
+    headerReadOptions?: unknown;
+    indexReadOptions?: unknown;
+  };
   if (integrity != null && typeof integrity === 'object') {
     assertKnownKeys('BundleSource integrity', integrity, INTEGRITY_KEYS);
   }
   if (signature != null && typeof signature === 'object') {
     assertKnownKeys('BundleSource signature', signature, SIGNATURE_KEYS);
+  }
+  for (const [name, group] of [
+    ['dataReadOptions', dataReadOptions],
+    ['headerReadOptions', headerReadOptions],
+    ['indexReadOptions', indexReadOptions],
+  ] as const) {
+    if (group != null && typeof group === 'object') {
+      assertKnownKeys(`BundleSource ${name}`, group, READ_OPTIONS_KEYS);
+    }
   }
 }
 
