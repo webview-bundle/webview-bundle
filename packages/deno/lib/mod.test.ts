@@ -155,23 +155,25 @@ Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', ()
   );
 });
 
-Deno.test('BundleProtocol verifies the data checksum of what it serves by default', async () => {
+Deno.test("the source's data-checksum options flow through what the protocol serves", async () => {
   using source = testSource();
   using protocol = new BundleProtocol(source);
   assertEquals((await protocol.handle('get', 'bundle://app/index.html')).status, 200);
 
-  // The seed is part of the checksum, so a seed the bundle was not packed with mismatches.
-  using wrongSeed = new BundleProtocol(source, { dataChecksumSeed: 1 });
+  // The seed is part of the checksum, so a source configured with a seed the bundle was not packed
+  // with mismatches when the protocol reads through it.
+  using wrongSeedSource = testSource({ dataReadOptions: { checksum: { seed: 1 } } });
+  using wrongSeed = new BundleProtocol(wrongSeedSource);
   const error = await assertRejects(
     () => wrongSeed.handle('get', 'bundle://app/index.html'),
     WebviewBundleError
   );
   assertEquals(error.code, 'core.checksum_mismatch');
 
-  using unverified = new BundleProtocol(source, {
-    verifyDataChecksum: false,
-    dataChecksumSeed: 1,
+  using unverifiedSource = testSource({
+    dataReadOptions: { checksum: { verify: false, seed: 1 } },
   });
+  using unverified = new BundleProtocol(unverifiedSource);
   assertEquals((await unverified.handle('get', 'bundle://app/index.html')).status, 200);
 });
 

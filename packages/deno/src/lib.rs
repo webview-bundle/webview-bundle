@@ -9,8 +9,8 @@ use tokio::runtime::Runtime;
 use wvb::http;
 use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{
-  BundleProtocol, BundleProtocolOptions, HostnameSegment, Protocol, ProxyProtocol, ProxyResolver,
-  UriBundleResolver, UriPathResolver,
+  BundleProtocol, HostnameSegment, Protocol, ProxyProtocol, ProxyResolver, UriBundleResolver,
+  UriPathResolver,
 };
 use wvb::remote::{HttpConfig, Remote as CoreRemote};
 use wvb::signature::{
@@ -268,21 +268,6 @@ fn parse_signature_verify_mode(mode: &str) -> Option<BundleSourceSignatureVerify
   }
 }
 
-/// Read the same two data-checksum keys for a protocol, which carries its own options type but the
-/// same defaults: verification is ON with seed `0` unless the key says otherwise.
-fn parse_protocol_data_options(value: &serde_json::Value) -> Option<BundleProtocolOptions> {
-  let mut options = BundleProtocolOptions::default();
-  match value.get("verifyDataChecksum") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(x) => options = options.verify_data_checksum(x.as_bool()?),
-  }
-  match value.get("dataChecksumSeed") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(x) => options = options.data_checksum_seed(u32::try_from(x.as_u64()?).ok()?),
-  }
-  Some(options)
-}
-
 /// # Safety
 /// `handle` must be null or a pointer previously returned by `wvb_source_new`.
 #[unsafe(no_mangle)]
@@ -338,8 +323,9 @@ fn parse_path_resolver(value: &serde_json::Value) -> Option<UriPathResolver> {
 }
 
 /// Create a bundle protocol handler serving from `source`. `options_json` is null/empty or a JSON
-/// object with `bundleResolver`, `pathResolver`, `verifyDataChecksum` and/or `dataChecksumSeed`;
-/// an unparsable option returns null rather than silently serving with the default resolvers.
+/// object with `bundleResolver` and/or `pathResolver`; an unparsable option returns null rather than
+/// silently serving with the default resolvers. Entries are served with the read options the
+/// `source` was configured with.
 ///
 /// # Safety
 /// `source` must be a valid pointer returned by `wvb_source_new`; `options_json` must be null or a
@@ -375,10 +361,6 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
         Some(resolver) => protocol = protocol.with_path_resolver(resolver),
         None => return std::ptr::null_mut(),
       },
-    }
-    match parse_protocol_data_options(&options) {
-      Some(data) => protocol = protocol.with_options(data),
-      None => return std::ptr::null_mut(),
     }
   }
   let protocol: Arc<dyn Protocol> = Arc::new(protocol);

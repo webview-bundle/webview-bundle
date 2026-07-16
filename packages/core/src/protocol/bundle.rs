@@ -1,70 +1,11 @@
 use crate::protocol::uri::{UriBundleResolver, UriPathResolver};
 use crate::source::BundleSource;
-use crate::{DataReadChecksumOptions, DataReadOptions};
 use async_trait::async_trait;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_range::HttpRange;
 use std::fmt::Formatter;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-
-/// Options for [`BundleProtocol`].
-///
-/// # Data checksum
-///
-/// Every entry in a bundle carries an xxHash-32 checksum of its compressed bytes. When
-/// [`DataReadOptions`] verify it (the default), the protocol recomputes it as it serves
-/// each file and fails the request with [`crate::Error::ChecksumMismatch`] when the entry is
-/// corrupted, instead of handing damaged bytes to the webview. Bindings decide what response
-/// that error turns into.
-///
-/// The checksum seed must match the seed the bundle was packed with
-/// ([`crate::BundleBuilderOptions::data_checksum_seed`], default `0`).
-///
-/// The checksum detects corruption, not tampering: the seed is not secret, so whatever can
-/// rewrite an entry can rewrite its checksum too. See [`crate::source::BundleSourceOptions`]
-/// for integrity and signature verification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct BundleProtocolOptions {
-  /// How entry data is read as it is served (default: checksum verification on, seed `0`).
-  pub data_read_options: DataReadOptions,
-}
-
-impl Default for BundleProtocolOptions {
-  fn default() -> Self {
-    Self {
-      data_read_options: DataReadOptions::default()
-        .checksum(DataReadChecksumOptions::default().verify(true)),
-    }
-  }
-}
-
-impl BundleProtocolOptions {
-  /// How entry data is read as it is served.
-  pub fn data_read_options(mut self, options: DataReadOptions) -> Self {
-    self.data_read_options = options;
-    self
-  }
-
-  /// Verify each entry's checksum as it is served (default: `true`).
-  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
-    self.data_read_options.checksum.verify = verify;
-    self
-  }
-
-  /// The seed the bundle's data checksums were built with (default: `0`).
-  pub fn data_checksum_seed(mut self, seed: u32) -> Self {
-    self.data_read_options.checksum.seed = seed;
-    self
-  }
-}
-
-impl From<BundleProtocolOptions> for DataReadOptions {
-  fn from(value: BundleProtocolOptions) -> Self {
-    value.data_read_options
-  }
-}
 
 /// Protocol handler for serving files from bundle sources.
 ///
@@ -141,7 +82,6 @@ pub struct BundleProtocol {
   source: Arc<BundleSource>,
   bundle_resolver: UriBundleResolver,
   path_resolver: UriPathResolver,
-  options: BundleProtocolOptions,
 }
 
 impl std::fmt::Debug for BundleProtocol {
@@ -177,7 +117,6 @@ impl BundleProtocol {
       source,
       bundle_resolver: UriBundleResolver::default(),
       path_resolver: UriPathResolver::default(),
-      options: BundleProtocolOptions::default(),
     }
   }
 
@@ -188,12 +127,6 @@ impl BundleProtocol {
 
   pub fn with_path_resolver(mut self, path_resolver: UriPathResolver) -> Self {
     self.path_resolver = path_resolver;
-    self
-  }
-
-  /// Sets how served entry data is verified (default: checksum verification on, seed `0`).
-  pub fn with_options(mut self, options: BundleProtocolOptions) -> Self {
-    self.options = options;
     self
   }
 
@@ -425,15 +358,13 @@ impl BundleProtocol {
     }
   }
 
-  /// Reads an entry, applying this protocol's checksum options rather than the source's.
+  /// Reads an entry, applying the read options the source was configured with.
   async fn get_data(
     &self,
     descriptor: &crate::source::LoadedDescriptor,
     path: &str,
   ) -> crate::Result<Option<Vec<u8>>> {
-    descriptor
-      .get_data_with_options(path, self.options.into())
-      .await
+    descriptor.get_data(path).await
   }
 }
 

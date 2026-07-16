@@ -288,8 +288,14 @@ export declare class BundleProtocol {
    *
    * @example
    * ```typescript
-   * // Serve without checking entry checksums.
-   * const protocol = new BundleProtocol(source, { verifyDataChecksum: false });
+   * // Entry checksum verification is inherited from the source's read options; to serve
+   * // without checking entry checksums, configure it on the source instead.
+   * const source = new BundleSource({
+   *   builtinDir: './bundles',
+   *   remoteDir: './remote',
+   *   dataReadOptions: { checksum: { verify: false } },
+   * });
+   * const protocol = new BundleProtocol(source);
    * ```
    */
   constructor(source: BundleSource, options?: BundleProtocolOptions | undefined | null)
@@ -1159,15 +1165,10 @@ export declare enum BundleManifestVersion {
  *
  * @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
  * @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
- * @property {boolean} [verifyDataChecksum] - Verify each served entry's xxHash-32 checksum (default: true).
- *   A corrupted entry fails the request with the `core.checksum_mismatch` error code.
- * @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
  */
 export interface BundleProtocolOptions {
   bundleResolver?: BundleResolverOptions
   pathResolver?: PathResolver
-  verifyDataChecksum?: boolean
-  dataChecksumSeed?: number
 }
 
 /**

@@ -8,7 +8,7 @@ use common::get;
 use ed25519_dalek::{Signer, SigningKey};
 use std::sync::Arc;
 use wvb::integrity::IntegrityPolicy;
-use wvb::protocol::{BundleProtocol, BundleProtocolOptions, Protocol};
+use wvb::protocol::{BundleProtocol, Protocol};
 use wvb::signature::{Ed25519Verifier, SignatureVerifier};
 use wvb::source::{
   BundleSourceIntegrityCheckMode, BundleSourceIntegrityOptions, BundleSourceOptions,
@@ -148,9 +148,12 @@ async fn protocol_verification_can_be_turned_off() {
     .source()
     .corrupt_builtin_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
-  // Only the checksum is damaged, so with verification off the payload still decompresses.
-  let protocol = BundleProtocol::new(Arc::new(system.source().get_source()))
-    .with_options(BundleProtocolOptions::default().verify_data_checksum(false));
+  // The protocol reads through the source, so turning verification off on the source lets
+  // the damaged checksum through — only the checksum byte is corrupt, so it still decompresses.
+  let options = BundleSourceOptions::default().data_read_options(
+    DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(false)),
+  );
+  let protocol = BundleProtocol::new(Arc::new(system.source().get_source_with(options)));
   let resp = protocol
     .handle(get("https://app.wvb/index.html"))
     .await
@@ -158,30 +161,31 @@ async fn protocol_verification_can_be_turned_off() {
   assert_eq!(resp.body().as_ref(), BODY);
 }
 
-/// A bundle packed with a non-zero seed must be served with the same seed.
+/// The protocol serves entries with the checksum seed the source is configured with: a bundle
+/// packed with a non-zero seed is served only when the source carries the same seed.
 #[tokio::test]
-async fn protocol_honours_the_checksum_seed() {
-  let mut options = BundleBuilderOptions::default();
-  options.data_checksum_seed(42);
+async fn protocol_serves_with_the_source_checksum_seed() {
+  let mut builder_options = BundleBuilderOptions::default();
+  builder_options.data_checksum_seed(42);
 
   let mut system = MockSystem::new();
   system
     .source_mut()
-    .add_builtin_bundle(app("1.0.0").with_builder_options(options))
+    .add_builtin_bundle(app("1.0.0").with_builder_options(builder_options))
     .set_builtin_current_version("app", "1.0.0");
 
-  let source = Arc::new(system.source().get_source());
-
-  let matching = BundleProtocol::new(source.clone())
-    .with_options(BundleProtocolOptions::default().data_checksum_seed(42));
-  let resp = matching
+  let matching = BundleSourceOptions::default().data_read_options(
+    DataReadOptions::default().checksum(DataReadChecksumOptions::default().seed(42)),
+  );
+  let protocol = BundleProtocol::new(Arc::new(system.source().get_source_with(matching)));
+  let resp = protocol
     .handle(get("https://app.wvb/index.html"))
     .await
     .unwrap();
   assert_eq!(resp.body().as_ref(), BODY);
 
-  // The default seed (0) recomputes a different checksum for the very same bytes.
-  let mismatched = BundleProtocol::new(source);
+  // The default source seed (0) recomputes a different checksum for the very same bytes.
+  let mismatched = BundleProtocol::new(Arc::new(system.source().get_source()));
   let err = mismatched
     .handle(get("https://app.wvb/index.html"))
     .await

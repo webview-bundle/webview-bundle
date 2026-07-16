@@ -46,8 +46,8 @@ describe('bundle protocol', () => {
   });
 
   // Writes a remote bundle and activates it as the current version.
-  async function makeSource() {
-    const source = new BundleSource({ builtinDir, remoteDir });
+  async function makeSource(config: Partial<ConstructorParameters<typeof BundleSource>[0]> = {}) {
+    const source = new BundleSource({ builtinDir, remoteDir, ...config });
     const builder = new BundleBuilder();
     builder.insertEntry('/index.html', Buffer.from('<h1>index</h1>', 'utf8'));
     builder.insertEntry('/about.html', Buffer.from('<h1>about</h1>', 'utf8'));
@@ -189,18 +189,19 @@ describe('bundle protocol', () => {
     expect(await protocol.handle('get', 'wvb://app.wvb/about.html')).toMatchObject({ status: 200 });
   });
 
-  it('serves a corrupted entry when verifyDataChecksum is false', async () => {
-    const source = await makeSource();
+  it("serves a corrupted entry when the source's data checksum verification is off", async () => {
+    const source = await makeSource({ dataReadOptions: { checksum: { verify: false } } });
     await corruptChecksum(source, '/index.html');
 
-    const protocol = new BundleProtocol(source, { verifyDataChecksum: false });
+    const protocol = new BundleProtocol(source);
     const resp = await protocol.handle('get', 'wvb://app.wvb/index.html');
     expect(resp.status).toBe(200);
     expect(resp.body.toString('utf8')).toBe('<h1>index</h1>');
   });
 
-  it('fails when dataChecksumSeed does not match the seed the bundle was packed with', async () => {
-    const protocol = new BundleProtocol(await makeSource(), { dataChecksumSeed: 42 });
+  it("fails when the source's data checksum seed does not match the packed seed", async () => {
+    const source = await makeSource({ dataReadOptions: { checksum: { seed: 42 } } });
+    const protocol = new BundleProtocol(source);
     const error = await protocol.handle('get', 'wvb://app.wvb/index.html').catch(e => e);
     expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
   });

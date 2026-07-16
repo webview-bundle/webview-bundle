@@ -82,8 +82,7 @@ impl From<PathResolver> for protocol::UriPathResolver {
   }
 }
 
-/// How a [`BundleProtocolHandler`] resolves the request uri, and how it verifies the
-/// entries it serves.
+/// How a [`BundleProtocolHandler`] resolves the request uri.
 ///
 /// Defaults to the first hostname segment as the bundle name, and a directory-index path
 /// (`/about` -> `/about/index.html`).
@@ -93,13 +92,6 @@ pub struct BundleProtocolOptions {
   pub bundle_resolver: Option<BundleResolver>,
   #[uniffi(default = None)]
   pub path_resolver: Option<PathResolver>,
-  /// Verify each served entry's xxHash-32 checksum (default: `true`).
-  /// A mismatch fails the request with `ChecksumMismatch`.
-  #[uniffi(default = None)]
-  pub verify_data_checksum: Option<bool>,
-  /// The seed the bundle's data checksums were built with (default: `0`).
-  #[uniffi(default = None)]
-  pub data_checksum_seed: Option<u32>,
 }
 
 /// Handles HTTP-like requests by serving bundle entries from a [`BundleSource`].
@@ -107,6 +99,8 @@ pub struct BundleProtocolOptions {
 /// By default the host portion of the URI identifies the bundle by name
 /// (e.g. `https://app.wvb/index.html` → bundle `"app"`, path `"/index.html"`);
 /// pass [`BundleProtocolOptions`] to resolve the bundle name or the path differently.
+/// Entries are served using the read options the [`BundleSource`] was configured with,
+/// including any data-checksum verification.
 /// Returns 200 with the entry body, 404 when the path is not found, or
 /// 200 with an empty body for HEAD requests.
 #[derive(uniffi::Object)]
@@ -129,14 +123,6 @@ impl BundleProtocolHandler {
       if let Some(path_resolver) = options.path_resolver {
         inner = inner.with_path_resolver(path_resolver.into());
       }
-      let mut protocol_options = protocol::BundleProtocolOptions::default();
-      if let Some(verify) = options.verify_data_checksum {
-        protocol_options = protocol_options.verify_data_checksum(verify);
-      }
-      if let Some(seed) = options.data_checksum_seed {
-        protocol_options = protocol_options.data_checksum_seed(seed);
-      }
-      inner = inner.with_options(protocol_options);
     }
     Arc::new(BundleProtocolHandler {
       inner: Arc::new(inner),

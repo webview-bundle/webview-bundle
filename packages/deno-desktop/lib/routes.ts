@@ -11,7 +11,12 @@ import { toResponse } from './http.ts';
 /** The response for a request the protocol failed to serve (default: `500` with the message). */
 export type ErrorResponse = (e: Error) => Response;
 
-/** Serves a bundle from the source. */
+/**
+ * Serves a bundle from the source.
+ *
+ * Data-checksum verification is not configured per route; it comes from the read options the shared
+ * {@link BundleSource} was built with (`dataReadOptions`).
+ */
 export interface BundleRoute {
   /** Name of the bundle in the source. */
   bundle: string;
@@ -20,13 +25,6 @@ export interface BundleRoute {
    * `/about` → `/about/index.html`).
    */
   pathResolver?: PathResolver;
-  /**
-   * Check each served entry against its xxHash-32 checksum (default: `true`). A mismatch fails the
-   * request, which the route answers with its {@link errorResponse}.
-   */
-  verifyDataChecksum?: boolean;
-  /** Seed the bundle was packed with (default: `0`). Must match, or every read mismatches. */
-  dataChecksumSeed?: number;
   errorResponse?: ErrorResponse;
 }
 
@@ -168,8 +166,6 @@ function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
   }
   const protocol = new BundleProtocol(source, {
     pathResolver: route.pathResolver,
-    verifyDataChecksum: route.verifyDataChecksum,
-    dataChecksumSeed: route.dataChecksumSeed,
   });
   return {
     mountPath,

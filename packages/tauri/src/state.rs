@@ -78,8 +78,7 @@ impl<R: Runtime> WebviewBundle<R> {
       let scheme = protocol_config.scheme().to_string();
       let (kind, error_response) = match protocol_config {
         Protocol::Bundle(config) => {
-          let mut bundle =
-            protocol::BundleProtocol::new(source.clone()).with_options(config.build_options());
+          let mut bundle = protocol::BundleProtocol::new(source.clone());
           if let Some(resolver) = config.bundle_resolver.clone() {
             bundle = bundle.with_bundle_resolver(resolver);
           }

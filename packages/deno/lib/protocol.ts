@@ -34,40 +34,25 @@ export type BundleResolverOptions =
  */
 export type PathResolver = 'exact' | 'directoryIndex' | 'htmlExtension';
 
-/** How a {@link BundleProtocol} resolves the request uri. */
+/**
+ * How a {@link BundleProtocol} resolves the request uri.
+ *
+ * Entries are served with the read options the {@link BundleSource} was configured with; to change
+ * data-checksum verification, set {@link BundleSourceConfig.dataReadOptions} on the source.
+ */
 export interface BundleProtocolOptions {
   /** Default: the first hostname segment. */
   bundleResolver?: BundleResolverOptions;
   /** Default: `'directoryIndex'`. */
   pathResolver?: PathResolver;
-  /**
-   * Verify each entry's xxHash-32 checksum as it is served. Default: `true`.
-   *
-   * A corrupted entry rejects with the `core.checksum_mismatch` error code instead of handing
-   * damaged bytes to the webview. This detects corruption, not tampering: the seed is not
-   * secret, so whatever can rewrite an entry can rewrite its checksum. Use
-   * {@link BundleSourceConfig.signature} to detect tampering.
-   */
-  verifyDataChecksum?: boolean;
-  /**
-   * The seed the bundle's data checksums were built with. Default: `0`.
-   *
-   * Must match the seed the bundle was packed with, otherwise every entry fails verification.
-   */
-  dataChecksumSeed?: number;
 }
 
-const PROTOCOL_OPTION_KEYS: ReadonlySet<string> = new Set([
-  'bundleResolver',
-  'pathResolver',
-  'verifyDataChecksum',
-  'dataChecksumSeed',
-]);
+const PROTOCOL_OPTION_KEYS: ReadonlySet<string> = new Set(['bundleResolver', 'pathResolver']);
 
 /**
- * Serialize the options, rejecting any key the binding does not know: a misspelled
- * `verifyDataChecksum` would otherwise be dropped in silence, leaving the request served with a
- * setting the caller did not ask for.
+ * Serialize the options, rejecting any key the binding does not know: a misspelled `pathResolver`
+ * would otherwise be dropped in silence, leaving the request served with a setting the caller did
+ * not ask for.
  */
 function serializeOptions(options: BundleProtocolOptions): string {
   for (const key of Object.keys(options)) {

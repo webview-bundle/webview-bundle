@@ -103,15 +103,10 @@ impl From<PathResolver> for protocol::UriPathResolver {
 ///
 /// @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
 /// @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
-/// @property {boolean} [verifyDataChecksum] - Verify each served entry's xxHash-32 checksum (default: true).
-///   A corrupted entry fails the request with the `core.checksum_mismatch` error code.
-/// @property {number} [dataChecksumSeed] - Seed the bundle's data checksums were built with (default: 0)
 #[napi(object, object_to_js = false)]
 pub struct BundleProtocolOptions {
   pub bundle_resolver: Option<BundleResolverOptions>,
   pub path_resolver: Option<PathResolver>,
-  pub verify_data_checksum: Option<bool>,
-  pub data_checksum_seed: Option<u32>,
 }
 
 /// Protocol handler for serving files from bundle sources.
@@ -166,8 +161,14 @@ impl BundleProtocol {
   ///
   /// @example
   /// ```typescript
-  /// // Serve without checking entry checksums.
-  /// const protocol = new BundleProtocol(source, { verifyDataChecksum: false });
+  /// // Entry checksum verification is inherited from the source's read options; to serve
+  /// // without checking entry checksums, configure it on the source instead.
+  /// const source = new BundleSource({
+  ///   builtinDir: './bundles',
+  ///   remoteDir: './remote',
+  ///   dataReadOptions: { checksum: { verify: false } },
+  /// });
+  /// const protocol = new BundleProtocol(source);
   /// ```
   #[napi(constructor)]
   pub fn new(source: &BundleSource, options: Option<BundleProtocolOptions>) -> BundleProtocol {
@@ -179,14 +180,6 @@ impl BundleProtocol {
       if let Some(path_resolver) = options.path_resolver {
         inner = inner.with_path_resolver(path_resolver.into());
       }
-      let mut protocol_options = protocol::BundleProtocolOptions::default();
-      if let Some(verify) = options.verify_data_checksum {
-        protocol_options = protocol_options.verify_data_checksum(verify);
-      }
-      if let Some(seed) = options.data_checksum_seed {
-        protocol_options = protocol_options.data_checksum_seed(seed);
-      }
-      inner = inner.with_options(protocol_options);
     }
     Self {
       inner: Arc::new(inner),

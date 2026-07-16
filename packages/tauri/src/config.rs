@@ -3,7 +3,6 @@ use std::sync::Arc;
 use tauri::http;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
-use wvb::protocol::BundleProtocolOptions;
 use wvb::remote;
 use wvb::source::{
   BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
@@ -246,8 +245,8 @@ impl<R: Runtime> Source<R> {
   /// How entry data read through this source is checked
   /// (default: checksum verification on, seed `0`).
   ///
-  /// This covers reads made through the source APIs; the bundle protocol serves requests
-  /// with its own [`BundleProtocolConfig::verify_data_checksum`].
+  /// This covers every read made through the source, including the entries the bundle
+  /// protocol serves.
   pub fn data_read_options(mut self, options: DataReadOptions) -> Self {
     self.data_read_options = Some(options);
     self
@@ -365,8 +364,6 @@ pub struct BundleProtocolConfig {
   pub(crate) bundle_resolver: Option<UriBundleResolver>,
   pub(crate) path_resolver: Option<UriPathResolver>,
   pub(crate) error_response: Option<ErrorResponse>,
-  verify_data_checksum: Option<bool>,
-  data_checksum_seed: Option<u32>,
 }
 
 impl BundleProtocolConfig {
@@ -376,8 +373,6 @@ impl BundleProtocolConfig {
       bundle_resolver: None,
       path_resolver: None,
       error_response: None,
-      verify_data_checksum: None,
-      data_checksum_seed: None,
     }
   }
 
@@ -396,8 +391,9 @@ impl BundleProtocolConfig {
   /// });
   /// ```
   ///
-  /// A corrupted entry (see [`BundleProtocolConfig::verify_data_checksum`]) arrives here as
-  /// [`wvb::ErrorCode::ChecksumMismatch`], so it can be answered on its own terms:
+  /// A corrupted entry (when the source's [`Source::data_read_options`] keep checksum
+  /// verification on) arrives here as [`wvb::ErrorCode::ChecksumMismatch`], so it can be
+  /// answered on its own terms:
   ///
   /// ```no_run
   /// # use tauri::http;
@@ -441,31 +437,6 @@ impl BundleProtocolConfig {
   pub fn path_resolver(mut self, resolver: UriPathResolver) -> Self {
     self.path_resolver = Some(resolver);
     self
-  }
-
-  /// Verifies each served entry's checksum, failing the request with
-  /// [`wvb::Error::ChecksumMismatch`] instead of handing corrupted bytes to the webview
-  /// (default: `true`).
-  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
-    self.verify_data_checksum = Some(verify);
-    self
-  }
-
-  /// The seed the bundle's data checksums were built with (default: `0`).
-  pub fn data_checksum_seed(mut self, seed: u32) -> Self {
-    self.data_checksum_seed = Some(seed);
-    self
-  }
-
-  pub(crate) fn build_options(&self) -> BundleProtocolOptions {
-    let mut options = BundleProtocolOptions::default();
-    if let Some(verify) = self.verify_data_checksum {
-      options = options.verify_data_checksum(verify);
-    }
-    if let Some(seed) = self.data_checksum_seed {
-      options = options.data_checksum_seed(seed);
-    }
-    options
   }
 }
 
