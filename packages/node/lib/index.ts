@@ -30,7 +30,8 @@ const BUNDLE_SOURCE_CONFIG_KEYS: ReadonlySet<string> = new Set([
 ]);
 const INTEGRITY_KEYS: ReadonlySet<string> = new Set(['policy', 'check', 'checkMode']);
 const SIGNATURE_KEYS: ReadonlySet<string> = new Set(['verify', 'verifyMode']);
-const READ_OPTIONS_KEYS: ReadonlySet<string> = new Set(['verify', 'seed']);
+const READ_OPTIONS_KEYS: ReadonlySet<string> = new Set(['checksum']);
+const READ_CHECKSUM_KEYS: ReadonlySet<string> = new Set(['verify', 'seed']);
 
 function assertKnownKeys(what: string, value: object, known: ReadonlySet<string>): void {
   for (const key of Object.keys(value)) {
@@ -68,6 +69,10 @@ function validateBundleSourceConfig(args: unknown[]): void {
   ] as const) {
     if (group != null && typeof group === 'object') {
       assertKnownKeys(`BundleSource ${name}`, group, READ_OPTIONS_KEYS);
+      const { checksum } = group as { checksum?: unknown };
+      if (checksum != null && typeof checksum === 'object') {
+        assertKnownKeys(`BundleSource ${name}.checksum`, checksum, READ_CHECKSUM_KEYS);
+      }
     }
   }
 }

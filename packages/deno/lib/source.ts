@@ -50,16 +50,60 @@ export interface BundleSourceSignatureOptions {
 }
 
 /**
- * How a bundle section's xxHash checksum is verified when that section is read through this source.
+ * How a bundle's entry-data xxHash checksum is verified when its data is read through this source.
  *
  * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
  * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
  */
-export interface ReadChecksumOptions {
-  /** Verify the section's checksum when it is read. Default: `true`. */
+export interface DataReadChecksumOptions {
+  /** Verify the data checksum when it is read. Default: `true`. */
   verify?: boolean;
-  /** The seed the section's checksum was built with. Default: `0`. */
+  /** The seed the data checksum was built with. Default: `0`. */
   seed?: number;
+}
+
+/** How each entry's data is read out of a bundle's data section. */
+export interface DataReadOptions {
+  /** How the data checksum is verified. */
+  checksum?: DataReadChecksumOptions;
+}
+
+/**
+ * How a bundle's header xxHash checksum is verified when its descriptor is read through this source.
+ *
+ * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
+ * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
+ */
+export interface HeaderReadChecksumOptions {
+  /** Verify the header checksum when it is read. Default: `true`. */
+  verify?: boolean;
+  /** The seed the header checksum was built with. Default: `0`. */
+  seed?: number;
+}
+
+/** How a bundle's header is read. */
+export interface HeaderReadOptions {
+  /** How the header checksum is verified. */
+  checksum?: HeaderReadChecksumOptions;
+}
+
+/**
+ * How a bundle's index xxHash checksum is verified when its descriptor is read through this source.
+ *
+ * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
+ * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
+ */
+export interface IndexReadChecksumOptions {
+  /** Verify the index checksum when it is read. Default: `true`. */
+  verify?: boolean;
+  /** The seed the index checksum was built with. Default: `0`. */
+  seed?: number;
+}
+
+/** How a bundle's index is read. */
+export interface IndexReadOptions {
+  /** How the index checksum is verified. */
+  checksum?: IndexReadChecksumOptions;
 }
 
 export interface BundleSourceConfig {
@@ -73,20 +117,20 @@ export interface BundleSourceConfig {
   signature?: BundleSourceSignatureOptions;
   /**
    * How each entry's data checksum is verified when its data is read through this source.
-   * Default: `{ verify: true, seed: 0 }`. ({@link BundleProtocol} verifies by default too, and
-   * overrides this.)
+   * Default: `{ checksum: { verify: true, seed: 0 } }`. ({@link BundleProtocol} verifies by default
+   * too, and overrides this.)
    */
-  dataReadOptions?: ReadChecksumOptions;
+  dataReadOptions?: DataReadOptions;
   /**
    * How a bundle's header checksum is verified when its descriptor is read on load.
-   * Default: `{ verify: true, seed: 0 }`.
+   * Default: `{ checksum: { verify: true, seed: 0 } }`.
    */
-  headerReadOptions?: ReadChecksumOptions;
+  headerReadOptions?: HeaderReadOptions;
   /**
    * How a bundle's index checksum is verified when its descriptor is read on load.
-   * Default: `{ verify: true, seed: 0 }`.
+   * Default: `{ checksum: { verify: true, seed: 0 } }`.
    */
-  indexReadOptions?: ReadChecksumOptions;
+  indexReadOptions?: IndexReadOptions;
 }
 
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
@@ -100,6 +144,7 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
 ]);
 const INTEGRITY_KEYS: ReadonlySet<string> = new Set(['policy', 'checkMode']);
 const SIGNATURE_KEYS: ReadonlySet<string> = new Set(['verify', 'verifyMode']);
+const READ_OPTION_KEYS: ReadonlySet<string> = new Set(['checksum']);
 const READ_CHECKSUM_KEYS: ReadonlySet<string> = new Set(['verify', 'seed']);
 const READ_OPTION_GROUPS = ['dataReadOptions', 'headerReadOptions', 'indexReadOptions'] as const;
 
@@ -125,7 +170,10 @@ function serializeConfig(config: BundleSourceConfig): string {
   for (const group of READ_OPTION_GROUPS) {
     const value = config[group];
     if (value != null) {
-      assertKnownKeys(`BundleSource ${group}`, value, READ_CHECKSUM_KEYS);
+      assertKnownKeys(`BundleSource ${group}`, value, READ_OPTION_KEYS);
+      if (value.checksum != null) {
+        assertKnownKeys(`BundleSource ${group}.checksum`, value.checksum, READ_CHECKSUM_KEYS);
+      }
     }
   }
   return JSON.stringify({

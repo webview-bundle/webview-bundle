@@ -119,7 +119,11 @@ describe('source', () => {
   }
 
   it('verifies entry checksums on read when dataReadOptions.verify is set', async () => {
-    const source = new BundleSource({ builtinDir, remoteDir, dataReadOptions: { verify: true } });
+    const source = new BundleSource({
+      builtinDir,
+      remoteDir,
+      dataReadOptions: { checksum: { verify: true } },
+    });
     await install(source, '1.0.0', '<h1>v1</h1>');
     await corruptChecksum(source, '/index.html');
 
@@ -190,6 +194,23 @@ describe('source', () => {
     expect((error as Error).message).toContain('checkmode');
   });
 
+  it('rejects a misspelled nested read-checksum key (fails closed)', () => {
+    const error = (() => {
+      try {
+        new BundleSource({
+          builtinDir,
+          remoteDir,
+          dataReadOptions: { checksum: { verfy: false } },
+        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
+    expect((error as Error).message).toContain('verfy');
+  });
+
   it('verifies entry checksums by default', async () => {
     const source = makeSource();
     await install(source, '1.0.0', '<h1>v1</h1>');
@@ -202,7 +223,11 @@ describe('source', () => {
   });
 
   it('does not verify entry checksums when dataReadOptions.verify is false', async () => {
-    const source = new BundleSource({ builtinDir, remoteDir, dataReadOptions: { verify: false } });
+    const source = new BundleSource({
+      builtinDir,
+      remoteDir,
+      dataReadOptions: { checksum: { verify: false } },
+    });
     await install(source, '1.0.0', '<h1>v1</h1>');
     await corruptChecksum(source, '/index.html');
 
@@ -224,7 +249,7 @@ describe('source', () => {
     const source = new BundleSource({
       builtinDir,
       remoteDir,
-      headerReadOptions: { verify: false },
+      headerReadOptions: { checksum: { verify: false } },
     });
     await install(source, '1.0.0', '<h1>v1</h1>');
     await corruptHeaderChecksum(source);

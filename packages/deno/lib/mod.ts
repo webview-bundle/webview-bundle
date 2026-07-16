@@ -36,8 +36,13 @@ export {
   type BundleSourceType,
   type BundleSourceVerifyMode,
   type BundleSourceVersion,
+  type DataReadChecksumOptions,
+  type DataReadOptions,
+  type HeaderReadChecksumOptions,
+  type HeaderReadOptions,
+  type IndexReadChecksumOptions,
+  type IndexReadOptions,
   type ListBundleItem,
-  type ReadChecksumOptions,
 } from './source.ts';
 export {
   type BundleUpdateInfo,

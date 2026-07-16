@@ -11,10 +11,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wvb::integrity::IntegrityChecker;
 use wvb::source;
-use wvb::{
-  DataReadChecksumOptions, DataReadOptions, HeaderReadChecksumOptions, HeaderReadOptions,
-  IndexReadChecksumOptions, IndexReadOptions,
-};
 
 /// The type of bundle source: builtin or remote.
 ///
@@ -301,14 +297,58 @@ pub struct BundleSourceSignatureOptions {
   pub verify_mode: Option<BundleSourceVerifyMode>,
 }
 
-/// Checksum verification for one bundle read section (header, index, or data).
+/// Checksum verification for the data section.
 ///
-/// @property {boolean} [verify] - Verify this section's xxHash-32 checksum on read (default: true)
-/// @property {number} [seed] - Seed the section's checksum was built with (default: 0)
+/// @property {boolean} [verify] - Verify each entry's xxHash-32 checksum on read (default: true)
+/// @property {number} [seed] - Seed the data checksums were built with (default: 0)
 #[napi(object)]
-pub struct ReadChecksumOptions {
+pub struct DataReadChecksumOptions {
   pub verify: Option<bool>,
   pub seed: Option<u32>,
+}
+
+/// How entry data is read out of a bundle's data section.
+///
+/// @property {DataReadChecksumOptions} [checksum] - Checksum verification for the data section
+#[napi(object)]
+pub struct DataReadOptions {
+  pub checksum: Option<DataReadChecksumOptions>,
+}
+
+/// Checksum verification for the header section.
+///
+/// @property {boolean} [verify] - Verify the header's xxHash-32 checksum on read (default: true)
+/// @property {number} [seed] - Seed the header checksum was built with (default: 0)
+#[napi(object)]
+pub struct HeaderReadChecksumOptions {
+  pub verify: Option<bool>,
+  pub seed: Option<u32>,
+}
+
+/// How a bundle's header is read.
+///
+/// @property {HeaderReadChecksumOptions} [checksum] - Checksum verification for the header section
+#[napi(object)]
+pub struct HeaderReadOptions {
+  pub checksum: Option<HeaderReadChecksumOptions>,
+}
+
+/// Checksum verification for the index section.
+///
+/// @property {boolean} [verify] - Verify the index's xxHash-32 checksum on read (default: true)
+/// @property {number} [seed] - Seed the index checksum was built with (default: 0)
+#[napi(object)]
+pub struct IndexReadChecksumOptions {
+  pub verify: Option<bool>,
+  pub seed: Option<u32>,
+}
+
+/// How a bundle's index is read.
+///
+/// @property {IndexReadChecksumOptions} [checksum] - Checksum verification for the index section
+#[napi(object)]
+pub struct IndexReadOptions {
+  pub checksum: Option<IndexReadChecksumOptions>,
 }
 
 /// Configuration for creating a bundle source.
@@ -319,9 +359,9 @@ pub struct ReadChecksumOptions {
 /// @property {string} [remoteManifestFilepath] - Custom manifest path for remote
 /// @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
 /// @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
-/// @property {ReadChecksumOptions} [dataReadOptions] - Verify each entry's checksum when its data is read (default: verify true, seed 0)
-/// @property {ReadChecksumOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded (default: verify true, seed 0)
-/// @property {ReadChecksumOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded (default: verify true, seed 0)
+/// @property {DataReadOptions} [dataReadOptions] - Verify each entry's checksum when its data is read, e.g. `{ checksum: { verify, seed } }` (default: verify true, seed 0)
+/// @property {HeaderReadOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded, e.g. `{ checksum: { verify, seed } }` (default: verify true, seed 0)
+/// @property {IndexReadOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded, e.g. `{ checksum: { verify, seed } }` (default: verify true, seed 0)
 ///
 /// @example
 /// ```typescript
@@ -348,8 +388,8 @@ pub struct ReadChecksumOptions {
 /// const source = new BundleSource({
 ///   builtinDir: './bundles/builtin',
 ///   remoteDir: './bundles/remote',
-///   dataReadOptions: { verify: false },
-///   indexReadOptions: { seed: 42 },
+///   dataReadOptions: { checksum: { verify: false } },
+///   indexReadOptions: { checksum: { seed: 42 } },
 /// });
 /// ```
 #[napi(object, object_to_js = false)]
@@ -360,9 +400,9 @@ pub struct BundleSourceConfig {
   pub remote_manifest_filepath: Option<String>,
   pub integrity: Option<BundleSourceIntegrityOptions>,
   pub signature: Option<BundleSourceSignatureOptions>,
-  pub data_read_options: Option<ReadChecksumOptions>,
-  pub header_read_options: Option<ReadChecksumOptions>,
-  pub index_read_options: Option<ReadChecksumOptions>,
+  pub data_read_options: Option<DataReadOptions>,
+  pub header_read_options: Option<HeaderReadOptions>,
+  pub index_read_options: Option<IndexReadOptions>,
 }
 
 fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOptions {
@@ -404,34 +444,40 @@ fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOption
     options = options.signature(signature_options);
   }
   if let Some(read) = config.data_read_options.take() {
-    let mut checksum = DataReadChecksumOptions::default();
-    if let Some(verify) = read.verify {
-      checksum = checksum.verify(verify);
+    if let Some(checksum) = read.checksum {
+      let mut core = wvb::DataReadChecksumOptions::default();
+      if let Some(verify) = checksum.verify {
+        core = core.verify(verify);
+      }
+      if let Some(seed) = checksum.seed {
+        core = core.seed(seed);
+      }
+      options = options.data_read_options(wvb::DataReadOptions::default().checksum(core));
     }
-    if let Some(seed) = read.seed {
-      checksum = checksum.seed(seed);
-    }
-    options = options.data_read_options(DataReadOptions::default().checksum(checksum));
   }
   if let Some(read) = config.header_read_options.take() {
-    let mut checksum = HeaderReadChecksumOptions::default();
-    if let Some(verify) = read.verify {
-      checksum = checksum.verify(verify);
+    if let Some(checksum) = read.checksum {
+      let mut core = wvb::HeaderReadChecksumOptions::default();
+      if let Some(verify) = checksum.verify {
+        core = core.verify(verify);
+      }
+      if let Some(seed) = checksum.seed {
+        core = core.seed(seed);
+      }
+      options = options.header_read_options(wvb::HeaderReadOptions::default().checksum(core));
     }
-    if let Some(seed) = read.seed {
-      checksum = checksum.seed(seed);
-    }
-    options = options.header_read_options(HeaderReadOptions::default().checksum(checksum));
   }
   if let Some(read) = config.index_read_options.take() {
-    let mut checksum = IndexReadChecksumOptions::default();
-    if let Some(verify) = read.verify {
-      checksum = checksum.verify(verify);
+    if let Some(checksum) = read.checksum {
+      let mut core = wvb::IndexReadChecksumOptions::default();
+      if let Some(verify) = checksum.verify {
+        core = core.verify(verify);
+      }
+      if let Some(seed) = checksum.seed {
+        core = core.seed(seed);
+      }
+      options = options.index_read_options(wvb::IndexReadOptions::default().checksum(core));
     }
-    if let Some(seed) = read.seed {
-      checksum = checksum.seed(seed);
-    }
-    options = options.index_read_options(IndexReadOptions::default().checksum(checksum));
   }
   options
 }

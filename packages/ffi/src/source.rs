@@ -4,10 +4,6 @@ use crate::signature::SignatureVerifierOptions;
 use std::sync::Arc;
 use wvb::signature;
 use wvb::source;
-use wvb::{
-  DataReadChecksumOptions, DataReadOptions, HeaderReadChecksumOptions, HeaderReadOptions,
-  IndexReadChecksumOptions, IndexReadOptions,
-};
 
 /// Whether a bundle was loaded from the builtin (read-only, shipped with the app)
 /// or the remote (writable, downloaded at runtime) directory.
@@ -221,15 +217,61 @@ pub struct BundleSourceSignatureOptions {
   pub verify_mode: Option<BundleSourceVerifyMode>,
 }
 
-/// How a bundle section's xxHash-32 checksum is verified when that section is read.
+/// How each entry's xxHash-32 data checksum is verified when its data is read.
 #[derive(uniffi::Record, Clone, Debug)]
-pub struct ReadChecksumOptions {
-  /// Verify the section's checksum when it is read (default: `true`).
+pub struct DataReadChecksumOptions {
+  /// Verify each entry's data checksum when its data is read (default: `true`).
   #[uniffi(default = None)]
   pub verify: Option<bool>,
-  /// The seed the section's checksum was built with (default: `0`).
+  /// The seed the data checksums were built with (default: `0`).
   #[uniffi(default = None)]
   pub seed: Option<u32>,
+}
+
+/// How each entry's data checksum is verified when its data is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct DataReadOptions {
+  /// How each entry's data checksum is verified.
+  #[uniffi(default = None)]
+  pub checksum: Option<DataReadChecksumOptions>,
+}
+
+/// How a bundle's xxHash-32 header checksum is verified when its header is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HeaderReadChecksumOptions {
+  /// Verify the header checksum when the header is read (default: `true`).
+  #[uniffi(default = None)]
+  pub verify: Option<bool>,
+  /// The seed the header checksum was built with (default: `0`).
+  #[uniffi(default = None)]
+  pub seed: Option<u32>,
+}
+
+/// How a bundle's header checksum is verified when its header is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HeaderReadOptions {
+  /// How the header checksum is verified.
+  #[uniffi(default = None)]
+  pub checksum: Option<HeaderReadChecksumOptions>,
+}
+
+/// How a bundle's xxHash-32 index checksum is verified when its index is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct IndexReadChecksumOptions {
+  /// Verify the index checksum when the index is read (default: `true`).
+  #[uniffi(default = None)]
+  pub verify: Option<bool>,
+  /// The seed the index checksum was built with (default: `0`).
+  #[uniffi(default = None)]
+  pub seed: Option<u32>,
+}
+
+/// How a bundle's index checksum is verified when its index is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct IndexReadOptions {
+  /// How the index checksum is verified.
+  #[uniffi(default = None)]
+  pub checksum: Option<IndexReadChecksumOptions>,
 }
 
 /// Optional verification settings for a [`BundleSource`].
@@ -248,13 +290,13 @@ pub struct BundleSourceOptions {
   pub signature: Option<BundleSourceSignatureOptions>,
   /// How each entry's checksum is verified when its data is read.
   #[uniffi(default = None)]
-  pub data_read_options: Option<ReadChecksumOptions>,
+  pub data_read_options: Option<DataReadOptions>,
   /// How a bundle's header checksum is verified when its descriptor is read on load.
   #[uniffi(default = None)]
-  pub header_read_options: Option<ReadChecksumOptions>,
+  pub header_read_options: Option<HeaderReadOptions>,
   /// How a bundle's index checksum is verified when its descriptor is read on load.
   #[uniffi(default = None)]
-  pub index_read_options: Option<ReadChecksumOptions>,
+  pub index_read_options: Option<IndexReadOptions>,
 }
 
 /// Unified access point for bundles from both the builtin and remote sources.
@@ -305,37 +347,43 @@ fn source_options(
     source_options = source_options.signature(signature_options);
   }
   if let Some(read_options) = options.data_read_options {
-    let mut checksum = DataReadChecksumOptions::default();
-    if let Some(verify) = read_options.verify {
-      checksum = checksum.verify(verify);
+    if let Some(checksum_options) = read_options.checksum {
+      let mut checksum = wvb::DataReadChecksumOptions::default();
+      if let Some(verify) = checksum_options.verify {
+        checksum = checksum.verify(verify);
+      }
+      if let Some(seed) = checksum_options.seed {
+        checksum = checksum.seed(seed);
+      }
+      source_options =
+        source_options.data_read_options(wvb::DataReadOptions::default().checksum(checksum));
     }
-    if let Some(seed) = read_options.seed {
-      checksum = checksum.seed(seed);
-    }
-    source_options =
-      source_options.data_read_options(DataReadOptions::default().checksum(checksum));
   }
   if let Some(read_options) = options.header_read_options {
-    let mut checksum = HeaderReadChecksumOptions::default();
-    if let Some(verify) = read_options.verify {
-      checksum = checksum.verify(verify);
+    if let Some(checksum_options) = read_options.checksum {
+      let mut checksum = wvb::HeaderReadChecksumOptions::default();
+      if let Some(verify) = checksum_options.verify {
+        checksum = checksum.verify(verify);
+      }
+      if let Some(seed) = checksum_options.seed {
+        checksum = checksum.seed(seed);
+      }
+      source_options =
+        source_options.header_read_options(wvb::HeaderReadOptions::default().checksum(checksum));
     }
-    if let Some(seed) = read_options.seed {
-      checksum = checksum.seed(seed);
-    }
-    source_options =
-      source_options.header_read_options(HeaderReadOptions::default().checksum(checksum));
   }
   if let Some(read_options) = options.index_read_options {
-    let mut checksum = IndexReadChecksumOptions::default();
-    if let Some(verify) = read_options.verify {
-      checksum = checksum.verify(verify);
+    if let Some(checksum_options) = read_options.checksum {
+      let mut checksum = wvb::IndexReadChecksumOptions::default();
+      if let Some(verify) = checksum_options.verify {
+        checksum = checksum.verify(verify);
+      }
+      if let Some(seed) = checksum_options.seed {
+        checksum = checksum.seed(seed);
+      }
+      source_options =
+        source_options.index_read_options(wvb::IndexReadOptions::default().checksum(checksum));
     }
-    if let Some(seed) = read_options.seed {
-      checksum = checksum.seed(seed);
-    }
-    source_options =
-      source_options.index_read_options(IndexReadOptions::default().checksum(checksum));
   }
   Ok(source_options)
 }
@@ -593,13 +641,17 @@ mod tests {
         verify: None,
         verify_mode: Some(BundleSourceVerifyMode::OnlyRemote),
       }),
-      data_read_options: Some(ReadChecksumOptions {
-        verify: Some(false),
-        seed: Some(42),
+      data_read_options: Some(DataReadOptions {
+        checksum: Some(DataReadChecksumOptions {
+          verify: Some(false),
+          seed: Some(42),
+        }),
       }),
-      header_read_options: Some(ReadChecksumOptions {
-        verify: Some(true),
-        seed: Some(7),
+      header_read_options: Some(HeaderReadOptions {
+        checksum: Some(HeaderReadChecksumOptions {
+          verify: Some(true),
+          seed: Some(7),
+        }),
       }),
       index_read_options: None,
     };
@@ -615,12 +667,18 @@ mod tests {
           .verify_mode(source::BundleSourceSignatureVerifyMode::OnlyRemote),
       )
       .data_read_options(
-        DataReadOptions::default()
-          .checksum(DataReadChecksumOptions::default().verify(false).seed(42)),
+        wvb::DataReadOptions::default().checksum(
+          wvb::DataReadChecksumOptions::default()
+            .verify(false)
+            .seed(42),
+        ),
       )
       .header_read_options(
-        HeaderReadOptions::default()
-          .checksum(HeaderReadChecksumOptions::default().verify(true).seed(7)),
+        wvb::HeaderReadOptions::default().checksum(
+          wvb::HeaderReadChecksumOptions::default()
+            .verify(true)
+            .seed(7),
+        ),
       );
 
     assert_eq!(

@@ -1201,9 +1201,9 @@ export type BundleResolverOptions =
  * @property {string} [remoteManifestFilepath] - Custom manifest path for remote
  * @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
  * @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
- * @property {ReadChecksumOptions} [dataReadOptions] - Verify each entry's checksum when its data is read (default: verify true, seed 0)
- * @property {ReadChecksumOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded (default: verify true, seed 0)
- * @property {ReadChecksumOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded (default: verify true, seed 0)
+ * @property {DataReadOptions} [dataReadOptions] - Verify each entry's checksum when its data is read, e.g. `{ checksum: { verify, seed } }` (default: verify true, seed 0)
+ * @property {HeaderReadOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded, e.g. `{ checksum: { verify, seed } }` (default: verify true, seed 0)
+ * @property {IndexReadOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded, e.g. `{ checksum: { verify, seed } }` (default: verify true, seed 0)
  *
  * @example
  * ```typescript
@@ -1230,8 +1230,8 @@ export type BundleResolverOptions =
  * const source = new BundleSource({
  *   builtinDir: './bundles/builtin',
  *   remoteDir: './bundles/remote',
- *   dataReadOptions: { verify: false },
- *   indexReadOptions: { seed: 42 },
+ *   dataReadOptions: { checksum: { verify: false } },
+ *   indexReadOptions: { checksum: { seed: 42 } },
  * });
  * ```
  */
@@ -1242,9 +1242,9 @@ export interface BundleSourceConfig {
   remoteManifestFilepath?: string
   integrity?: BundleSourceIntegrityOptions
   signature?: BundleSourceSignatureOptions
-  dataReadOptions?: ReadChecksumOptions
-  headerReadOptions?: ReadChecksumOptions
-  indexReadOptions?: ReadChecksumOptions
+  dataReadOptions?: DataReadOptions
+  headerReadOptions?: HeaderReadOptions
+  indexReadOptions?: IndexReadOptions
 }
 
 /**
@@ -1349,6 +1349,26 @@ export interface BundleUpdateInfo {
   lastModified?: string
 }
 
+/**
+ * Checksum verification for the data section.
+ *
+ * @property {boolean} [verify] - Verify each entry's xxHash-32 checksum on read (default: true)
+ * @property {number} [seed] - Seed the data checksums were built with (default: 0)
+ */
+export interface DataReadChecksumOptions {
+  verify?: boolean
+  seed?: number
+}
+
+/**
+ * How entry data is read out of a bundle's data section.
+ *
+ * @property {DataReadChecksumOptions} [checksum] - Checksum verification for the data section
+ */
+export interface DataReadOptions {
+  checksum?: DataReadChecksumOptions
+}
+
 /** The stable code every error thrown by this binding carries (`WebviewBundleError.code`). */
 export type ErrorCode =  'core.io'|
 'core.compress'|
@@ -1390,6 +1410,26 @@ export type ErrorCode =  'core.io'|
 /** r" A binding-side validation failure with no more specific code| e.g. an unknown option key. */
 'unknown'|
 'napi';
+
+/**
+ * Checksum verification for the header section.
+ *
+ * @property {boolean} [verify] - Verify the header's xxHash-32 checksum on read (default: true)
+ * @property {number} [seed] - Seed the header checksum was built with (default: 0)
+ */
+export interface HeaderReadChecksumOptions {
+  verify?: boolean
+  seed?: number
+}
+
+/**
+ * How a bundle's header is read.
+ *
+ * @property {HeaderReadChecksumOptions} [checksum] - Checksum verification for the header section
+ */
+export interface HeaderReadOptions {
+  checksum?: HeaderReadChecksumOptions
+}
 
 /**
  * Which hostname segment is used as the bundle name.
@@ -1453,6 +1493,26 @@ export interface IndexEntry {
   contentType: string
   contentLength: number
   headers: Record<string, string>
+}
+
+/**
+ * Checksum verification for the index section.
+ *
+ * @property {boolean} [verify] - Verify the index's xxHash-32 checksum on read (default: true)
+ * @property {number} [seed] - Seed the index checksum was built with (default: 0)
+ */
+export interface IndexReadChecksumOptions {
+  verify?: boolean
+  seed?: number
+}
+
+/**
+ * How a bundle's index is read.
+ *
+ * @property {IndexReadChecksumOptions} [checksum] - Checksum verification for the index section
+ */
+export interface IndexReadOptions {
+  checksum?: IndexReadChecksumOptions
 }
 
 /**
@@ -1579,17 +1639,6 @@ export declare function readBundle(filepath: string): Promise<Bundle>
  * ```
  */
 export declare function readBundleFromBuffer(buffer: Buffer): Bundle
-
-/**
- * Checksum verification for one bundle read section (header, index, or data).
- *
- * @property {boolean} [verify] - Verify this section's xxHash-32 checksum on read (default: true)
- * @property {number} [seed] - Seed the section's checksum was built with (default: 0)
- */
-export interface ReadChecksumOptions {
-  verify?: boolean
-  seed?: number
-}
 
 /**
  * Complete bundle information from remote server.

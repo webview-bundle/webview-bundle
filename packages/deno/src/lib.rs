@@ -22,10 +22,6 @@ use wvb::source::{
   BundleSourceOptions, BundleSourceSignatureOptions, BundleSourceSignatureVerifyMode,
 };
 use wvb::updater::{Updater as CoreUpdater, UpdaterConfig};
-use wvb::{
-  DataReadChecksumOptions, DataReadOptions, HeaderReadChecksumOptions, HeaderReadOptions,
-  IndexReadChecksumOptions, IndexReadOptions,
-};
 
 fn runtime() -> &'static Runtime {
   static RT: OnceLock<Runtime> = OnceLock::new();
@@ -73,8 +69,8 @@ pub unsafe extern "C" fn wvb_source_new(
 
 /// Create a `BundleSource` with options. `options_json` is null/empty or a JSON object with
 /// `integrity`, `signature`, and/or the per-section `dataReadOptions`, `headerReadOptions` and
-/// `indexReadOptions` (each `{ verify?, seed? }`); an unparsable option returns null rather than
-/// silently reading bundles unverified.
+/// `indexReadOptions` (each `{ checksum?: { verify?, seed? } }`); an unparsable option returns null
+/// rather than silently reading bundles unverified.
 ///
 /// # Safety
 /// `builtin_dir`/`remote_dir` must be valid NUL-terminated C strings; `options_json` must be null
@@ -151,57 +147,78 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
       options = options.signature(signature);
     }
   }
-  // Each per-section read-option group verifies its checksum with seed `0` by default, so only the
-  // keys the caller actually gave are applied; the sections use distinct core types, so each group
-  // builds its own from the `(verify, seed)` the shared helper extracts.
+  // Each per-section read-option group carries a single `checksum` object; the sections use distinct
+  // core types, so each group builds its own from the `(verify, seed)` the shared helper extracts,
+  // and only when the group actually gave a `checksum`.
   match value.get("dataReadOptions") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => {
-      let (verify, seed) = parse_read_checksum(x)?;
-      let mut checksum = DataReadChecksumOptions::default();
-      if let Some(verify) = verify {
-        checksum = checksum.verify(verify);
+      if let Some((verify, seed)) = parse_read_checksum_group(x)? {
+        let mut checksum = wvb::DataReadChecksumOptions::default();
+        if let Some(verify) = verify {
+          checksum = checksum.verify(verify);
+        }
+        if let Some(seed) = seed {
+          checksum = checksum.seed(seed);
+        }
+        options = options.data_read_options(wvb::DataReadOptions::default().checksum(checksum));
       }
-      if let Some(seed) = seed {
-        checksum = checksum.seed(seed);
-      }
-      options = options.data_read_options(DataReadOptions::default().checksum(checksum));
     }
   }
   match value.get("headerReadOptions") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => {
-      let (verify, seed) = parse_read_checksum(x)?;
-      let mut checksum = HeaderReadChecksumOptions::default();
-      if let Some(verify) = verify {
-        checksum = checksum.verify(verify);
+      if let Some((verify, seed)) = parse_read_checksum_group(x)? {
+        let mut checksum = wvb::HeaderReadChecksumOptions::default();
+        if let Some(verify) = verify {
+          checksum = checksum.verify(verify);
+        }
+        if let Some(seed) = seed {
+          checksum = checksum.seed(seed);
+        }
+        options = options.header_read_options(wvb::HeaderReadOptions::default().checksum(checksum));
       }
-      if let Some(seed) = seed {
-        checksum = checksum.seed(seed);
-      }
-      options = options.header_read_options(HeaderReadOptions::default().checksum(checksum));
     }
   }
   match value.get("indexReadOptions") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => {
-      let (verify, seed) = parse_read_checksum(x)?;
-      let mut checksum = IndexReadChecksumOptions::default();
-      if let Some(verify) = verify {
-        checksum = checksum.verify(verify);
+      if let Some((verify, seed)) = parse_read_checksum_group(x)? {
+        let mut checksum = wvb::IndexReadChecksumOptions::default();
+        if let Some(verify) = verify {
+          checksum = checksum.verify(verify);
+        }
+        if let Some(seed) = seed {
+          checksum = checksum.seed(seed);
+        }
+        options = options.index_read_options(wvb::IndexReadOptions::default().checksum(checksum));
       }
-      if let Some(seed) = seed {
-        checksum = checksum.seed(seed);
-      }
-      options = options.index_read_options(IndexReadOptions::default().checksum(checksum));
     }
   }
   Some(options)
 }
 
-/// Read a per-section `{ verify?, seed? }` read-checksum object into `(verify, seed)`, applying
-/// only the keys the caller gave. A non-object, an unknown sub-key, or an ill-typed value returns
-/// `None`, so the caller can fail closed rather than read a section unverified.
+/// Read a per-section read-option group `{ checksum?: { verify?, seed? } }`. A non-object group or an
+/// unknown group key returns `None` (fail closed). `Some(None)` means no `checksum` was given, and
+/// `Some(Some((verify, seed)))` carries the checksum keys the caller actually set.
+fn parse_read_checksum_group(
+  value: &serde_json::Value,
+) -> Option<Option<(Option<bool>, Option<u32>)>> {
+  let object = value.as_object()?;
+  for key in object.keys() {
+    if key != "checksum" {
+      return None;
+    }
+  }
+  match object.get("checksum") {
+    None | Some(serde_json::Value::Null) => Some(None),
+    Some(x) => Some(Some(parse_read_checksum(x)?)),
+  }
+}
+
+/// Read a `{ verify?, seed? }` read-checksum object into `(verify, seed)`, applying only the keys the
+/// caller gave. A non-object, an unknown sub-key, or an ill-typed value returns `None`, so the caller
+/// can fail closed rather than read a section unverified.
 fn parse_read_checksum(value: &serde_json::Value) -> Option<(Option<bool>, Option<u32>)> {
   let object = value.as_object()?;
   for key in object.keys() {
@@ -1229,16 +1246,19 @@ mod tests {
   /// A `BundleSourceOptions` carrying only the given data-checksum overrides.
   fn data_checksum(verify: bool, seed: u32) -> BundleSourceOptions {
     BundleSourceOptions::default().data_read_options(
-      DataReadOptions::default()
-        .checksum(DataReadChecksumOptions::default().verify(verify).seed(seed)),
+      wvb::DataReadOptions::default().checksum(
+        wvb::DataReadChecksumOptions::default()
+          .verify(verify)
+          .seed(seed),
+      ),
     )
   }
 
   /// A `BundleSourceOptions` carrying only the given header-checksum overrides.
   fn header_checksum(verify: bool, seed: u32) -> BundleSourceOptions {
     BundleSourceOptions::default().header_read_options(
-      HeaderReadOptions::default().checksum(
-        HeaderReadChecksumOptions::default()
+      wvb::HeaderReadOptions::default().checksum(
+        wvb::HeaderReadChecksumOptions::default()
           .verify(verify)
           .seed(seed),
       ),
@@ -1248,8 +1268,8 @@ mod tests {
   /// A `BundleSourceOptions` carrying only the given index-checksum overrides.
   fn index_checksum(verify: bool, seed: u32) -> BundleSourceOptions {
     BundleSourceOptions::default().index_read_options(
-      IndexReadOptions::default().checksum(
-        IndexReadChecksumOptions::default()
+      wvb::IndexReadOptions::default().checksum(
+        wvb::IndexReadChecksumOptions::default()
           .verify(verify)
           .seed(seed),
       ),
@@ -1265,7 +1285,7 @@ mod tests {
 
     // Overriding the seed must not turn verification back off.
     assert_eq!(
-      debug(&parsed(r#"{"dataReadOptions":{"seed":7}}"#).unwrap()),
+      debug(&parsed(r#"{"dataReadOptions":{"checksum":{"seed":7}}}"#).unwrap()),
       debug(&data_checksum(true, 7)),
     );
 
@@ -1279,7 +1299,7 @@ mod tests {
   #[test]
   fn source_data_checksum_can_be_turned_off() {
     assert_eq!(
-      debug(&parsed(r#"{"dataReadOptions":{"verify":false}}"#).unwrap()),
+      debug(&parsed(r#"{"dataReadOptions":{"checksum":{"verify":false}}}"#).unwrap()),
       debug(&data_checksum(false, 0)),
     );
   }
@@ -1287,11 +1307,11 @@ mod tests {
   #[test]
   fn source_header_and_index_read_options_round_trip() {
     assert_eq!(
-      debug(&parsed(r#"{"headerReadOptions":{"verify":false,"seed":3}}"#).unwrap()),
+      debug(&parsed(r#"{"headerReadOptions":{"checksum":{"verify":false,"seed":3}}}"#).unwrap()),
       debug(&header_checksum(false, 3)),
     );
     assert_eq!(
-      debug(&parsed(r#"{"indexReadOptions":{"seed":5}}"#).unwrap()),
+      debug(&parsed(r#"{"indexReadOptions":{"checksum":{"seed":5}}}"#).unwrap()),
       debug(&index_checksum(true, 5)),
     );
   }
@@ -1305,13 +1325,15 @@ mod tests {
 
   #[test]
   fn source_options_fail_closed_on_a_bad_value() {
-    assert!(parsed(r#"{"dataReadOptions":{"verify":"yes"}}"#).is_none());
-    assert!(parsed(r#"{"dataReadOptions":{"seed":-1}}"#).is_none());
-    assert!(parsed(r#"{"dataReadOptions":{"seed":4294967296}}"#).is_none());
-    // A present group must be a JSON object, and any unknown sub-key fails closed.
+    assert!(parsed(r#"{"dataReadOptions":{"checksum":{"verify":"yes"}}}"#).is_none());
+    assert!(parsed(r#"{"dataReadOptions":{"checksum":{"seed":-1}}}"#).is_none());
+    assert!(parsed(r#"{"dataReadOptions":{"checksum":{"seed":4294967296}}}"#).is_none());
+    // A present group and its checksum must each be a JSON object, and any unknown key fails closed.
     assert!(parsed(r#"{"dataReadOptions":"true"}"#).is_none());
-    assert!(parsed(r#"{"headerReadOptions":{"verifyy":true}}"#).is_none());
-    assert!(parsed(r#"{"indexReadOptions":{"seed":4294967296}}"#).is_none());
+    assert!(parsed(r#"{"dataReadOptions":{"bogus":{}}}"#).is_none());
+    assert!(parsed(r#"{"dataReadOptions":{"checksum":"true"}}"#).is_none());
+    assert!(parsed(r#"{"headerReadOptions":{"checksum":{"verifyy":true}}}"#).is_none());
+    assert!(parsed(r#"{"indexReadOptions":{"checksum":{"seed":4294967296}}}"#).is_none());
     assert!(parsed(r#"{"integrity":"strict"}"#).is_none());
     assert!(parsed(r#"{"integrity":{"policy":"none"}}"#).is_none());
     assert!(parsed(r#"{"integrity":{"checkMode":"remote"}}"#).is_none());
