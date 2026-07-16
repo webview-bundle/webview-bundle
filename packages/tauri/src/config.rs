@@ -9,7 +9,10 @@ use wvb::source::{
   BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
 };
 use wvb::updater::UpdaterConfig;
-use wvb::{DataReadChecksumOptions, DataReadOptions};
+pub use wvb::{
+  DataReadChecksumOptions, DataReadOptions, HeaderReadChecksumOptions, HeaderReadOptions,
+  IndexReadChecksumOptions, IndexReadOptions,
+};
 
 pub use wvb::integrity::IntegrityPolicy;
 pub use wvb::protocol::{HostnameSegment, ProxyResolver, UriBundleResolver, UriPathResolver};
@@ -164,8 +167,9 @@ pub struct Source<R: Runtime> {
   pub(crate) remote_dir: Option<Dir<R>>,
   pub(crate) integrity: SourceIntegrity,
   pub(crate) signature: SourceSignature,
-  pub(crate) verify_data_checksum: Option<bool>,
-  pub(crate) data_checksum_seed: Option<u32>,
+  pub(crate) header_read_options: Option<HeaderReadOptions>,
+  pub(crate) index_read_options: Option<IndexReadOptions>,
+  pub(crate) data_read_options: Option<DataReadOptions>,
 }
 
 impl<R: Runtime> Source<R> {
@@ -175,8 +179,9 @@ impl<R: Runtime> Source<R> {
       remote_dir: None,
       integrity: SourceIntegrity::default(),
       signature: SourceSignature::default(),
-      verify_data_checksum: None,
-      data_checksum_seed: None,
+      header_read_options: None,
+      index_read_options: None,
+      data_read_options: None,
     }
   }
 
@@ -224,19 +229,27 @@ impl<R: Runtime> Source<R> {
     self
   }
 
-  /// Verifies each entry's checksum as its data is read through this source
-  /// (default: `true`).
-  ///
-  /// This covers reads made through the source APIs; the bundle protocol serves requests
-  /// with its own [`BundleProtocolConfig::verify_data_checksum`].
-  pub fn verify_data_checksum(mut self, verify: bool) -> Self {
-    self.verify_data_checksum = Some(verify);
+  /// How a bundle's header is checked when its descriptor is read on load
+  /// (default: checksum verification on, seed `0`).
+  pub fn header_read_options(mut self, options: HeaderReadOptions) -> Self {
+    self.header_read_options = Some(options);
     self
   }
 
-  /// The seed the bundle's data checksums were built with (default: `0`).
-  pub fn data_checksum_seed(mut self, seed: u32) -> Self {
-    self.data_checksum_seed = Some(seed);
+  /// How a bundle's index is checked when its descriptor is read on load
+  /// (default: checksum verification on, seed `0`).
+  pub fn index_read_options(mut self, options: IndexReadOptions) -> Self {
+    self.index_read_options = Some(options);
+    self
+  }
+
+  /// How entry data read through this source is checked
+  /// (default: checksum verification on, seed `0`).
+  ///
+  /// This covers reads made through the source APIs; the bundle protocol serves requests
+  /// with its own [`BundleProtocolConfig::verify_data_checksum`].
+  pub fn data_read_options(mut self, options: DataReadOptions) -> Self {
+    self.data_read_options = Some(options);
     self
   }
 
@@ -259,15 +272,14 @@ impl<R: Runtime> Source<R> {
       signature = signature.verify_mode(mode);
     }
     options = options.signature(signature);
-    if self.verify_data_checksum.is_some() || self.data_checksum_seed.is_some() {
-      let mut checksum = DataReadChecksumOptions::default();
-      if let Some(verify) = self.verify_data_checksum {
-        checksum = checksum.verify(verify);
-      }
-      if let Some(seed) = self.data_checksum_seed {
-        checksum = checksum.seed(seed);
-      }
-      options = options.data_read_options(DataReadOptions::default().checksum(checksum));
+    if let Some(header) = self.header_read_options {
+      options = options.header_read_options(header);
+    }
+    if let Some(index) = self.index_read_options {
+      options = options.index_read_options(index);
+    }
+    if let Some(data) = self.data_read_options {
+      options = options.data_read_options(data);
     }
     Ok(options)
   }
