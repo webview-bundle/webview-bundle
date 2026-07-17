@@ -1,12 +1,11 @@
-use crate::integrity::IntegrityPolicy;
-use crate::js::{JsCallback, JsCallbackExt};
+use crate::integrity::{IntegrityChecker, IntegrityPolicy};
+use crate::js::JsCallbackExt;
 use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
 use crate::signature::SignatureVerifier;
 use crate::source::BundleSource;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::sync::Arc;
-use wvb::integrity::IntegrityChecker;
 use wvb::updater;
 
 /// Information about a bundle update.
@@ -70,14 +69,12 @@ impl From<BundleUpdateInfo> for updater::BundleUpdateInfo {
   }
 }
 
-pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Promise<bool>>;
-
 /// Configuration options for the updater.
 ///
 /// @property {string} [channel] - Update channel (e.g., "stable", "beta")
 /// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
 /// @property {Function} [integrityChecker] - Custom integrity verification function
-/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
+/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes. Verified independently of `integrityPolicy` — the signature signs the integrity string, not the bundle bytes, so keep the policy enabled ('strict' or 'optional') for the signature to also authenticate the downloaded bytes.
 ///
 /// @example
 /// ```typescript
@@ -102,7 +99,7 @@ pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Pr
 ///     // Custom integrity verification
 ///     return true;
 ///   },
-///   signatureVerifier: async (data, signature) => {
+///   signatureVerifier: async (message, signature) => {
 ///     // Custom signature verification
 ///     return true;
 ///   },
@@ -113,25 +110,26 @@ pub struct UpdaterOptions {
   pub channel: Option<String>,
   pub integrity_policy: Option<IntegrityPolicy>,
   #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
-  pub integrity_checker: Option<UpdateIntegrityChecker>,
+  pub integrity_checker: Option<IntegrityChecker>,
   #[napi(
-    ts_type = "SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)"
+    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
   )]
   pub signature_verifier: Option<SignatureVerifier>,
 }
 
-impl From<UpdaterOptions> for updater::UpdaterConfig {
+impl From<UpdaterOptions> for updater::UpdaterOptions {
   fn from(value: UpdaterOptions) -> Self {
-    let mut config = updater::UpdaterConfig::default();
+    let mut options = updater::UpdaterOptions::default();
     if let Some(channel) = value.channel {
-      config = config.channel(channel);
+      options = options.channel(channel);
     }
+    let mut integrity_options = updater::UpdaterIntegrityOptions::default();
     if let Some(policy) = value.integrity_policy {
-      config = config.integrity_policy(policy.into());
+      integrity_options = integrity_options.policy(policy.into());
     }
     if let Some(checker) = value.integrity_checker {
-      config = config.integrity_checker(IntegrityChecker::Custom(Arc::new(
-        move |data, signature| {
+      integrity_options = integrity_options.check(wvb::integrity::IntegrityCheck::Custom(
+        Arc::new(move |data, signature| {
           let buffer = Buffer::from(data);
           let signature = signature.to_string();
           let callback = Arc::clone(&checker);
@@ -142,13 +140,15 @@ impl From<UpdaterOptions> for updater::UpdaterConfig {
               .await?;
             Ok(ret)
           })
-        },
-      )));
+        }),
+      ));
     }
+    options = options.integrity(integrity_options);
     if let Some(verifier) = value.signature_verifier {
-      config = config.signature_verifier(verifier.inner);
+      options =
+        options.signature(updater::UpdaterSignatureOptions::default().verify(verifier.inner));
     }
-    config
+    options
   }
 }
 
@@ -156,6 +156,10 @@ impl From<UpdaterOptions> for updater::UpdaterConfig {
 ///
 /// The updater coordinates between a local bundle source and remote server,
 /// handling update checks, downloads, integrity verification, and signature validation.
+///
+/// Integrity and signature are verified independently; because a signature signs the
+/// integrity string rather than the bundle bytes, keep `integrityPolicy` enabled so the
+/// signature also authenticates the downloaded bytes.
 ///
 /// @example
 /// ```typescript

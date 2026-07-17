@@ -1,6 +1,10 @@
 use crate::bundle::Bundle;
 use crate::bundle::BundleDescriptor;
 use crate::bundle::BundleDescriptorInner;
+use crate::bundle::{DataReadOptions, HeaderReadOptions, IndexReadOptions};
+use crate::integrity::{IntegrityChecker, IntegrityPolicy};
+use crate::js::JsCallbackExt;
+use crate::signature::SignatureVerifier;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::collections::HashMap;
@@ -207,8 +211,7 @@ impl LoadedDescriptor {
   /// ```
   #[napi]
   pub async fn get_data(&self, path: String) -> crate::Result<Option<Buffer>> {
-    let reader = self.inner.reader().await?;
-    let data = self.inner.async_get_data(reader, &path).await?;
+    let data = self.inner.get_data(&path).await?;
     Ok(data.map(|x| x.into()))
   }
 
@@ -218,10 +221,63 @@ impl LoadedDescriptor {
   /// @returns {Promise<number | null>} xxHash-32 checksum or null if not found
   #[napi]
   pub async fn get_data_checksum(&self, path: String) -> crate::Result<Option<u32>> {
-    let reader = self.inner.reader().await?;
-    let checksum = self.inner.async_get_data_checksum(reader, &path).await?;
+    let checksum = self.inner.get_data_checksum(&path).await?;
     Ok(checksum)
   }
+}
+
+/// Which bundles a load-time verification applies to.
+///
+/// @enum {string}
+#[napi(string_enum = "camelCase")]
+pub enum BundleSourceVerifyMode {
+  /// Verify both builtin and remote bundles. Builtin bundles ship inside the application,
+  /// so the builtin manifest must carry the metadata being verified for the check to have
+  /// anything to work with.
+  All,
+  /// Verify downloaded (remote) bundles only.
+  OnlyRemote,
+}
+
+impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
+  fn from(value: BundleSourceVerifyMode) -> Self {
+    match value {
+      BundleSourceVerifyMode::All => Self::All,
+      BundleSourceVerifyMode::OnlyRemote => Self::OnlyRemote,
+    }
+  }
+}
+
+/// How bundles are checked against the integrity recorded for them in the manifest when
+/// they are loaded from disk.
+///
+/// @property {IntegrityPolicy} [policy] - How a bundle's integrity metadata is treated (default: 'optional'; 'off' disables the check)
+/// @property {Function} [check] - Custom checker that validates bundle bytes against an integrity string
+/// @property {BundleSourceVerifyMode} [checkMode] - Which bundles are checked on load (default: 'onlyRemote')
+#[napi(object, object_to_js = false)]
+pub struct BundleSourceIntegrityOptions {
+  pub policy: Option<IntegrityPolicy>,
+  #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
+  pub check: Option<IntegrityChecker>,
+  pub check_mode: Option<BundleSourceVerifyMode>,
+}
+
+/// How bundle signatures are verified when bundles are loaded from disk.
+///
+/// A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
+/// bundle bytes; verifying it proves the integrity string is authentic. It is verified
+/// independently of the integrity check, so pair it with an enabled integrity policy to
+/// also authenticate the bytes — signature verification alone does not read them.
+///
+/// @property {SignatureVerifierOptions | Function} [verify] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+/// @property {BundleSourceVerifyMode} [verifyMode] - Which bundles have their signature verified on load (default: 'onlyRemote')
+#[napi(object, object_to_js = false)]
+pub struct BundleSourceSignatureOptions {
+  #[napi(
+    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
+  )]
+  pub verify: Option<SignatureVerifier>,
+  pub verify_mode: Option<BundleSourceVerifyMode>,
 }
 
 /// Configuration for creating a bundle source.
@@ -230,6 +286,11 @@ impl LoadedDescriptor {
 /// @property {string} remoteDir - Directory containing remote bundles
 /// @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
 /// @property {string} [remoteManifestFilepath] - Custom manifest path for remote
+/// @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
+/// @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
+/// @property {DataReadOptions} [dataReadOptions] - Verify each entry's checksum when its data is read
+/// @property {HeaderReadOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded
+/// @property {IndexReadOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded
 ///
 /// @example
 /// ```typescript
@@ -239,12 +300,88 @@ impl LoadedDescriptor {
 /// };
 /// const source = new BundleSource(config);
 /// ```
-#[napi(object)]
+///
+/// @example
+/// ```typescript
+/// // Require downloaded bundles to match the integrity recorded in the manifest.
+/// const source = new BundleSource({
+///   builtinDir: './bundles/builtin',
+///   remoteDir: './bundles/remote',
+///   integrity: { policy: 'strict' },
+/// });
+/// ```
+///
+/// @example
+/// ```typescript
+/// // Turn off data checksum verification and seed the index checksum.
+/// const source = new BundleSource({
+///   builtinDir: './bundles/builtin',
+///   remoteDir: './bundles/remote',
+///   dataReadOptions: { checksum: { verify: false } },
+///   indexReadOptions: { checksum: { seed: 42 } },
+/// });
+/// ```
+#[napi(object, object_to_js = false)]
 pub struct BundleSourceConfig {
   pub builtin_dir: String,
   pub remote_dir: String,
   pub builtin_manifest_filepath: Option<String>,
   pub remote_manifest_filepath: Option<String>,
+  pub integrity: Option<BundleSourceIntegrityOptions>,
+  pub signature: Option<BundleSourceSignatureOptions>,
+  pub data_read_options: Option<DataReadOptions>,
+  pub header_read_options: Option<HeaderReadOptions>,
+  pub index_read_options: Option<IndexReadOptions>,
+}
+
+fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOptions {
+  let mut options = source::BundleSourceOptions::default();
+  if let Some(integrity) = config.integrity.take() {
+    let mut integrity_options = source::BundleSourceIntegrityOptions::default();
+    if let Some(policy) = integrity.policy {
+      integrity_options = integrity_options.policy(policy.into());
+    }
+    if let Some(checker) = integrity.check {
+      integrity_options = integrity_options.check(wvb::integrity::IntegrityCheck::Custom(
+        Arc::new(move |data, integrity| {
+          let buffer = Buffer::from(data);
+          let integrity = integrity.to_string();
+          let callback = Arc::clone(&checker);
+          Box::pin(async move {
+            let ret = callback
+              .invoke_async((buffer, integrity).into())
+              .await?
+              .await?;
+            Ok(ret)
+          })
+        }),
+      ));
+    }
+    if let Some(mode) = integrity.check_mode {
+      integrity_options = integrity_options.check_mode(mode.into());
+    }
+    options = options.integrity(integrity_options);
+  }
+  if let Some(signature) = config.signature.take() {
+    let mut signature_options = source::BundleSourceSignatureOptions::default();
+    if let Some(verifier) = signature.verify {
+      signature_options = signature_options.verify(verifier.inner);
+    }
+    if let Some(mode) = signature.verify_mode {
+      signature_options = signature_options.verify_mode(mode.into());
+    }
+    options = options.signature(signature_options);
+  }
+  if let Some(read) = config.data_read_options.take() {
+    options = options.data_read(read.into());
+  }
+  if let Some(read) = config.header_read_options.take() {
+    options = options.header_read(read.into());
+  }
+  if let Some(read) = config.index_read_options.take() {
+    options = options.index_read(read.into());
+  }
+  options
 }
 
 /// Bundle source for managing multiple bundle versions.
@@ -291,10 +428,12 @@ impl BundleSource {
   /// });
   /// ```
   #[napi(constructor)]
-  pub fn new(config: BundleSourceConfig) -> BundleSource {
+  pub fn new(mut config: BundleSourceConfig) -> crate::Result<BundleSource> {
+    let options = source_options(&mut config);
     let mut builder = source::BundleSource::builder()
       .builtin_dir(config.builtin_dir)
-      .remote_dir(config.remote_dir);
+      .remote_dir(config.remote_dir)
+      .options(options);
     if let Some(builtin_manifest) = config.builtin_manifest_filepath {
       builder = builder.builtin_manifest_filepath(builtin_manifest);
     }
@@ -302,9 +441,9 @@ impl BundleSource {
       builder = builder.remote_manifest_filepath(remote_manifest);
     }
     let source = builder.build();
-    BundleSource {
+    Ok(BundleSource {
       inner: Arc::new(source),
-    }
+    })
   }
 
   /// Lists all available bundles from both sources.

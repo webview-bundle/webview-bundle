@@ -4,7 +4,7 @@ import { cstr, getLib, readResult } from './ffi.ts';
 import type { ListRemoteBundleInfo, Remote, RemoteBundleInfo } from './remote.ts';
 import type { BundleSource } from './source.ts';
 
-export type IntegrityPolicy = 'strict' | 'optional' | 'none';
+export type IntegrityPolicy = 'strict' | 'optional' | 'off';
 
 export type SignatureAlgorithm =
   | 'ecdsaSecp256R1'
@@ -29,9 +29,30 @@ export interface UpdaterOptions {
   channel?: string;
   integrityPolicy?: IntegrityPolicy;
   /**
-   * Verify bundle signatures against a public key.
+   * Verify that a downloaded bundle's integrity string was signed by the matching key.
+   *
+   * The signature signs the bundle's integrity string, not the bundle bytes, so verifying it
+   * proves the integrity string is authentic — not that the downloaded bytes match it. It is
+   * verified independently of {@link UpdaterOptions.integrityPolicy}, so keep the policy enabled
+   * (not `'off'`) for the signature to also authenticate the downloaded bytes.
    */
   signatureVerifier?: SignatureVerifierOptions;
+}
+
+/**
+ * @internal Encodes a verifier for the JSON wire, shared with {@link BundleSource} so both
+ * sides of the FFI agree on one encoding.
+ */
+export function serializeSignatureVerifier(
+  verifier: SignatureVerifierOptions
+): SignatureVerifierOptions {
+  const { key } = verifier;
+  // PEM formats carry text; binary formats (Uint8Array) are base64-encoded for the JSON wire.
+  const data = typeof key.data === 'string' ? key.data : encodeBase64(key.data);
+  return {
+    algorithm: verifier.algorithm,
+    key: { format: key.format, data },
+  };
 }
 
 function serializeOptions(options: UpdaterOptions): string {
@@ -39,15 +60,9 @@ function serializeOptions(options: UpdaterOptions): string {
   if (signatureVerifier == null) {
     return JSON.stringify(rest);
   }
-  const { key } = signatureVerifier;
-  // PEM formats carry text; binary formats (Uint8Array) are base64-encoded for the JSON wire.
-  const data = typeof key.data === 'string' ? key.data : encodeBase64(key.data);
   return JSON.stringify({
     ...rest,
-    signatureVerifier: {
-      algorithm: signatureVerifier.algorithm,
-      key: { format: key.format, data },
-    },
+    signatureVerifier: serializeSignatureVerifier(signatureVerifier),
   });
 }
 
@@ -73,11 +88,18 @@ export class Updater {
       cstr(options != null ? serializeOptions(options) : '')
     );
     if (this.#ptr === null) {
-      // A null updater also means a provided `signatureVerifier` couldn't be built (fail closed).
-      throw new WebviewBundleError(
-        'invalid_signature_options',
-        'wvb: failed to create Updater (check signatureVerifier algorithm/key)'
-      );
+      // A null updater means an option was ill-formed — an `integrityPolicy` value the native
+      // side rejected, or a `signatureVerifier` it couldn't build. Fail closed rather than serve
+      // updates unverified; only blame the key when one was actually given.
+      throw options?.signatureVerifier != null
+        ? new WebviewBundleError(
+            'invalid_signature_options',
+            'wvb: failed to create Updater (check signatureVerifier algorithm/key)'
+          )
+        : new WebviewBundleError(
+            'unknown',
+            'wvb: failed to create Updater (check integrityPolicy)'
+          );
     }
   }
 

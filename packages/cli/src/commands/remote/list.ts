@@ -62,7 +62,7 @@ stored on the remote server.
       return 1;
     }
     const remote = new Remote(endpointInput);
-    const bundles = await remote.listBundles(this.channel);
+    const bundles = await remote.listBundles({ channel: this.channel });
     this.logger.info(`Remote Webview Bundles:`);
     console.log(JSON.stringify(bundles, null, 2));
   }

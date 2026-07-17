@@ -89,7 +89,7 @@ pub enum VerifyingKeyFormat {
 /// This type is used internally and can be created from either a configuration object
 /// or a custom verification function.
 pub struct SignatureVerifier {
-  pub(crate) inner: signature::SignatureVerifier,
+  pub(crate) inner: signature::SignatureVerify,
 }
 
 /// Configuration for signature verification.
@@ -195,7 +195,7 @@ impl FromNapiValue for SignatureVerifier {
               ),
               _ => Err(unsupported_key_format),
             }?;
-            signature::SignatureVerifier::EcdsaSecp256r1(Arc::new(verifier))
+            signature::SignatureVerify::EcdsaSecp256r1(Arc::new(verifier))
           }
           SignatureAlgorithm::EcdsaSecp384r1 => {
             let verifier = match &inner.key.format {
@@ -222,7 +222,7 @@ impl FromNapiValue for SignatureVerifier {
               ),
               _ => Err(unsupported_key_format),
             }?;
-            signature::SignatureVerifier::EcdsaSecp384r1(Arc::new(verifier))
+            signature::SignatureVerify::EcdsaSecp384r1(Arc::new(verifier))
           }
           SignatureAlgorithm::Ed25519 => {
             let verifier = match &inner.key.format {
@@ -254,7 +254,7 @@ impl FromNapiValue for SignatureVerifier {
               }
               _ => Err(unsupported_key_format),
             }?;
-            signature::SignatureVerifier::Ed25519(Arc::new(verifier))
+            signature::SignatureVerify::Ed25519(Arc::new(verifier))
           }
           SignatureAlgorithm::RsaPkcs1V1_5 => {
             let verifier = match &inner.key.format {
@@ -284,7 +284,7 @@ impl FromNapiValue for SignatureVerifier {
               ),
               _ => Err(unsupported_key_format),
             }?;
-            signature::SignatureVerifier::RsaPkcs1V15(Arc::new(verifier))
+            signature::SignatureVerify::RsaPkcs1V15(Arc::new(verifier))
           }
           SignatureAlgorithm::RsaPss => {
             let verifier = match &inner.key.format {
@@ -310,11 +310,11 @@ impl FromNapiValue for SignatureVerifier {
               ),
               _ => Err(unsupported_key_format),
             }?;
-            signature::SignatureVerifier::RsaPss(Arc::new(verifier))
+            signature::SignatureVerify::RsaPss(Arc::new(verifier))
           }
         },
         Either::B(inner) => {
-          signature::SignatureVerifier::Custom(Arc::new(move |_bundle, message, signature| {
+          signature::SignatureVerify::Custom(Arc::new(move |message, signature| {
             let message_buf = Buffer::from(message);
             let signature = signature.to_string();
             let callback = Arc::clone(&inner);

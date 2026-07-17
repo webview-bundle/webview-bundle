@@ -438,29 +438,124 @@ pub fn write_bundle_into_buffer(bundle: &Bundle) -> crate::Result<Buffer> {
   Ok(buf.into())
 }
 
+/// Checksum verification for the data section.
+///
+/// @property {boolean} [verify] - Verify the section's xxHash-32 checksum on read (default: true)
+/// @property {number} [seed] - Seed the checksum was built with (default: 0)
+#[napi(object)]
+pub struct ChecksumReadOptions {
+  pub verify: Option<bool>,
+  pub seed: Option<u32>,
+}
+
+impl From<ChecksumReadOptions> for wvb::ChecksumReadOptions {
+  fn from(value: ChecksumReadOptions) -> Self {
+    let mut options = wvb::ChecksumReadOptions::default();
+    if let Some(verify) = value.verify {
+      options = options.verify(verify);
+    }
+    if let Some(seed) = value.seed {
+      options = options.seed(seed);
+    }
+    options
+  }
+}
+
+/// How entry data is read out of a bundle's data section.
+///
+/// @property {ChecksumReadOptions} [checksum] - Checksum verification for the data section
+#[napi(object)]
+pub struct DataReadOptions {
+  pub checksum: Option<ChecksumReadOptions>,
+}
+
+impl From<DataReadOptions> for wvb::DataReadOptions {
+  fn from(value: DataReadOptions) -> Self {
+    let mut options = wvb::DataReadOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
+    }
+    options
+  }
+}
+
+/// How a bundle's header is read.
+///
+/// @property {ChecksumReadOptions} [checksum] - Checksum verification for the header section
+#[napi(object)]
+pub struct HeaderReadOptions {
+  pub checksum: Option<ChecksumReadOptions>,
+}
+
+impl From<HeaderReadOptions> for wvb::HeaderReadOptions {
+  fn from(value: HeaderReadOptions) -> Self {
+    let mut options = wvb::HeaderReadOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
+    }
+    options
+  }
+}
+
+/// How a bundle's index is read.
+///
+/// @property {ChecksumReadOptions} [checksum] - Checksum verification for the index section
+#[napi(object)]
+pub struct IndexReadOptions {
+  pub checksum: Option<ChecksumReadOptions>,
+}
+
+impl From<IndexReadOptions> for wvb::IndexReadOptions {
+  fn from(value: IndexReadOptions) -> Self {
+    let mut options = wvb::IndexReadOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
+    }
+    options
+  }
+}
+
 /// Options for building a bundle.
 ///
 /// @property {BuildHeaderOptions} [header] - Header generation options
 /// @property {BuildIndexOptions} [index] - Index generation options
-/// @property {number} [dataChecksumSeed] - Seed for data checksums (for testing)
+/// @property {ChecksumWriteOptions} [dataChecksum] - Checksum generation for the data section
 #[napi(object)]
 pub struct BuildOptions {
   pub header: Option<BuildHeaderOptions>,
   pub index: Option<BuildIndexOptions>,
-  pub data_checksum_seed: Option<u32>,
+  pub data_checksum: Option<ChecksumWriteOptions>,
 }
 
 impl From<BuildOptions> for BundleBuilderOptions {
   fn from(value: BuildOptions) -> Self {
-    let mut options = BundleBuilderOptions::new();
+    let mut options = BundleBuilderOptions::default();
     if let Some(header) = value.header {
-      options.header(header.into());
+      options = options.header(header.into());
     }
     if let Some(index) = value.index {
-      options.index(index.into());
+      options = options.index(index.into());
     }
-    if let Some(seed) = value.data_checksum_seed {
-      options.data_checksum_seed(seed);
+    if let Some(checksum) = value.data_checksum {
+      options = options.data_checksum(checksum.into());
+    }
+    options
+  }
+}
+
+/// Checksum generation for a bundle section.
+///
+/// @property {number} [seed] - Seed the checksum is built with (default: 0)
+#[napi(object)]
+pub struct ChecksumWriteOptions {
+  pub seed: Option<u32>,
+}
+
+impl From<ChecksumWriteOptions> for wvb::ChecksumWriteOptions {
+  fn from(value: ChecksumWriteOptions) -> Self {
+    let mut options = wvb::ChecksumWriteOptions::default();
+    if let Some(seed) = value.seed {
+      options = options.seed(seed);
     }
     options
   }
@@ -468,17 +563,17 @@ impl From<BuildOptions> for BundleBuilderOptions {
 
 /// Options for bundle header generation.
 ///
-/// @property {number} [checksumSeed] - Seed for header checksum (for testing)
+/// @property {ChecksumWriteOptions} [checksum] - Checksum generation for the header section
 #[napi(object)]
 pub struct BuildHeaderOptions {
-  pub checksum_seed: Option<u32>,
+  pub checksum: Option<ChecksumWriteOptions>,
 }
 
 impl From<BuildHeaderOptions> for HeaderWriterOptions {
   fn from(value: BuildHeaderOptions) -> Self {
-    let mut options = HeaderWriterOptions::new();
-    if let Some(seed) = value.checksum_seed {
-      options.checksum_seed(seed);
+    let mut options = HeaderWriterOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
     }
     options
   }
@@ -486,17 +581,17 @@ impl From<BuildHeaderOptions> for HeaderWriterOptions {
 
 /// Options for bundle index generation.
 ///
-/// @property {number} [checksumSeed] - Seed for index checksum (for testing)
+/// @property {ChecksumWriteOptions} [checksum] - Checksum generation for the index section
 #[napi(object)]
 pub struct BuildIndexOptions {
-  pub checksum_seed: Option<u32>,
+  pub checksum: Option<ChecksumWriteOptions>,
 }
 
 impl From<BuildIndexOptions> for IndexWriterOptions {
   fn from(value: BuildIndexOptions) -> Self {
-    let mut options = IndexWriterOptions::new();
-    if let Some(seed) = value.checksum_seed {
-      options.checksum_seed(seed);
+    let mut options = IndexWriterOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
     }
     options
   }

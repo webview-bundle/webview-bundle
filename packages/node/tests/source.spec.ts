@@ -4,7 +4,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BundleBuilder, BundleSource } from '../dist/index.js';
+import {
+  BundleBuilder,
+  BundleSource,
+  type ErrorCode,
+  isWebviewBundleError,
+} from '../dist/index.js';
 
 function buildBundle(html: string) {
   const builder = new BundleBuilder();
@@ -84,6 +89,173 @@ describe('source', () => {
     // A fresh load resolves to the new active version.
     const v2 = await source.loadDescriptor('app');
     expect(await v2.getData('/index.html')).toEqual(Buffer.from('<h1>v2</h1>', 'utf8'));
+  });
+
+  // Flips the entry's stored 4-byte checksum on disk, leaving its compressed bytes intact:
+  // a read that verifies the checksum fails, a read that does not still returns the
+  // original bytes.
+  async function corruptChecksum(source: BundleSource, entryPath: string) {
+    const filepath = await source.resolveFilepath('app');
+    const descriptor = await source.fetchDescriptor('app');
+    const entry = descriptor.index().getEntry(entryPath);
+    if (entry == null) {
+      throw new Error(`no such entry: ${entryPath}`);
+    }
+    const dataOffset = Number(descriptor.header().indexEndOffset());
+    const raw = await fs.readFile(filepath);
+    const offset = dataOffset + entry.offset + entry.len;
+    raw[offset] = raw[offset]! ^ 0xff;
+    await fs.writeFile(filepath, raw);
+  }
+
+  // Flips a byte of the header's stored 4-byte checksum (fixed offset 13), leaving the header
+  // fields intact: a load that verifies the header checksum fails, a load that does not still
+  // parses the bundle.
+  async function corruptHeaderChecksum(source: BundleSource) {
+    const filepath = await source.resolveFilepath('app');
+    const raw = await fs.readFile(filepath);
+    raw[13] = raw[13]! ^ 0xff;
+    await fs.writeFile(filepath, raw);
+  }
+
+  it('verifies entry checksums on read when dataReadOptions.verify is set', async () => {
+    const source = new BundleSource({
+      builtinDir,
+      remoteDir,
+      dataReadOptions: { checksum: { verify: true } },
+    });
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptChecksum(source, '/index.html');
+
+    const loaded = await source.loadDescriptor('app');
+    const error = await loaded.getData('/index.html').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+
+    // Untouched entries still read.
+    expect(await loaded.getData('/app.js')).toEqual(Buffer.from('console.log("app");', 'utf8'));
+  });
+
+  it('reports a bad signature verifier option from the constructor', () => {
+    const error = (() => {
+      try {
+        // sec1 is an ECDSA-only key format.
+        new BundleSource({
+          builtinDir,
+          remoteDir,
+          signature: {
+            verify: {
+              algorithm: 'ed25519',
+              key: { format: 'sec1', data: Buffer.alloc(32) },
+            },
+          },
+        });
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('invalid_signature_options');
+  });
+
+  it('rejects an unknown top-level config key instead of silently ignoring it', () => {
+    const error = (() => {
+      try {
+        // A misspelled security option would leave verification in a state the caller did not
+        // ask for.
+        new BundleSource({
+          builtinDir,
+          remoteDir,
+          verifyChecksum: true,
+        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
+    expect((error as Error).message).toContain('verifyChecksum');
+  });
+
+  it('rejects an unknown nested integrity key (fails closed)', () => {
+    const error = (() => {
+      try {
+        new BundleSource({
+          builtinDir,
+          remoteDir,
+          integrity: { checkmode: 'all' },
+        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
+    expect((error as Error).message).toContain('checkmode');
+  });
+
+  it('rejects a misspelled nested read-checksum key (fails closed)', () => {
+    const error = (() => {
+      try {
+        new BundleSource({
+          builtinDir,
+          remoteDir,
+          dataReadOptions: { checksum: { verfy: false } },
+        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
+    expect((error as Error).message).toContain('verfy');
+  });
+
+  it('verifies entry checksums by default', async () => {
+    const source = makeSource();
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptChecksum(source, '/index.html');
+
+    const loaded = await source.loadDescriptor('app');
+    const error = await loaded.getData('/index.html').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+  });
+
+  it('does not verify entry checksums when dataReadOptions.verify is false', async () => {
+    const source = new BundleSource({
+      builtinDir,
+      remoteDir,
+      dataReadOptions: { checksum: { verify: false } },
+    });
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptChecksum(source, '/index.html');
+
+    const loaded = await source.loadDescriptor('app');
+    expect(await loaded.getData('/index.html')).toEqual(Buffer.from('<h1>v1</h1>', 'utf8'));
+  });
+
+  it('verifies the header checksum on load by default', async () => {
+    const source = makeSource();
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptHeaderChecksum(source);
+
+    const error = await source.loadDescriptor('app').catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(error.code).toBe<ErrorCode>('core.invalid_header_checksum');
+  });
+
+  it('loads a header-corrupted bundle when headerReadOptions.verify is false', async () => {
+    const source = new BundleSource({
+      builtinDir,
+      remoteDir,
+      headerReadOptions: { checksum: { verify: false } },
+    });
+    await install(source, '1.0.0', '<h1>v1</h1>');
+    await corruptHeaderChecksum(source);
+
+    const loaded = await source.loadDescriptor('app');
+    expect(await loaded.getData('/index.html')).toEqual(Buffer.from('<h1>v1</h1>', 'utf8'));
   });
 
   it('handles many concurrent loads and reads without hanging', async () => {

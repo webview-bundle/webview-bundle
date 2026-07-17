@@ -488,7 +488,7 @@ async function* loadRemoteBundles(
     http: target.download?.http,
   });
   const channel = options.channel;
-  const allRemoteBundles = await remote.listBundles(channel);
+  const allRemoteBundles = await remote.listBundles({ channel });
   const remoteBundles = await filterAsync(allRemoteBundles, async remoteBundle => {
     const shouldInclude =
       options.include != null

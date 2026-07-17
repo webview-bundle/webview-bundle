@@ -4,10 +4,7 @@ use tauri::{
   plugin::{Builder, TauriPlugin},
 };
 
-pub use config::{
-  Config, ErrorResponse, HostnameSegment, Http, IntegrityPolicy, Protocol, ProxyResolver, Remote,
-  SignatureVerifier, Source, Updater, UriBundleResolver, UriPathResolver, default_error_response,
-};
+pub use config::*;
 pub use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
   RsaPssVerifier,
@@ -21,6 +18,8 @@ mod error;
 mod state;
 
 pub use error::{Error, Result};
+pub use state::default_error_response;
+pub use wvb;
 
 use state::WebviewBundle;
 

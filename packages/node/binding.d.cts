@@ -285,6 +285,18 @@ export declare class BundleProtocol {
    *   bundleResolver: { type: 'pathname' },
    * });
    * ```
+   *
+   * @example
+   * ```typescript
+   * // Entry checksum verification is inherited from the source's read options; to serve
+   * // without checking entry checksums, configure it on the source instead.
+   * const source = new BundleSource({
+   *   builtinDir: './bundles',
+   *   remoteDir: './remote',
+   *   dataReadOptions: { checksum: { verify: false } },
+   * });
+   * const protocol = new BundleProtocol(source);
+   * ```
    */
   constructor(source: BundleSource, options?: BundleProtocolOptions | undefined | null)
   /**
@@ -666,6 +678,33 @@ export declare class Index {
 }
 
 /**
+ * A digest over some bytes, serialized as `<algorithm>:<base64>` (e.g. `"sha256:n4bQ..."`).
+ *
+ * Created by [`computeIntegrity`] or [`parseIntegrity`].
+ */
+export declare class Integrity {
+  /**
+   * The raw digest bytes.
+   *
+   * @returns {Buffer} The digest
+   */
+  value(): Buffer
+  /**
+   * Whether `data` digests to this integrity.
+   *
+   * @param {Buffer} data - Bytes to check
+   * @returns {boolean} `true` when the bytes match
+   */
+  validate(data: Buffer): boolean
+  /**
+   * Serializes to `<algorithm>:<base64>`.
+   *
+   * @returns {string} The serialized integrity string
+   */
+  serialize(): string
+}
+
+/**
  * A descriptor loaded (and cached) by a [`BundleSource`].
  *
  * Holds the parsed header/index together with the filepath it was loaded from, so
@@ -852,7 +891,7 @@ export declare class Remote {
   /**
    * Lists all available bundles on the server.
    *
-   * @param {string} [channel] - Optional channel filter
+   * @param {RemoteFetchOptions} [options] - Options for fetching
    * @returns {Promise<ListRemoteBundleInfo[]>} List of bundles
    *
    * @example
@@ -863,14 +902,14 @@ export declare class Remote {
    * }
    * ```
    */
-  listBundles(channel?: string | undefined | null): Promise<Array<ListRemoteBundleInfo>>
+  listBundles(options?: RemoteFetchOptions | undefined | null): Promise<Array<ListRemoteBundleInfo>>
   /**
    * Gets bundle metadata for the current version.
    *
    * Fetches metadata without downloading the bundle itself.
    *
    * @param {string} bundleName - Name of the bundle
-   * @param {string} [channel] - Optional channel filter
+   * @param {RemoteFetchOptions} [options] - Options for fetching
    * @returns {Promise<RemoteBundleInfo>} Bundle information
    *
    * @example
@@ -882,14 +921,14 @@ export declare class Remote {
    * }
    * ```
    */
-  getInfo(bundleName: string, channel?: string | undefined | null): Promise<RemoteBundleInfo>
+  getInfo(bundleName: string, options?: RemoteFetchOptions | undefined | null): Promise<RemoteBundleInfo>
   /**
    * Downloads the current version of a bundle.
    *
    * Returns bundle info, parsed bundle, and raw data.
    *
    * @param {string} bundleName - Name of the bundle
-   * @param {string} [channel] - Optional channel filter
+   * @param {RemoteFetchOptions} [options] - Options for fetching
    * @returns {Promise<[RemoteBundleInfo, Bundle, Buffer]>} Tuple of info, bundle, and data
    *
    * @example
@@ -924,6 +963,10 @@ export declare class Remote {
  *
  * The updater coordinates between a local bundle source and remote server,
  * handling update checks, downloads, integrity verification, and signature validation.
+ *
+ * Integrity and signature are verified independently; because a signature signs the
+ * integrity string rather than the bundle bytes, keep `integrityPolicy` enabled so the
+ * signature also authenticates the downloaded bytes.
  *
  * @example
  * ```typescript
@@ -1060,19 +1103,19 @@ export declare class Updater {
 /**
  * Options for bundle header generation.
  *
- * @property {number} [checksumSeed] - Seed for header checksum (for testing)
+ * @property {ChecksumWriteOptions} [checksum] - Checksum generation for the header section
  */
 export interface BuildHeaderOptions {
-  checksumSeed?: number
+  checksum?: ChecksumWriteOptions
 }
 
 /**
  * Options for bundle index generation.
  *
- * @property {number} [checksumSeed] - Seed for index checksum (for testing)
+ * @property {ChecksumWriteOptions} [checksum] - Checksum generation for the index section
  */
 export interface BuildIndexOptions {
-  checksumSeed?: number
+  checksum?: ChecksumWriteOptions
 }
 
 /**
@@ -1080,12 +1123,12 @@ export interface BuildIndexOptions {
  *
  * @property {BuildHeaderOptions} [header] - Header generation options
  * @property {BuildIndexOptions} [index] - Index generation options
- * @property {number} [dataChecksumSeed] - Seed for data checksums (for testing)
+ * @property {ChecksumWriteOptions} [dataChecksum] - Checksum generation for the data section
  */
 export interface BuildOptions {
   header?: BuildHeaderOptions
   index?: BuildIndexOptions
-  dataChecksumSeed?: number
+  dataChecksum?: ChecksumWriteOptions
 }
 
 /**
@@ -1180,6 +1223,11 @@ export type BundleResolverOptions =
  * @property {string} remoteDir - Directory containing remote bundles
  * @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
  * @property {string} [remoteManifestFilepath] - Custom manifest path for remote
+ * @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
+ * @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
+ * @property {DataReadOptions} [dataReadOptions] - Verify each entry's checksum when its data is read
+ * @property {HeaderReadOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded
+ * @property {IndexReadOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded
  *
  * @example
  * ```typescript
@@ -1189,12 +1237,52 @@ export type BundleResolverOptions =
  * };
  * const source = new BundleSource(config);
  * ```
+ *
+ * @example
+ * ```typescript
+ * // Require downloaded bundles to match the integrity recorded in the manifest.
+ * const source = new BundleSource({
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
+ *   integrity: { policy: 'strict' },
+ * });
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Turn off data checksum verification and seed the index checksum.
+ * const source = new BundleSource({
+ *   builtinDir: './bundles/builtin',
+ *   remoteDir: './bundles/remote',
+ *   dataReadOptions: { checksum: { verify: false } },
+ *   indexReadOptions: { checksum: { seed: 42 } },
+ * });
+ * ```
  */
 export interface BundleSourceConfig {
   builtinDir: string
   remoteDir: string
   builtinManifestFilepath?: string
   remoteManifestFilepath?: string
+  integrity?: BundleSourceIntegrityOptions
+  signature?: BundleSourceSignatureOptions
+  dataReadOptions?: DataReadOptions
+  headerReadOptions?: HeaderReadOptions
+  indexReadOptions?: IndexReadOptions
+}
+
+/**
+ * How bundles are checked against the integrity recorded for them in the manifest when
+ * they are loaded from disk.
+ *
+ * @property {IntegrityPolicy} [policy] - How a bundle's integrity metadata is treated (default: 'optional'; 'off' disables the check)
+ * @property {Function} [check] - Custom checker that validates bundle bytes against an integrity string
+ * @property {BundleSourceVerifyMode} [checkMode] - Which bundles are checked on load (default: 'onlyRemote')
+ */
+export interface BundleSourceIntegrityOptions {
+  policy?: IntegrityPolicy
+  check?: (data: Uint8Array, integrity: string) => Promise<boolean>
+  checkMode?: BundleSourceVerifyMode
 }
 
 /**
@@ -1206,6 +1294,36 @@ export type BundleSourceKind = /** Bundles shipped with the application (read-on
 'builtin'|
 /** Downloaded bundles (takes priority over builtin) */
 'remote';
+
+/**
+ * How bundle signatures are verified when bundles are loaded from disk.
+ *
+ * A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
+ * bundle bytes; verifying it proves the integrity string is authentic. It is verified
+ * independently of the integrity check, so pair it with an enabled integrity policy to
+ * also authenticate the bytes — signature verification alone does not read them.
+ *
+ * @property {SignatureVerifierOptions | Function} [verify] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
+ * @property {BundleSourceVerifyMode} [verifyMode] - Which bundles have their signature verified on load (default: 'onlyRemote')
+ */
+export interface BundleSourceSignatureOptions {
+  verify?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
+  verifyMode?: BundleSourceVerifyMode
+}
+
+/**
+ * Which bundles a load-time verification applies to.
+ *
+ * @enum {string}
+ */
+export type BundleSourceVerifyMode = /**
+ * Verify both builtin and remote bundles. Builtin bundles ship inside the application|
+ * so the builtin manifest must carry the metadata being verified for the check to have
+ * anything to work with.
+ */
+'all'|
+/** Verify downloaded (remote) bundles only. */
+'onlyRemote';
 
 /**
  * Bundle version with source kind information.
@@ -1252,6 +1370,55 @@ export interface BundleUpdateInfo {
   lastModified?: string
 }
 
+/**
+ * Checksum verification for the data section.
+ *
+ * @property {boolean} [verify] - Verify the section's xxHash-32 checksum on read (default: true)
+ * @property {number} [seed] - Seed the checksum was built with (default: 0)
+ */
+export interface ChecksumReadOptions {
+  verify?: boolean
+  seed?: number
+}
+
+/**
+ * Checksum generation for a bundle section.
+ *
+ * @property {number} [seed] - Seed the checksum is built with (default: 0)
+ */
+export interface ChecksumWriteOptions {
+  seed?: number
+}
+
+/**
+ * Computes the integrity of `data` with `algorithm`.
+ *
+ * This is the write side of integrity: use it when publishing a bundle to produce the
+ * string a source or updater later verifies against.
+ *
+ * @param {IntegrityAlgorithm} algorithm - Hash algorithm to digest with
+ * @param {Buffer} data - Bytes to digest
+ * @returns {Integrity} The computed integrity
+ *
+ * @example
+ * ```typescript
+ * import { computeIntegrity } from '@wvb/node';
+ *
+ * const integrity = computeIntegrity('sha256', data).serialize();
+ * // "sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg="
+ * ```
+ */
+export declare function computeIntegrity(algorithm: IntegrityAlgorithm, data: Buffer): Integrity
+
+/**
+ * How entry data is read out of a bundle's data section.
+ *
+ * @property {ChecksumReadOptions} [checksum] - Checksum verification for the data section
+ */
+export interface DataReadOptions {
+  checksum?: ChecksumReadOptions
+}
+
 /** The stable code every error thrown by this binding carries (`WebviewBundleError.code`). */
 export type ErrorCode =  'core.io'|
 'core.compress'|
@@ -1290,7 +1457,18 @@ export type ErrorCode =  'core.io'|
 'invalid_header_name'|
 'invalid_header_value'|
 'invalid_signature_options'|
+/** r" A binding-side validation failure with no more specific code| e.g. an unknown option key. */
+'unknown'|
 'napi';
+
+/**
+ * How a bundle's header is read.
+ *
+ * @property {ChecksumReadOptions} [checksum] - Checksum verification for the header section
+ */
+export interface HeaderReadOptions {
+  checksum?: ChecksumReadOptions
+}
 
 /**
  * Which hostname segment is used as the bundle name.
@@ -1357,17 +1535,25 @@ export interface IndexEntry {
 }
 
 /**
+ * How a bundle's index is read.
+ *
+ * @property {ChecksumReadOptions} [checksum] - Checksum verification for the index section
+ */
+export interface IndexReadOptions {
+  checksum?: ChecksumReadOptions
+}
+
+/**
  * Hash algorithm for bundle integrity verification.
  *
- * Supports SHA-2 family hash algorithms for cryptographic verification
- * following the Subresource Integrity specification.
+ * Supports SHA-2 family hash algorithms for cryptographic verification.
  *
  * @example
  * ```typescript
- * // Integrity strings use these algorithms:
- * // "sha256-abc123..." - SHA-256
- * // "sha384-def456..." - SHA-384 (recommended)
- * // "sha512-ghi789..." - SHA-512
+ * // Integrity strings are `<algorithm>:<base64>`:
+ * // "sha256:abc123..." - SHA-256
+ * // "sha384:def456..." - SHA-384 (recommended)
+ * // "sha512:ghi789..." - SHA-512
  * ```
  */
 export type IntegrityAlgorithm = /** SHA-256 (256-bit hash) */
@@ -1402,7 +1588,7 @@ export type IntegrityPolicy = /** Require integrity verification for all bundles
 /** Verify integrity if provided| but allow operations without it. */
 'optional'|
 /** Skip integrity verification entirely. */
-'none';
+'off';
 
 /**
  * Information about a bundle from list operations.
@@ -1431,6 +1617,21 @@ export interface ListRemoteBundleInfo {
   name: string
   version: string
 }
+
+/**
+ * Parses a serialized integrity string (e.g. `"sha256:n4bQ..."`).
+ *
+ * @param {string} integrity - Serialized `<algorithm>:<base64>` string
+ * @returns {Integrity} The parsed integrity
+ *
+ * @example
+ * ```typescript
+ * import { parseIntegrity } from '@wvb/node';
+ *
+ * const isValid = parseIntegrity(advertised).validate(data);
+ * ```
+ */
+export declare function parseIntegrity(integrity: string): Integrity
 
 /**
  * How the file path in the bundle is resolved from the request uri.
@@ -1500,6 +1701,15 @@ export interface RemoteBundleInfo {
   integrity?: string
   signature?: string
   lastModified?: string
+}
+
+/**
+ * Remote fetch options.
+ *
+ * @property {string} [channel] - Channel to use for fetching bundles.
+ */
+export interface RemoteFetchOptions {
+  channel?: string
 }
 
 /**
@@ -1622,7 +1832,7 @@ export interface SignatureVerifyingKeyOptions {
  * @property {string} [channel] - Update channel (e.g., "stable", "beta")
  * @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
  * @property {Function} [integrityChecker] - Custom integrity verification function
- * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function
+ * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes. Verified independently of `integrityPolicy` — the signature signs the integrity string, not the bundle bytes, so keep the policy enabled ('strict' or 'optional') for the signature to also authenticate the downloaded bytes.
  *
  * @example
  * ```typescript
@@ -1647,7 +1857,7 @@ export interface SignatureVerifyingKeyOptions {
  *     // Custom integrity verification
  *     return true;
  *   },
- *   signatureVerifier: async (data, signature) => {
+ *   signatureVerifier: async (message, signature) => {
  *     // Custom signature verification
  *     return true;
  *   },
@@ -1658,7 +1868,7 @@ export interface UpdaterOptions {
   channel?: string
   integrityPolicy?: IntegrityPolicy
   integrityChecker?: (data: Uint8Array, integrity: string) => Promise<boolean>
-  signatureVerifier?: SignatureVerifierOptions | ((data: Uint8Array, signature: string) => Promise<boolean>)
+  signatureVerifier?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
 }
 
 /**

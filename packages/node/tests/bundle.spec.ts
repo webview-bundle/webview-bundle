@@ -34,14 +34,28 @@ describe('builder', () => {
     expect(() =>
       builder.build({
         header: {
-          checksumSeed: 1,
+          checksum: { seed: 1 },
         },
         index: {
-          checksumSeed: 2,
+          checksum: { seed: 2 },
         },
-        dataChecksumSeed: 3,
+        dataChecksum: { seed: 3 },
       })
     ).not.toThrowError();
+  });
+
+  // The seed is part of the checksum, so it must reach the writer rather than be dropped.
+  it('the data checksum seed reaches the written entry', () => {
+    const checksumWithSeed = (seed?: number) => {
+      const builder = new BundleBuilder('v1');
+      builder.insertEntry('/index.js', INDEX_JS_BUF);
+      const options = seed == null ? undefined : { dataChecksum: { seed } };
+      return builder.build(options).getDataChecksum('/index.js');
+    };
+
+    expect(checksumWithSeed(3)).toBe(checksumWithSeed(3));
+    expect(checksumWithSeed(3)).not.toBe(checksumWithSeed());
+    expect(checksumWithSeed(7)).not.toBe(checksumWithSeed(3));
   });
 });
 

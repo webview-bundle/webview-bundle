@@ -1,5 +1,11 @@
-use crate::bundle::{Bundle, BundleDescriptor, BundleDescriptorInner};
+use crate::bundle::{
+  Bundle, BundleDescriptor, BundleDescriptorInner, DataReadOptions, HeaderReadOptions,
+  IndexReadOptions,
+};
+use crate::integrity::IntegrityPolicy;
+use crate::signature::SignatureVerification;
 use std::sync::Arc;
+use wvb::signature;
 use wvb::source;
 
 /// Whether a bundle was loaded from the builtin (read-only, shipped with the app)
@@ -123,16 +129,14 @@ impl LoadedDescriptor {
   /// source's active version changes meanwhile. Returns `None` if `path` does not
   /// exist in the bundle.
   pub async fn get_data(&self, path: String) -> Result<Option<Vec<u8>>, crate::Error> {
-    let reader = self.inner.reader().await?;
-    let data = self.inner.async_get_data(reader, &path).await?;
+    let data = self.inner.get_data(&path).await?;
     Ok(data)
   }
 
-  /// Reads the CRC-32 checksum for `path`, loading it lazily from disk.
+  /// Reads the xxHash-32 checksum for `path`, loading it lazily from disk.
   /// Returns `None` if `path` does not exist in the bundle.
   pub async fn get_data_checksum(&self, path: String) -> Result<Option<u32>, crate::Error> {
-    let reader = self.inner.reader().await?;
-    let checksum = self.inner.async_get_data_checksum(reader, &path).await?;
+    let checksum = self.inner.get_data_checksum(&path).await?;
     Ok(checksum)
   }
 }
@@ -150,6 +154,89 @@ pub struct BundleSourceConfig {
   pub remote_manifest_filepath: Option<String>,
 }
 
+/// Which bundles a load-time verification applies to
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum BundleSourceVerifyMode {
+  /// Verify both builtin and remote bundles.
+  ///
+  /// Builtin bundles ship inside the application, so the builtin manifest must carry the
+  /// metadata being verified for the check to have anything to work with.
+  All,
+  /// Verify downloaded (remote) bundles only. This is the default.
+  OnlyRemote,
+}
+
+impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
+  fn from(v: BundleSourceVerifyMode) -> Self {
+    match v {
+      BundleSourceVerifyMode::All => source::BundleSourceVerifyMode::All,
+      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceVerifyMode::OnlyRemote,
+    }
+  }
+}
+
+/// How bundles are checked against the integrity recorded for them in the manifest when
+/// they are loaded from disk.
+#[derive(uniffi::Record, Clone)]
+pub struct BundleSourceIntegrityOptions {
+  /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
+  ///
+  /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
+  #[uniffi(default = None)]
+  pub policy: Option<IntegrityPolicy>,
+  /// A custom checker that validates bundle bytes against their integrity string
+  /// (default: the built-in checker, which compares the advertised hash).
+  #[uniffi(default = None)]
+  pub check: Option<Arc<dyn crate::integrity::IntegrityCheck>>,
+  /// Which bundles are checked on load (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  #[uniffi(default = None)]
+  pub check_mode: Option<BundleSourceVerifyMode>,
+}
+
+/// How bundle signatures are verified when bundles are loaded from disk.
+///
+/// A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
+/// bundle bytes; verifying it proves the integrity string is authentic. It is verified
+/// independently of the integrity check, so pair it with an enabled
+/// [`BundleSourceOptions::integrity`] to also authenticate the bytes — signature
+/// verification alone does not read them.
+#[derive(uniffi::Record, Clone)]
+pub struct BundleSourceSignatureOptions {
+  /// Verifies that a bundle's integrity string was signed by the matching key — with a
+  /// declarative public key or a custom function (default: off).
+  #[uniffi(default = None)]
+  pub verify: Option<SignatureVerification>,
+  /// Which bundles have their signature verified on load
+  /// (default: [`BundleSourceVerifyMode::OnlyRemote`]).
+  #[uniffi(default = None)]
+  pub verify_mode: Option<BundleSourceVerifyMode>,
+}
+
+/// Optional verification settings for a [`BundleSource`].
+///
+/// Independent layers: load-time integrity checking and signature verification of the
+/// whole bundle file (each paid once per version), the header and index checksum checks
+/// applied when a descriptor is read on load, and the per-entry data checksum applied by
+/// [`LoadedDescriptor::get_data`].
+#[derive(uniffi::Record, Clone)]
+pub struct BundleSourceOptions {
+  /// How bundles are checked against their manifest integrity metadata on load.
+  #[uniffi(default = None)]
+  pub integrity: Option<BundleSourceIntegrityOptions>,
+  /// How bundle signatures are verified on load.
+  #[uniffi(default = None)]
+  pub signature: Option<BundleSourceSignatureOptions>,
+  /// How each entry's checksum is verified when its data is read.
+  #[uniffi(default = None)]
+  pub data_read: Option<DataReadOptions>,
+  /// How a bundle's header checksum is verified when its descriptor is read on load.
+  #[uniffi(default = None)]
+  pub header_read: Option<HeaderReadOptions>,
+  /// How a bundle's index checksum is verified when its descriptor is read on load.
+  #[uniffi(default = None)]
+  pub index_read: Option<IndexReadOptions>,
+}
+
 /// Unified access point for bundles from both the builtin and remote sources.
 ///
 /// The remote source takes precedence over the builtin source when both contain
@@ -159,22 +246,79 @@ pub struct BundleSource {
   pub(crate) inner: Arc<source::BundleSource>,
 }
 
+fn source_builder(config: BundleSourceConfig) -> source::BundleSourceBuilder {
+  let mut builder = source::BundleSource::builder()
+    .builtin_dir(config.builtin_dir)
+    .remote_dir(config.remote_dir);
+  if let Some(p) = config.builtin_manifest_filepath {
+    builder = builder.builtin_manifest_filepath(p);
+  }
+  if let Some(p) = config.remote_manifest_filepath {
+    builder = builder.remote_manifest_filepath(p);
+  }
+  builder
+}
+
+fn source_options(
+  options: BundleSourceOptions,
+) -> Result<source::BundleSourceOptions, crate::Error> {
+  let mut source_options = source::BundleSourceOptions::default();
+  if let Some(integrity) = options.integrity {
+    let mut integrity_options = source::BundleSourceIntegrityOptions::default();
+    if let Some(policy) = integrity.policy {
+      integrity_options = integrity_options.policy(policy.into());
+    }
+    if let Some(check) = integrity.check {
+      integrity_options = integrity_options.check(crate::integrity::into_checker(check));
+    }
+    if let Some(mode) = integrity.check_mode {
+      integrity_options = integrity_options.check_mode(mode.into());
+    }
+    source_options = source_options.integrity(integrity_options);
+  }
+  if let Some(sig) = options.signature {
+    let mut signature_options = source::BundleSourceSignatureOptions::default();
+    if let Some(verification) = sig.verify {
+      let verifier = signature::SignatureVerify::try_from(verification)?;
+      signature_options = signature_options.verify(verifier);
+    }
+    if let Some(mode) = sig.verify_mode {
+      signature_options = signature_options.verify_mode(mode.into());
+    }
+    source_options = source_options.signature(signature_options);
+  }
+  if let Some(read_options) = options.data_read {
+    source_options = source_options.data_read(read_options.into());
+  }
+  if let Some(read_options) = options.header_read {
+    source_options = source_options.header_read(read_options.into());
+  }
+  if let Some(read_options) = options.index_read {
+    source_options = source_options.index_read(read_options.into());
+  }
+  Ok(source_options)
+}
+
 #[uniffi::export]
 impl BundleSource {
   #[uniffi::constructor]
   pub fn new(config: BundleSourceConfig) -> Arc<BundleSource> {
-    let mut builder = source::BundleSource::builder()
-      .builtin_dir(config.builtin_dir)
-      .remote_dir(config.remote_dir);
-    if let Some(p) = config.builtin_manifest_filepath {
-      builder = builder.builtin_manifest_filepath(p);
-    }
-    if let Some(p) = config.remote_manifest_filepath {
-      builder = builder.remote_manifest_filepath(p);
-    }
     Arc::new(BundleSource {
-      inner: Arc::new(builder.build()),
+      inner: Arc::new(source_builder(config).build()),
     })
+  }
+
+  /// Same as [`BundleSource::new`], with verification options applied to every bundle
+  /// this source loads or reads.
+  #[uniffi::constructor(name = "with_options")]
+  pub fn with_options(
+    config: BundleSourceConfig,
+    options: BundleSourceOptions,
+  ) -> Result<Arc<BundleSource>, crate::Error> {
+    let builder = source_builder(config).options(source_options(options)?);
+    Ok(Arc::new(BundleSource {
+      inner: Arc::new(builder.build()),
+    }))
   }
 
   /// Resolves the on-disk path of the builtin bundle `bundle_name` at `version`,
@@ -389,5 +533,106 @@ impl BundleSource {
   ) -> Result<Vec<String>, crate::Error> {
     let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
     Ok(removed)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::bundle::ChecksumReadOptions;
+  use wvb::integrity;
+
+  #[test]
+  fn source_options_maps_nested_records() {
+    let options = BundleSourceOptions {
+      integrity: Some(BundleSourceIntegrityOptions {
+        policy: Some(IntegrityPolicy::Strict),
+        check: None,
+        check_mode: Some(BundleSourceVerifyMode::All),
+      }),
+      signature: Some(BundleSourceSignatureOptions {
+        verify: None,
+        verify_mode: Some(BundleSourceVerifyMode::OnlyRemote),
+      }),
+      data_read: Some(DataReadOptions {
+        checksum: Some(ChecksumReadOptions {
+          verify: Some(false),
+          seed: Some(42),
+        }),
+      }),
+      header_read: Some(HeaderReadOptions {
+        checksum: Some(ChecksumReadOptions {
+          verify: Some(true),
+          seed: Some(7),
+        }),
+      }),
+      index_read: None,
+    };
+
+    let expected = source::BundleSourceOptions::default()
+      .integrity(
+        source::BundleSourceIntegrityOptions::default()
+          .policy(integrity::IntegrityPolicy::Strict)
+          .check_mode(source::BundleSourceVerifyMode::All),
+      )
+      .signature(
+        source::BundleSourceSignatureOptions::default()
+          .verify_mode(source::BundleSourceVerifyMode::OnlyRemote),
+      )
+      .data_read(
+        wvb::DataReadOptions::default()
+          .checksum(wvb::ChecksumReadOptions::default().verify(false).seed(42)),
+      )
+      .header_read(
+        wvb::HeaderReadOptions::default()
+          .checksum(wvb::ChecksumReadOptions::default().verify(true).seed(7)),
+      );
+
+    assert_eq!(
+      format!("{:?}", source_options(options).unwrap()),
+      format!("{expected:?}"),
+    );
+  }
+
+  #[test]
+  fn source_options_maps_a_custom_integrity_check() {
+    struct AlwaysValid;
+    #[async_trait::async_trait]
+    impl crate::integrity::IntegrityCheck for AlwaysValid {
+      async fn check(&self, _data: Vec<u8>, _integrity: String) -> bool {
+        true
+      }
+    }
+
+    let options = BundleSourceOptions {
+      integrity: Some(BundleSourceIntegrityOptions {
+        policy: None,
+        check: Some(Arc::new(AlwaysValid)),
+        check_mode: None,
+      }),
+      signature: None,
+      data_read: None,
+      header_read: None,
+      index_read: None,
+    };
+
+    let mapped = source_options(options).unwrap();
+    assert!(format!("{mapped:?}").contains("IntegrityChecker::Custom"));
+  }
+
+  #[test]
+  fn source_options_all_none_equals_default() {
+    let options = BundleSourceOptions {
+      integrity: None,
+      signature: None,
+      data_read: None,
+      header_read: None,
+      index_read: None,
+    };
+
+    assert_eq!(
+      format!("{:?}", source_options(options).unwrap()),
+      format!("{:?}", source::BundleSourceOptions::default()),
+    );
   }
 }

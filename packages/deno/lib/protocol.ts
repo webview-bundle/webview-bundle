@@ -34,12 +34,33 @@ export type BundleResolverOptions =
  */
 export type PathResolver = 'exact' | 'directoryIndex' | 'htmlExtension';
 
-/** How a {@link BundleProtocol} resolves the request uri. */
+/**
+ * How a {@link BundleProtocol} resolves the request uri.
+ *
+ * Entries are served with the read options the {@link BundleSource} was configured with; to change
+ * data-checksum verification, set {@link BundleSourceConfig.dataReadOptions} on the source.
+ */
 export interface BundleProtocolOptions {
   /** Default: the first hostname segment. */
   bundleResolver?: BundleResolverOptions;
   /** Default: `'directoryIndex'`. */
   pathResolver?: PathResolver;
+}
+
+const PROTOCOL_OPTION_KEYS: ReadonlySet<string> = new Set(['bundleResolver', 'pathResolver']);
+
+/**
+ * Serialize the options, rejecting any key the binding does not know: a misspelled `pathResolver`
+ * would otherwise be dropped in silence, leaving the request served with a setting the caller did
+ * not ask for.
+ */
+function serializeOptions(options: BundleProtocolOptions): string {
+  for (const key of Object.keys(options)) {
+    if (!PROTOCOL_OPTION_KEYS.has(key)) {
+      throw new WebviewBundleError('unknown', `wvb: unknown BundleProtocol option '${key}'`);
+    }
+  }
+  return JSON.stringify(options);
 }
 
 async function handleProtocol(
@@ -74,7 +95,7 @@ export class BundleProtocol {
     const lib = getLib();
     this.#ptr = lib.symbols.wvb_bundle_protocol_new(
       source.pointer,
-      cstr(options != null ? JSON.stringify(options) : '')
+      cstr(options != null ? serializeOptions(options) : '')
     );
     if (this.#ptr === null) {
       throw new WebviewBundleError('unknown', 'wvb: failed to create BundleProtocol');

@@ -8,6 +8,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use crate::reader::AsyncReader;
 #[cfg(feature = "async")]
 use crate::writer::AsyncWriter;
+use crate::{ChecksumReadOptions, ChecksumWriteOptions};
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
@@ -108,16 +109,12 @@ fn write_index_size(index_size: u32) -> Vec<u8> {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct HeaderWriterOptions {
-  pub(crate) checksum_seed: u32,
+  pub checksum: ChecksumWriteOptions,
 }
 
 impl HeaderWriterOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  pub fn checksum_seed(&mut self, seed: u32) -> &mut Self {
-    self.checksum_seed = seed;
+  pub fn checksum(mut self, checksum: ChecksumWriteOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
@@ -176,7 +173,7 @@ impl<W: Write> Writer<Header> for HeaderWriter<W> {
     bytes.extend(self.write_version(header.version)?);
     bytes.extend(self.write_index_size(header.index_size)?);
 
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum)?);
     Ok(bytes.len())
   }
@@ -239,7 +236,7 @@ impl<W: AsyncWrite + Unpin> AsyncWriter<Header> for AsyncHeaderWriter<W> {
     bytes.extend(self.write_version(header.version).await?);
     bytes.extend(self.write_index_size(header.index_size).await?);
 
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum).await?);
     Ok(bytes.len())
   }
@@ -289,31 +286,22 @@ fn read_total() -> (u64, [u8; Header::CHECKSUM_OFFSET as usize]) {
   )
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct HeaderReaderOptions {
-  pub checksum_seed: u32,
-  pub verify_checksum: bool,
+/// How the header is read out of a bundle.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct HeaderReadOptions {
+  pub checksum: ChecksumReadOptions,
 }
 
-impl HeaderReaderOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  pub fn checksum_seed(mut self, seed: u32) -> Self {
-    self.checksum_seed = seed;
-    self
-  }
-
-  pub fn verify_checksum(mut self, verify: bool) -> Self {
-    self.verify_checksum = verify;
+impl HeaderReadOptions {
+  pub fn checksum(mut self, checksum: ChecksumReadOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
 
 pub struct HeaderReader<R: Read + Seek> {
   r: R,
-  options: HeaderReaderOptions,
+  options: HeaderReadOptions,
 }
 
 impl<R: Read + Seek> HeaderReader<R> {
@@ -321,11 +309,11 @@ impl<R: Read + Seek> HeaderReader<R> {
     Self::new_with_options(r, Default::default())
   }
 
-  pub fn new_with_options(r: R, options: HeaderReaderOptions) -> Self {
+  pub fn new_with_options(r: R, options: HeaderReadOptions) -> Self {
     Self { r, options }
   }
 
-  pub fn set_options(&mut self, options: HeaderReaderOptions) -> &mut Self {
+  pub fn set_options(&mut self, options: HeaderReadOptions) -> &mut Self {
     self.options = options;
     self
   }
@@ -365,7 +353,7 @@ impl<R: Read + Seek> HeaderReader<R> {
     self.r.seek(SeekFrom::Start(offset))?;
     self.r.read_exact(&mut total)?;
 
-    let expected_checksum = make_checksum(self.options.checksum_seed, &total);
+    let expected_checksum = make_checksum(self.options.checksum.seed, &total);
     if checksum != expected_checksum {
       return Err(crate::Error::InvalidHeaderChecksum);
     }
@@ -379,7 +367,7 @@ impl<R: Read + Seek> Reader<Header> for HeaderReader<R> {
     let version = self.read_version()?;
     let index_size = self.read_index_size()?;
     let checksum = self.read_checksum()?;
-    if self.options.verify_checksum {
+    if self.options.checksum.verify {
       self.verify_checksum(checksum)?;
     }
     Ok(Header::new(version, index_size))
@@ -389,7 +377,7 @@ impl<R: Read + Seek> Reader<Header> for HeaderReader<R> {
 #[cfg(feature = "async")]
 pub struct AsyncHeaderReader<R: AsyncRead + AsyncSeek + Unpin> {
   r: R,
-  options: HeaderReaderOptions,
+  options: HeaderReadOptions,
 }
 
 #[cfg(feature = "async")]
@@ -398,11 +386,11 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncHeaderReader<R> {
     Self::new_with_options(r, Default::default())
   }
 
-  pub fn new_with_options(r: R, options: HeaderReaderOptions) -> Self {
+  pub fn new_with_options(r: R, options: HeaderReadOptions) -> Self {
     Self { r, options }
   }
 
-  pub fn set_options(&mut self, options: HeaderReaderOptions) -> &mut Self {
+  pub fn set_options(&mut self, options: HeaderReadOptions) -> &mut Self {
     self.options = options;
     self
   }
@@ -442,7 +430,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncHeaderReader<R> {
     self.r.seek(SeekFrom::Start(offset)).await?;
     self.r.read_exact(&mut total).await?;
 
-    let expected_checksum = make_checksum(self.options.checksum_seed, &total);
+    let expected_checksum = make_checksum(self.options.checksum.seed, &total);
     if checksum != expected_checksum {
       return Err(crate::Error::InvalidHeaderChecksum);
     }
@@ -457,7 +445,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncReader<Header> for AsyncHeaderReader
     let version = self.read_version().await?;
     let index_size = self.read_index_size().await?;
     let checksum = self.read_checksum().await?;
-    if self.options.verify_checksum {
+    if self.options.checksum.verify {
       self.verify_checksum(checksum).await?;
     }
     Ok(Header::new(version, index_size))

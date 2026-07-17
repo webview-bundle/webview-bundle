@@ -69,9 +69,9 @@ final class TestRunner: ObservableObject {
             let builder = BundleBuilder(version: .v1)
             _ = try builder.insertEntry(path: "/index.js", data: indexJs, contentType: nil, headers: nil)
             _ = try builder.build(options: BuildOptions(
-                header: BuildHeaderOptions(checksumSeed: 1),
-                index: BuildIndexOptions(checksumSeed: 2),
-                dataChecksumSeed: 3
+                header: BuildHeaderOptions(checksum: ChecksumWriteOptions(seed: 1)),
+                index: BuildIndexOptions(checksum: ChecksumWriteOptions(seed: 2)),
+                dataChecksum: ChecksumWriteOptions(seed: 3)
             ))
         }
 

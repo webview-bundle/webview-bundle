@@ -1,58 +1,23 @@
+#[cfg(feature = "integrity")]
+use crate::integrity::IntegrityPolicy;
+#[cfg(feature = "signature")]
+use crate::signature::SignatureVerify;
 use crate::source::{
-  BundleManifest, BundleManifestMetadata, ListBundleManifestItem, ReadOnly, ReadWrite, utils,
+  BundleManifest, BundleManifestMetadata, BundleSourceKind, BundleSourceOptions,
+  BundleSourceVersion, ListBundleManifestItem, ReadOnly, ReadWrite, utils,
 };
 use crate::{
-  AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, Bundle, BundleDescriptor,
-  EXTENSION, MANIFEST_FILENAME,
+  AsyncBundleReader, AsyncReader, Bundle, BundleDescriptor, BundleReader, DataReadOptions,
+  EXTENSION, MANIFEST_FILENAME, Reader, Writer,
 };
 use dashmap::DashMap;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
-
-/// The type of bundle source: builtin or remote.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub enum BundleSourceKind {
-  /// Bundles shipped with the application (read-only, fallback)
-  Builtin,
-  /// Downloaded bundles (takes priority)
-  Remote,
-}
-
-/// Bundle version with source kind information.
-///
-/// This indicates which source (builtin or remote) provides a bundle version.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct BundleSourceVersion {
-  /// The source kind (builtin or remote)
-  #[cfg_attr(feature = "_serde", serde(rename = "type"))]
-  pub kind: BundleSourceKind,
-  /// The version string (e.g., "1.0.0")
-  pub version: String,
-}
-
-impl BundleSourceVersion {
-  /// Creates a new bundle source version.
-  pub fn new(kind: BundleSourceKind, version: String) -> Self {
-    Self { kind, version }
-  }
-
-  /// Creates a builtin source version.
-  pub fn builtin(version: String) -> Self {
-    Self::new(BundleSourceKind::Builtin, version)
-  }
-
-  /// Creates a remote source version.
-  pub fn remote(version: String) -> Self {
-    Self::new(BundleSourceKind::Remote, version)
-  }
-}
 
 /// Builder for creating a `BundleSource`.
 ///
@@ -76,6 +41,7 @@ pub struct BundleSourceBuilder {
   builtin_manifest_filepath: Option<PathBuf>,
   remote_dir: PathBuf,
   remote_manifest_filepath: Option<PathBuf>,
+  options: BundleSourceOptions,
 }
 
 impl BundleSourceBuilder {
@@ -105,6 +71,12 @@ impl BundleSourceBuilder {
     self
   }
 
+  #[must_use]
+  pub fn options(mut self, options: BundleSourceOptions) -> Self {
+    self.options = options;
+    self
+  }
+
   pub fn build(self) -> BundleSource {
     let builtin_dir = self.builtin_dir;
     let builtin_manifest_filepath = self
@@ -122,6 +94,7 @@ impl BundleSourceBuilder {
       remote_dir,
       remote_manifest: BundleManifest::new(&remote_manifest_filepath, ReadWrite),
       descriptors: DashMap::default(),
+      options: self.options,
     }
   }
 }
@@ -151,6 +124,7 @@ pub struct BundleSource {
   // stale entry and rebuilds. The returned `LoadedDescriptor` carries this same
   // filepath, so its `reader()` always opens the file matching the descriptor.
   descriptors: DashMap<String, (PathBuf, DescriptorCell)>,
+  options: BundleSourceOptions,
 }
 
 /// A descriptor together with the filepath it was loaded from.
@@ -163,6 +137,7 @@ pub struct BundleSource {
 pub struct LoadedDescriptor {
   descriptor: Arc<BundleDescriptor>,
   filepath: PathBuf,
+  data_read_options: DataReadOptions,
 }
 
 impl LoadedDescriptor {
@@ -172,6 +147,43 @@ impl LoadedDescriptor {
 
   pub fn descriptor(&self) -> &Arc<BundleDescriptor> {
     &self.descriptor
+  }
+
+  pub fn data_read_options(&self) -> &DataReadOptions {
+    &self.data_read_options
+  }
+
+  /// Reads the data for `path`, lazily from the bundle file this descriptor was loaded
+  /// from, applying the source's [`DataReadOptions`].
+  ///
+  /// Returns `None` if the path doesn't exist in the bundle.
+  pub async fn get_data(&self, path: &str) -> crate::Result<Option<Vec<u8>>> {
+    self
+      .get_data_with_options(path, self.data_read_options)
+      .await
+  }
+
+  /// Reads the data for `path` with explicit read options, overriding the source's.
+  ///
+  /// `BundleProtocol` (the `protocol` feature) uses this to apply its own checksum options.
+  pub async fn get_data_with_options(
+    &self,
+    path: &str,
+    options: DataReadOptions,
+  ) -> crate::Result<Option<Vec<u8>>> {
+    let reader = self.reader().await?;
+    self
+      .descriptor
+      .async_get_data_with_options(reader, path, options)
+      .await
+  }
+
+  /// Reads the stored checksum of the data for `path`.
+  ///
+  /// Returns `None` if the path doesn't exist in the bundle.
+  pub async fn get_data_checksum(&self, path: &str) -> crate::Result<Option<u32>> {
+    let reader = self.reader().await?;
+    self.descriptor.async_get_data_checksum(reader, path).await
   }
 }
 
@@ -244,15 +256,166 @@ impl BundleSource {
   }
 
   pub async fn resolve_filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
-    let ver = self
+    let ver = self.resolve_version(bundle_name).await?;
+    self.filepath_for(bundle_name, &ver)
+  }
+
+  pub fn options(&self) -> &BundleSourceOptions {
+    &self.options
+  }
+
+  async fn resolve_version(&self, bundle_name: &str) -> crate::Result<BundleSourceVersion> {
+    self
       .load_version(bundle_name)
       .await?
-      .ok_or(crate::Error::BundleNotFound)?;
-    let filepath = match &ver.kind {
-      BundleSourceKind::Builtin => self.get_builtin_bundle_filepath(bundle_name, &ver.version)?,
-      BundleSourceKind::Remote => self.get_remote_bundle_filepath(bundle_name, &ver.version)?,
-    };
-    Ok(filepath)
+      .ok_or(crate::Error::BundleNotFound)
+  }
+
+  fn filepath_for(
+    &self,
+    bundle_name: &str,
+    version: &BundleSourceVersion,
+  ) -> crate::Result<PathBuf> {
+    match version.kind {
+      BundleSourceKind::Builtin => self.get_builtin_bundle_filepath(bundle_name, &version.version),
+      BundleSourceKind::Remote => self.get_remote_bundle_filepath(bundle_name, &version.version),
+    }
+  }
+
+  /// Whether the integrity of bundles of this kind is checked on load.
+  #[cfg(feature = "integrity")]
+  fn checks_integrity_on_load(&self, kind: &BundleSourceKind) -> bool {
+    self.options.integrity.policy != IntegrityPolicy::Off
+      && self.options.integrity.check_mode.should_verify(kind)
+  }
+
+  /// The signature verifier applied to bundles of this kind on load, if any.
+  #[cfg(feature = "signature")]
+  fn signature_verifier_on_load(&self, kind: &BundleSourceKind) -> Option<&SignatureVerify> {
+    match self.options.signature.verify_mode.should_verify(kind) {
+      true => self.options.signature.verify.as_ref(),
+      false => None,
+    }
+  }
+
+  /// Verifies a bundle file against the integrity and signature recorded for it in the
+  /// manifest, as selected by [`BundleSourceOptions::integrity`] and
+  /// [`BundleSourceOptions::signature`].
+  ///
+  /// Returns the raw bytes when the integrity check read the file — the caller parses the
+  /// bundle from them rather than re-reading it — and `None` otherwise, leaving the caller
+  /// on its lazy read path.
+  async fn verified_bytes(
+    &self,
+    filepath: &Path,
+    bundle_name: &str,
+    version: &BundleSourceVersion,
+  ) -> crate::Result<Option<Vec<u8>>> {
+    #[cfg(feature = "integrity")]
+    {
+      let check_integrity = self.checks_integrity_on_load(&version.kind);
+      #[cfg(feature = "signature")]
+      let signature_verifier = self.signature_verifier_on_load(&version.kind);
+      #[cfg(feature = "signature")]
+      let verify_signature = signature_verifier.is_some();
+      #[cfg(not(feature = "signature"))]
+      let verify_signature = false;
+
+      if !check_integrity && !verify_signature {
+        return Ok(None);
+      }
+
+      let metadata = match version.kind {
+        BundleSourceKind::Builtin => {
+          self
+            .load_builtin_metadata(bundle_name, &version.version)
+            .await?
+        }
+        BundleSourceKind::Remote => {
+          self
+            .load_remote_metadata(bundle_name, &version.version)
+            .await?
+        }
+      }
+      .unwrap_or_default();
+
+      // The signature covers the integrity string, not the file, so only the integrity
+      // check needs the bytes.
+      let data = match check_integrity && metadata.integrity.is_some() {
+        true => Some(read_file(filepath).await?),
+        false => None,
+      };
+      if check_integrity {
+        crate::integrity::verify_integrity(
+          &self.options.integrity.policy,
+          &self.options.integrity.check,
+          metadata.integrity.as_deref(),
+          data.as_deref().unwrap_or_default(),
+        )
+        .await?;
+      }
+
+      #[cfg(feature = "signature")]
+      if let Some(verify) = signature_verifier {
+        crate::signature::verify_signature(
+          verify,
+          metadata.integrity.as_deref(),
+          metadata.signature.as_deref(),
+        )
+        .await?;
+      }
+
+      Ok(data)
+    }
+    #[cfg(not(feature = "integrity"))]
+    {
+      let _ = (filepath, bundle_name, version);
+      Ok(None)
+    }
+  }
+
+  async fn read_bundle(
+    &self,
+    filepath: &Path,
+    bundle_name: &str,
+    version: &BundleSourceVersion,
+  ) -> crate::Result<Bundle> {
+    if let Some(data) = self.verified_bytes(filepath, bundle_name, version).await? {
+      return Reader::<Bundle>::read(&mut BundleReader::new_with_options(
+        Cursor::new(&data),
+        self.options.header_read,
+        self.options.index_read,
+      ));
+    }
+    let mut file = open_file(filepath).await?;
+    AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new_with_options(
+      &mut file,
+      self.options.header_read,
+      self.options.index_read,
+    ))
+    .await
+  }
+
+  async fn read_descriptor(
+    &self,
+    filepath: &Path,
+    bundle_name: &str,
+    version: &BundleSourceVersion,
+  ) -> crate::Result<BundleDescriptor> {
+    if let Some(data) = self.verified_bytes(filepath, bundle_name, version).await? {
+      return Reader::<BundleDescriptor>::read(&mut BundleReader::new_with_options(
+        Cursor::new(&data),
+        self.options.header_read,
+        self.options.index_read,
+      ));
+    }
+    let mut file = open_file(filepath).await?;
+    AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new_with_options(
+      &mut file,
+      self.options.header_read,
+      self.options.index_read,
+    ))
+    .await
   }
 
   pub fn get_builtin_bundle_filepath(
@@ -272,10 +435,9 @@ impl BundleSource {
   }
 
   pub async fn fetch_bundle(&self, bundle_name: &str) -> crate::Result<Bundle> {
-    let filepath = self.resolve_filepath(bundle_name).await?;
-    let mut file = open_file(&filepath).await?;
-    let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
-    Ok(bundle)
+    let version = self.resolve_version(bundle_name).await?;
+    let filepath = self.filepath_for(bundle_name, &version)?;
+    self.read_bundle(&filepath, bundle_name, &version).await
   }
 
   pub async fn fetch_builtin_bundle(
@@ -283,10 +445,9 @@ impl BundleSource {
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Bundle> {
-    let filepath = self.get_builtin_bundle_filepath(bundle_name, version)?;
-    let mut file = open_file(&filepath).await?;
-    let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
-    Ok(bundle)
+    let version = BundleSourceVersion::builtin(version.to_string());
+    let filepath = self.filepath_for(bundle_name, &version)?;
+    self.read_bundle(&filepath, bundle_name, &version).await
   }
 
   pub async fn fetch_remote_bundle(
@@ -294,18 +455,15 @@ impl BundleSource {
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Bundle> {
-    let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
-    let mut file = open_file(&filepath).await?;
-    let bundle = AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
-    Ok(bundle)
+    let version = BundleSourceVersion::remote(version.to_string());
+    let filepath = self.filepath_for(bundle_name, &version)?;
+    self.read_bundle(&filepath, bundle_name, &version).await
   }
 
   pub async fn fetch_descriptor(&self, bundle_name: &str) -> crate::Result<BundleDescriptor> {
-    let filepath = self.resolve_filepath(bundle_name).await?;
-    let mut file = open_file(&filepath).await?;
-    let manifest =
-      AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
-    Ok(manifest)
+    let version = self.resolve_version(bundle_name).await?;
+    let filepath = self.filepath_for(bundle_name, &version)?;
+    self.read_descriptor(&filepath, bundle_name, &version).await
   }
 
   pub async fn load_builtin_metadata(
@@ -331,7 +489,8 @@ impl BundleSource {
   }
 
   pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
-    let filepath = self.resolve_filepath(bundle_name).await?;
+    let version = self.resolve_version(bundle_name).await?;
+    let filepath = self.filepath_for(bundle_name, &version)?;
     let cell = match self.descriptors.entry(bundle_name.to_string()) {
       dashmap::Entry::Occupied(mut occupied) => {
         let (cached_path, cell) = occupied.get();
@@ -351,21 +510,22 @@ impl BundleSource {
         cell
       }
     };
+    // Verification (when enabled) happens inside the cell, so a bundle is hashed once per
+    // version rather than once per request, and concurrent first loads single-flight into
+    // one verification.
     let descriptor = cell
-      .get_or_try_init(|| {
-        let filepath = filepath.clone();
-        async move {
-          let mut file = open_file(&filepath).await?;
-          let d =
-            AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new(&mut file)).await?;
-          Ok::<Arc<BundleDescriptor>, crate::Error>(Arc::new(d))
-        }
+      .get_or_try_init(|| async {
+        let d = self
+          .read_descriptor(&filepath, bundle_name, &version)
+          .await?;
+        Ok::<Arc<BundleDescriptor>, crate::Error>(Arc::new(d))
       })
       .await?
       .clone();
     Ok(Arc::new(LoadedDescriptor {
       descriptor,
       filepath,
+      data_read_options: self.options.data_read,
     }))
   }
 
@@ -378,6 +538,30 @@ impl BundleSource {
     bundle_name: &str,
     version: &str,
     bundle: &Bundle,
+    metadata: BundleManifestMetadata,
+  ) -> crate::Result<()> {
+    let mut data = vec![];
+    Writer::<Bundle>::write(
+      &mut crate::BundleWriter::new(Cursor::new(&mut data)),
+      bundle,
+    )?;
+    self
+      .write_remote_bundle_data(bundle_name, version, &data, metadata)
+      .await
+  }
+
+  /// Writes the raw bytes of a `.wvb` file to the remote directory and records it in the
+  /// manifest.
+  ///
+  /// Prefer this over [`BundleSource::write_remote_bundle`] when the bytes are already at
+  /// hand (e.g. straight from a download): the integrity string in `metadata` covers those
+  /// exact bytes, and storing them verbatim — rather than re-serializing a parsed
+  /// [`Bundle`] — is what lets the file be verified again on every later load.
+  pub async fn write_remote_bundle_data(
+    &self,
+    bundle_name: &str,
+    version: &str,
+    data: &[u8],
     metadata: BundleManifestMetadata,
   ) -> crate::Result<()> {
     let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
@@ -394,7 +578,8 @@ impl BundleSource {
     let tmp = PathBuf::from(tmp);
     let mut file = File::create(&tmp).await?;
 
-    AsyncBundleWriter::new(&mut file).write(bundle).await?;
+    file.write_all(data).await?;
+    file.flush().await?;
     drop(file); // close the temp handle before rename (required on Windows)
 
     if let Err(e) = tokio::fs::rename(&tmp, &filepath).await {
@@ -495,13 +680,20 @@ fn is_windows_reserved_name(value: &str) -> bool {
     .any(|reserved| reserved.eq_ignore_ascii_case(base))
 }
 
+fn map_read_error(e: std::io::Error) -> crate::Error {
+  if e.kind() == std::io::ErrorKind::NotFound {
+    return crate::Error::BundleNotFound;
+  }
+  crate::Error::from(e)
+}
+
 async fn open_file(filepath: &Path) -> crate::Result<File> {
-  File::open(filepath).await.map_err(|e| {
-    if e.kind() == std::io::ErrorKind::NotFound {
-      return crate::Error::BundleNotFound;
-    }
-    crate::Error::from(e)
-  })
+  File::open(filepath).await.map_err(map_read_error)
+}
+
+#[cfg(feature = "integrity")]
+async fn read_file(filepath: &Path) -> crate::Result<Vec<u8>> {
+  tokio::fs::read(filepath).await.map_err(map_read_error)
 }
 
 #[cfg(test)]

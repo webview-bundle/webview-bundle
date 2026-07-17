@@ -9,6 +9,7 @@ version     = "0.0.0"
 
 [lib]
 crate-type = ["cdylib"]
+doctest    = false
 
 [dependencies]
 base64ct = { workspace = true, features = ["alloc"] }

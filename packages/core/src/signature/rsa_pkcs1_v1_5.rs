@@ -1,4 +1,3 @@
-use crate::Bundle;
 use crate::signature::Verifier as SignatureVerifier;
 use base64ct::{Base64, Encoding};
 use rsa::RsaPublicKey;
@@ -43,7 +42,7 @@ impl RsaPkcs1V15Verifier {
 }
 
 impl SignatureVerifier for RsaPkcs1V15Verifier {
-  async fn verify(&self, _bundle: &Bundle, data: &[u8], signature: &str) -> crate::Result<bool> {
+  async fn verify(&self, data: &[u8], signature: &str) -> crate::Result<bool> {
     let signature_bytes =
       Base64::decode_vec(signature).map_err(|_| crate::Error::InvalidSignature)?;
     let signature = Signature::try_from(signature_bytes.as_slice())

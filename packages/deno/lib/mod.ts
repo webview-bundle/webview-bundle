@@ -11,6 +11,12 @@ export {
   loadLibViaPlug,
 } from './ffi.ts';
 export {
+  computeIntegrity,
+  Integrity,
+  type IntegrityAlgorithm,
+  parseIntegrity,
+} from './integrity.ts';
+export {
   BundleProtocol,
   type BundleProtocolOptions,
   type BundleResolverOptions,
@@ -31,8 +37,15 @@ export {
   type BundleManifestMetadata,
   BundleSource,
   type BundleSourceConfig,
+  type BundleSourceIntegrityOptions,
+  type BundleSourceSignatureOptions,
   type BundleSourceType,
+  type BundleSourceVerifyMode,
   type BundleSourceVersion,
+  type ChecksumReadOptions,
+  type DataReadOptions,
+  type HeaderReadOptions,
+  type IndexReadOptions,
   type ListBundleItem,
 } from './source.ts';
 export {

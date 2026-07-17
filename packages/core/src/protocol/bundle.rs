@@ -120,12 +120,12 @@ impl BundleProtocol {
     }
   }
 
-  pub fn with_bundle_resolver(mut self, bundle_resolver: UriBundleResolver) -> Self {
+  pub fn set_bundle_resolver(mut self, bundle_resolver: UriBundleResolver) -> Self {
     self.bundle_resolver = bundle_resolver;
     self
   }
 
-  pub fn with_path_resolver(mut self, path_resolver: UriPathResolver) -> Self {
+  pub fn set_path_resolver(mut self, path_resolver: UriPathResolver) -> Self {
     self.path_resolver = path_resolver;
     self
   }
@@ -273,8 +273,7 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = descriptor.reader().await?;
-            let buf = if let Some(data) = descriptor.async_get_data(reader, path).await? {
+            let buf = if let Some(data) = self.get_data(&descriptor, path).await? {
               extract_buf(&data, start, end)
             } else {
               return not_found();
@@ -311,8 +310,7 @@ impl BundleProtocol {
           if request.method() == Method::HEAD {
             resp.body(Vec::new().into())
           } else {
-            let reader = descriptor.reader().await?;
-            let buf = if let Some(data) = descriptor.async_get_data(reader, path).await? {
+            let buf = if let Some(data) = self.get_data(&descriptor, path).await? {
               let mut buf = Vec::new();
               for (start, end) in ranges {
                 buf.write_all(boundary_sep.as_bytes()).await?;
@@ -347,8 +345,7 @@ impl BundleProtocol {
         return Ok(response);
       }
 
-      let reader = descriptor.reader().await?;
-      let data = if let Some(data) = descriptor.async_get_data(reader, path).await? {
+      let data = if let Some(data) = self.get_data(&descriptor, path).await? {
         data
       } else {
         return not_found();
@@ -359,6 +356,15 @@ impl BundleProtocol {
     } else {
       not_found()
     }
+  }
+
+  /// Reads an entry, applying the read options the source was configured with.
+  async fn get_data(
+    &self,
+    descriptor: &crate::source::LoadedDescriptor,
+    path: &str,
+  ) -> crate::Result<Option<Vec<u8>>> {
+    descriptor.get_data(path).await
   }
 }
 
@@ -756,7 +762,7 @@ mod tests {
     );
     let protocol = Arc::new(
       BundleProtocol::new(source.clone())
-        .with_bundle_resolver(UriBundleResolver::custom(|_| Some("app".to_owned()))),
+        .set_bundle_resolver(UriBundleResolver::custom(|_| Some("app".to_owned()))),
     );
     let resp = protocol
       .handle(
@@ -782,8 +788,8 @@ mod tests {
     );
     let protocol = Arc::new(
       BundleProtocol::new(source.clone())
-        .with_bundle_resolver(UriBundleResolver::pathname(Some(0)))
-        .with_path_resolver(UriPathResolver::custom(|_| "/index.html".to_owned())),
+        .set_bundle_resolver(UriBundleResolver::pathname(Some(0)))
+        .set_path_resolver(UriPathResolver::custom(|_| "/index.html".to_owned())),
     );
     let resp = protocol
       .handle(
@@ -808,7 +814,7 @@ mod tests {
         .build(),
     );
     let protocol =
-      Arc::new(BundleProtocol::new(source.clone()).with_path_resolver(UriPathResolver::exact()));
+      Arc::new(BundleProtocol::new(source.clone()).set_path_resolver(UriPathResolver::exact()));
     let served_as_is = protocol
       .handle(
         Request::builder()
@@ -843,7 +849,7 @@ mod tests {
         .build(),
     );
     let protocol = Arc::new(
-      BundleProtocol::new(source.clone()).with_path_resolver(UriPathResolver::html_extension()),
+      BundleProtocol::new(source.clone()).set_path_resolver(UriPathResolver::html_extension()),
     );
     let resp = protocol
       .handle(

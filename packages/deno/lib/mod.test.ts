@@ -5,10 +5,16 @@ import {
   BundleProtocol,
   type BundleProtocolOptions,
   BundleSource,
+  type BundleSourceConfig,
+  type BundleSourceVerifyMode,
+  computeIntegrity,
   type HttpResponse,
+  type IntegrityAlgorithm,
+  type IntegrityPolicy,
   loadLib,
   type PathResolver,
   ProxyProtocol,
+  parseIntegrity,
   Remote,
   Updater,
   WebviewBundleError,
@@ -28,7 +34,9 @@ loadLib(DYLIB);
  * A {@link BundleSource} over the builtin fixture, backed by a temp remote dir. Disposing it frees
  * the handle and removes the temp dir, so tests only need `using source = testSource()`.
  */
-function testSource(): BundleSource {
+function testSource(
+  options: Omit<BundleSourceConfig, 'builtinDir' | 'remoteDir'> = {}
+): BundleSource {
   const remoteDir = Deno.makeTempDirSync({ prefix: 'wvb-deno-test-' });
   const removeRemoteDir = () => Deno.removeSync(remoteDir, { recursive: true });
   try {
@@ -36,7 +44,7 @@ function testSource(): BundleSource {
       `${remoteDir}/manifest.json`,
       JSON.stringify({ manifestVersion: 1, entries: {} })
     );
-    const source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir });
+    const source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir, ...options });
     return Object.assign(source, {
       [Symbol.dispose]: () => {
         try {
@@ -150,6 +158,116 @@ Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', ()
   );
 });
 
+Deno.test("the source's data-checksum options flow through what the protocol serves", async () => {
+  using source = testSource();
+  using protocol = new BundleProtocol(source);
+  assertEquals((await protocol.handle('get', 'bundle://app/index.html')).status, 200);
+
+  // The seed is part of the checksum, so a source configured with a seed the bundle was not packed
+  // with mismatches when the protocol reads through it.
+  using wrongSeedSource = testSource({ dataReadOptions: { checksum: { seed: 1 } } });
+  using wrongSeed = new BundleProtocol(wrongSeedSource);
+  const error = await assertRejects(
+    () => wrongSeed.handle('get', 'bundle://app/index.html'),
+    WebviewBundleError
+  );
+  assertEquals(error.code, 'core.checksum_mismatch');
+
+  using unverifiedSource = testSource({
+    dataReadOptions: { checksum: { verify: false, seed: 1 } },
+  });
+  using unverified = new BundleProtocol(unverifiedSource);
+  assertEquals((await unverified.handle('get', 'bundle://app/index.html')).status, 200);
+});
+
+Deno.test('BundleSource accepts verification options and fails closed on a bad one', () => {
+  {
+    using _configured = testSource({
+      integrity: { policy: 'optional', checkMode: 'onlyRemote' },
+      dataReadOptions: { checksum: { verify: true, seed: 0 } },
+      headerReadOptions: { checksum: { verify: true } },
+      indexReadOptions: { checksum: { verify: false, seed: 2 } },
+    });
+    using _off = testSource({ integrity: { policy: 'off' }, signature: { verifyMode: 'all' } });
+  }
+  const badMode = assertThrows(
+    () => testSource({ integrity: { checkMode: 'sometimes' as BundleSourceVerifyMode } }),
+    WebviewBundleError
+  );
+  // No verifier was given, so this is not a key failure.
+  assertEquals(badMode.code, 'unknown');
+  const badPolicy = assertThrows(
+    // 'none' was the old spelling of 'off'; it must fail closed rather than pick a default.
+    () => testSource({ integrity: { policy: 'none' as IntegrityPolicy } }),
+    WebviewBundleError
+  );
+  assertEquals(badPolicy.code, 'unknown');
+  const badKey = assertThrows(
+    () =>
+      testSource({
+        // A key too short to be an ed25519 public key: the source must not fall back to unverified.
+        signature: { verify: { algorithm: 'ed25519', key: { format: 'raw', data: 'AAAA' } } },
+      }),
+    WebviewBundleError
+  );
+  assertEquals(badKey.code, 'invalid_signature_options');
+});
+
+Deno.test('integrity options round-trip: strict + all rejects the unhashed builtin on load', async () => {
+  // The builtin fixture manifest carries no integrity string, so `strict` must refuse to load it
+  // when `checkMode: 'all'` selects builtin bundles — while the default `'onlyRemote'` mode
+  // leaves them alone.
+  using strict = testSource({ integrity: { policy: 'strict', checkMode: 'all' } });
+  using strictProtocol = new BundleProtocol(strict);
+  const error = await assertRejects(
+    () => strictProtocol.handle('get', 'bundle://app/index.html'),
+    WebviewBundleError
+  );
+  assertEquals(error.code, 'core.integrity_verify_failed');
+
+  using remoteOnly = testSource({ integrity: { policy: 'strict' } });
+  using protocol = new BundleProtocol(remoteOnly);
+  assertEquals((await protocol.handle('get', 'bundle://app/index.html')).status, 200);
+});
+
+Deno.test('a misspelled option is rejected instead of silently ignored', () => {
+  const sourceError = assertThrows(
+    // A dropped `dataReadOptions.checksum.verify` would leave verification in a state the caller did
+    // not ask for.
+    () =>
+      testSource({
+        dataReadOptions: { checksum: { verifyy: true } },
+      } as unknown as BundleSourceConfig),
+    WebviewBundleError
+  );
+  assert(sourceError.message.includes('verifyy'), sourceError.message);
+
+  const nestedError = assertThrows(
+    // A dropped `integrity.checkMode` would leave builtin bundles unverified while the caller
+    // believes they are covered.
+    () => testSource({ integrity: { checkmode: 'all' } } as unknown as BundleSourceConfig),
+    WebviewBundleError
+  );
+  assert(nestedError.message.includes('checkmode'), nestedError.message);
+
+  using source = testSource();
+  const protocolError = assertThrows(
+    () =>
+      new BundleProtocol(source, {
+        verifyChecksum: false,
+      } as unknown as BundleProtocolOptions),
+    WebviewBundleError
+  );
+  assert(protocolError.message.includes('verifyChecksum'), protocolError.message);
+});
+
+Deno.test('BundleSource takes a data-checksum seed without disabling verification', () => {
+  // The source verifies entry checksums by default; passing only the seed must keep it on (the
+  // native default is pinned in `src/lib.rs`, where the read options are observable).
+  using seeded = testSource({ dataReadOptions: { checksum: { seed: 1 } } });
+  assert(seeded instanceof BundleSource);
+});
+
 Deno.test('ProxyProtocol constructs and is disposable', () => {
   using proxy = new ProxyProtocol({ app: 'http://localhost:5173' });
   assert(proxy instanceof ProxyProtocol);
@@ -175,6 +293,16 @@ Deno.test('Updater constructs with a source + remote and propagates errors', asy
   using updater = new Updater(source, remote, { channel: 'stable', integrityPolicy: 'strict' });
   assert(updater instanceof Updater);
   await assertRejects(() => updater.listRemotes());
+});
+
+Deno.test('Updater fails closed on an unknown integrityPolicy value', () => {
+  using source = testSource();
+  using remote = new Remote('http://127.0.0.1:59999', { http: { connectTimeout: 2000 } });
+  // 'none' was the old spelling of 'off'; it must fail construction rather than be ignored.
+  assertThrows(
+    () => new Updater(source, remote, { integrityPolicy: 'none' as IntegrityPolicy }),
+    WebviewBundleError
+  );
 });
 
 Deno.test('BundleSource exposes source operations over the builtin fixture', async () => {
@@ -237,4 +365,61 @@ Deno.test('Updater fails closed on an invalid signatureVerifier key', () => {
         },
       })
   );
+});
+
+Deno.test('Remote sends the configured http options on every request', async () => {
+  let seen: Headers | undefined;
+  const server = Deno.serve({ port: 0, onListen: () => {} }, req => {
+    seen = req.headers;
+    return Response.json([{ name: 'app', version: '1.0.0' }]);
+  });
+  try {
+    using remote = new Remote(`http://127.0.0.1:${server.addr.port}`, {
+      http: {
+        defaultHeaders: { authorization: 'Bearer tok-123', 'x-tenant': 'acme' },
+        userAgent: 'wvb-deno-test/1.0',
+      },
+    });
+    await remote.listBundles();
+
+    assertEquals(seen?.get('authorization'), 'Bearer tok-123');
+    assertEquals(seen?.get('x-tenant'), 'acme');
+    assertEquals(seen?.get('user-agent'), 'wvb-deno-test/1.0');
+  } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test('computeIntegrity produces the string core produces', () => {
+  // Same vector as core's own integrity_serialize test.
+  const integrity = computeIntegrity('sha256', new TextEncoder().encode('test'));
+  assertEquals(integrity.serialize(), 'sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=');
+  assertEquals(integrity.value(), decodeBase64('n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg='));
+});
+
+Deno.test('computeIntegrity digests each algorithm to its own width', () => {
+  const data = new TextEncoder().encode('<h1>hello</h1>');
+  const widths: Record<IntegrityAlgorithm, number> = { sha256: 32, sha384: 48, sha512: 64 };
+  for (const [algorithm, width] of Object.entries(widths) as [IntegrityAlgorithm, number][]) {
+    const integrity = computeIntegrity(algorithm, data);
+    assert(integrity.serialize().startsWith(`${algorithm}:`));
+    assertEquals(integrity.value().length, width);
+  }
+});
+
+Deno.test('parseIntegrity round-trips and validates the right bytes only', () => {
+  const data = new TextEncoder().encode('<h1>hello</h1>');
+  const serialized = computeIntegrity('sha384', data).serialize();
+  const parsed = parseIntegrity(serialized);
+
+  assertEquals(parsed.serialize(), serialized);
+  assertEquals(parsed.value(), computeIntegrity('sha384', data).value());
+  assert(parsed.validate(data));
+  assert(!parsed.validate(new TextEncoder().encode('tampered')));
+});
+
+Deno.test('parseIntegrity rejects a malformed string with the shared error code', () => {
+  const error = assertThrows(() => parseIntegrity('not-an-integrity'));
+  assert(error instanceof WebviewBundleError);
+  assertEquals(error.code, 'core.invalid_integrity');
 });

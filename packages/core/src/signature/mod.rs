@@ -23,22 +23,21 @@
 //! ```no_run
 //! # #[cfg(feature = "signature-edd25519")]
 //! # async {
-//! use wvb::signature::{Ed25519Verifier, SignatureVerifier};
-//! use wvb::Bundle;
+//! use wvb::signature::{Ed25519Verifier, SignatureVerify};
 //! use std::sync::Arc;
 //!
 //! // Create verifier with public key PEM
 //! let public_key_pem = "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----";
-//! let verifier = Ed25519Verifier::from_pem(public_key_pem).unwrap();
-//! let signature_verifier = SignatureVerifier::Ed25519(Arc::new(verifier));
+//! let verifier = Ed25519Verifier::from_public_key_pem(public_key_pem).unwrap();
+//! let signature_verifier = SignatureVerify::Ed25519(Arc::new(verifier));
 //!
-//! // Verify bundle signature
-//! let bundle = /* ... */
-//! # Bundle::new();
-//! let message = b"bundle-data-to-verify";
+//! // The signed message is the bundle's integrity string, not the bundle bytes:
+//! // the signature authenticates the integrity string, and the integrity string
+//! // authenticates the bytes. Both checks must run for either to mean anything.
+//! let message = b"sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=";
 //! let signature = "base64-encoded-signature";
 //!
-//! let is_valid = signature_verifier.verify(&bundle, message, signature).await.unwrap();
+//! let is_valid = signature_verifier.verify(message, signature).await.unwrap();
 //! assert!(is_valid);
 //! # };
 //! ```
@@ -47,23 +46,23 @@
 //!
 //! Implement custom verification logic:
 //!
+//! The closure is passed straight to [`SignatureVerify::Custom`] so its returned future
+//! coerces to the boxed trait object the variant holds — binding it to a `let` first would
+//! pin it to the concrete future type and fail to compile.
+//!
 //! ```no_run
-//! # use wvb::signature::SignatureVerifier;
-//! # use wvb::Bundle;
+//! # use wvb::signature::SignatureVerify;
 //! # use std::sync::Arc;
-//! let custom_verify = |bundle: &Bundle, message: &[u8], signature: &str| {
+//! let verifier = SignatureVerify::Custom(Arc::new(|message: &[u8], signature: &str| {
+//!     let message = message.to_vec();
+//!     let signature = signature.to_string();
 //!     Box::pin(async move {
 //!         // Custom verification logic
-//!         Ok(true)
+//!         let _ = (message, signature);
+//!         Ok::<bool, Box<dyn std::error::Error + Send + Sync + 'static>>(true)
 //!     })
-//! };
-//!
-//! let verifier = SignatureVerifier::Custom(Arc::new(custom_verify));
+//! }));
 //! ```
-
-use crate::Bundle;
-use std::pin::Pin;
-use std::sync::Arc;
 
 #[cfg(feature = "signature-ecdsa_secp256r1")]
 mod ecdsa_secp256r1;
@@ -75,6 +74,8 @@ mod ed25519;
 mod rsa_pkcs1_v1_5;
 #[cfg(feature = "signature-rsa_pss")]
 mod rsa_pss;
+mod verify;
+
 #[cfg(feature = "signature-ecdsa_secp256r1")]
 pub use ecdsa_secp256r1::*;
 #[cfg(feature = "signature-ecdsa_secp384r1")]
@@ -85,97 +86,4 @@ pub use ed25519::*;
 pub use rsa_pkcs1_v1_5::*;
 #[cfg(feature = "signature-rsa_pss")]
 pub use rsa_pss::*;
-
-/// Type alias for custom verification functions.
-///
-/// Custom verifiers receive the bundle, message, and signature, and return
-/// a future that resolves to the verification result.
-pub type CustomVerify = dyn Fn(
-    &Bundle,
-    &[u8],
-    &str,
-  ) -> Pin<
-    Box<
-      dyn std::future::Future<
-          Output = Result<bool, Box<dyn std::error::Error + Send + Sync + 'static>>,
-        > + Send
-        + 'static,
-    >,
-  > + Send
-  + Sync;
-
-/// Signature verifier supporting multiple algorithms.
-///
-/// This enum wraps different signature verification implementations,
-/// allowing you to use the appropriate algorithm for your needs.
-#[non_exhaustive]
-pub enum SignatureVerifier {
-  #[cfg(feature = "signature-ecdsa_secp256r1")]
-  EcdsaSecp256r1(Arc<EcdsaSecp256r1Verifier>),
-  #[cfg(feature = "signature-ecdsa_secp384r1")]
-  EcdsaSecp384r1(Arc<EcdsaSecp384r1Verifier>),
-  #[cfg(feature = "signature-edd25519")]
-  Ed25519(Arc<Ed25519Verifier>),
-  #[cfg(feature = "signature-rsa_pkcs1_v1_5")]
-  RsaPkcs1V15(Arc<RsaPkcs1V15Verifier>),
-  #[cfg(feature = "signature-rsa_pss")]
-  RsaPss(Arc<RsaPssVerifier>),
-  Custom(Arc<CustomVerify>),
-}
-
-impl SignatureVerifier {
-  /// Verifies a signature against a message using the configured algorithm.
-  ///
-  /// # Arguments
-  ///
-  /// * `bundle` - The bundle being verified
-  /// * `message` - The message that was signed (typically bundle data)
-  /// * `signature` - The signature string (base64-encoded)
-  ///
-  /// # Returns
-  ///
-  /// Returns `Ok(true)` if the signature is valid, `Ok(false)` if invalid,
-  /// or an error if verification failed.
-  pub async fn verify(
-    &self,
-    bundle: &Bundle,
-    message: &[u8],
-    signature: &str,
-  ) -> crate::Result<bool> {
-    match self {
-      Self::Custom(verify) => verify(bundle, message, signature)
-        .await
-        .map_err(crate::Error::generic),
-      #[cfg(feature = "signature-ecdsa_secp256r1")]
-      Self::EcdsaSecp256r1(verifier) => verifier.verify(bundle, message, signature).await,
-      #[cfg(feature = "signature-ecdsa_secp384r1")]
-      Self::EcdsaSecp384r1(verifier) => verifier.verify(bundle, message, signature).await,
-      #[cfg(feature = "signature-edd25519")]
-      Self::Ed25519(verifier) => verifier.verify(bundle, message, signature).await,
-      #[cfg(feature = "signature-rsa_pkcs1_v1_5")]
-      Self::RsaPkcs1V15(verifier) => verifier.verify(bundle, message, signature).await,
-      #[cfg(feature = "signature-rsa_pss")]
-      Self::RsaPss(verifier) => verifier.verify(bundle, message, signature).await,
-    }
-  }
-}
-
-/// Trait for implementing signature verification algorithms.
-///
-/// Implement this trait to create custom signature verifiers that can be
-/// used with the `SignatureVerifier::Custom` variant.
-pub trait Verifier: Send + Sync + 'static {
-  /// Verifies a signature.
-  ///
-  /// # Arguments
-  ///
-  /// * `bundle` - The bundle being verified
-  /// * `message` - The signed message data
-  /// * `signature` - The signature string to verify
-  fn verify(
-    &self,
-    bundle: &Bundle,
-    message: &[u8],
-    signature: &str,
-  ) -> impl std::future::Future<Output = crate::Result<bool>>;
-}
+pub use verify::*;

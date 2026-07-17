@@ -1,4 +1,7 @@
-use crate::remote::HttpConfig;
+use crate::remote::{
+  HttpOptions, ListRemoteBundleInfo, RemoteBundleInfo, RemoteError, RemoteFetchOptions,
+  RemoteOptions,
+};
 use crate::{Bundle, BundleReader, Reader};
 use futures_util::StreamExt;
 use http::{StatusCode, header, uri::Uri};
@@ -6,78 +9,22 @@ use std::io::Cursor;
 use std::str::FromStr;
 use std::sync::Arc;
 
-/// Representation of bundle list info from the remote server.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct ListRemoteBundleInfo {
-  /// Bundle name
-  pub name: String,
-  /// Version of the bundle
-  pub version: String,
-}
-
-/// Representation of bundle info from the remote server.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct RemoteBundleInfo {
-  /// Bundle name
-  pub name: String,
-  /// Version of the bundle
-  pub version: String,
-  /// ETag from the remote server. Can be used to check if the bundle has been updated.
-  pub etag: Option<String>,
-  /// Integrity hash of the bundle.
-  pub integrity: Option<String>,
-  /// Signature of the bundle.
-  pub signature: Option<String>,
-  /// Last modified date from the remote server.
-  pub last_modified: Option<String>,
-}
-
-/// Error string representation for remote operations.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct RemoteError {
-  /// Error message.
-  pub message: Option<String>,
-}
-
-type OnDownload = dyn Fn(u64, Option<u64>, String) + Send + Sync + 'static;
-
-/// Configuration for remote operations.
-#[derive(Default, Clone)]
-#[non_exhaustive]
-pub struct RemoteConfig {
-  /// Base URL of the remote server where bundles are hosted.
-  ///
-  /// This URL is used as the prefix for all API endpoints. The client automatically
-  /// appends API paths to construct full URLs for each operation.
-  pub endpoint: String,
-  /// Download progress callback.
-  pub on_download: Option<Arc<OnDownload>>,
-  /// Optional HTTP client configuration.
-  pub http: Option<HttpConfig>,
-}
-
 #[derive(Default, Clone)]
 pub struct RemoteBuilder {
-  config: RemoteConfig,
+  options: RemoteOptions,
 }
 
 impl RemoteBuilder {
   #[must_use]
   /// Set the base url of the remote server where bundles are hosted.
   pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
-    self.config.endpoint = endpoint.into();
+    self.options.endpoint = endpoint.into();
     self
   }
 
-  /// Set HTTP client configuration.
-  pub fn http(mut self, http: HttpConfig) -> Self {
-    self.config.http = Some(http);
+  /// Set HTTP client options.
+  pub fn http(mut self, http: HttpOptions) -> Self {
+    self.options.http = Some(http);
     self
   }
 
@@ -86,22 +33,22 @@ impl RemoteBuilder {
   where
     F: Fn(u64, Option<u64>, String) + Send + Sync + 'static,
   {
-    self.config.on_download = Some(Arc::new(on_download));
+    self.options.on_download = Some(Arc::new(on_download));
     self
   }
 
-  /// Build the remote client with configuration.
+  /// Build the remote client with the configured options.
   pub fn build(self) -> crate::Result<Remote> {
-    if self.config.endpoint.is_empty() {
+    if self.options.endpoint.is_empty() {
       return Err(crate::Error::invalid_remote_config("endpoint is empty"));
     }
-    // Apply HTTP config unconditionally (defaulting when unset) so the default request
-    // timeout is always in effect, even when the caller passes no `HttpConfig`.
-    let http_config = self.config.http.clone().unwrap_or_default();
-    let client_builder = http_config.apply(reqwest::ClientBuilder::new());
+    // Apply HTTP options unconditionally (defaulting when unset) so the default request
+    // timeout is always in effect, even when the caller passes no `HttpOptions`.
+    let http_options = self.options.http.clone().unwrap_or_default();
+    let client_builder = http_options.apply(reqwest::ClientBuilder::new());
     let client = client_builder.build()?;
     Ok(Remote {
-      config: self.config,
+      options: self.options,
       client,
     })
   }
@@ -110,7 +57,7 @@ impl RemoteBuilder {
 /// Remote client for using with remote bundles.
 #[derive(Clone)]
 pub struct Remote {
-  config: RemoteConfig,
+  options: RemoteOptions,
   client: reqwest::Client,
 }
 
@@ -119,12 +66,17 @@ impl Remote {
     RemoteBuilder::default()
   }
 
-  /// GET /bundles
+  /// `GET /bundles` : List bundles from remote
   pub async fn list_bundles(
     &self,
-    channel: Option<&String>,
+    options: Option<RemoteFetchOptions>,
   ) -> crate::Result<Vec<ListRemoteBundleInfo>> {
-    let endpoint = self.endpoint("/bundles", channel.map(|x| vec![("channel", x)]))?;
+    let endpoint = self.endpoint(
+      "/bundles",
+      options
+        .and_then(|x| x.channel)
+        .map(|x| vec![("channel", x)]),
+    )?;
     let resp = self.client.get(endpoint).send().await?;
     match resp.status().is_success() {
       true => Ok(resp.json::<Vec<ListRemoteBundleInfo>>().await?),
@@ -132,15 +84,17 @@ impl Remote {
     }
   }
 
-  /// HEAD /bundles/:name
+  /// `HEAD /bundles/:name` : Get bundle metadata info
   pub async fn get_current_info(
     &self,
     bundle_name: &str,
-    channel: Option<&String>,
+    options: Option<RemoteFetchOptions>,
   ) -> crate::Result<RemoteBundleInfo> {
     let endpoint = self.endpoint(
       format!("/bundles/{bundle_name}"),
-      channel.map(|x| vec![("channel", x)]),
+      options
+        .and_then(|x| x.channel)
+        .map(|x| vec![("channel", x)]),
     )?;
     let resp = self.client.head(endpoint).send().await?;
     match resp.status().is_success() {
@@ -177,10 +131,10 @@ impl Remote {
     query: Option<Vec<(impl Into<String>, impl Into<String>)>>,
   ) -> crate::Result<String> {
     let endpoint = self
-      .config
+      .options
       .endpoint
       .strip_suffix('/')
-      .unwrap_or(&self.config.endpoint);
+      .unwrap_or(&self.options.endpoint);
     let p = path.into().trim_matches('/').to_string();
     let q = query
       .map(|x| {
@@ -261,7 +215,7 @@ impl Remote {
       let chunk = chunk_result?;
       data.append(&mut chunk.to_vec());
       downloaded_bytes += chunk.len() as u64;
-      if let Some(on_download) = &self.config.on_download {
+      if let Some(on_download) = &self.options.on_download {
         on_download(downloaded_bytes, total_size, endpoint.to_owned());
       }
     }

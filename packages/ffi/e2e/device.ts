@@ -32,7 +32,11 @@ async function listAvds(emulatorBin: string): Promise<string[]> {
     .filter(line => /^[A-Za-z0-9._-]+$/.test(line));
 }
 
-export async function ensureAndroidDevice(avd: string): Promise<AndroidDevice> {
+/**
+ * An attached device wins; otherwise the emulator boots from `avd`, or from the first installed AVD
+ * when no name is given — CI runners and dev machines rarely share an AVD lineup.
+ */
+export async function ensureAndroidDevice(avd?: string): Promise<AndroidDevice> {
   const existing = await listAndroidDevices();
   if (existing.length > 0) {
     return { udid: existing[0]!, bootedByUs: false, shutdown: async () => {} };
@@ -44,23 +48,26 @@ export async function ensureAndroidDevice(avd: string): Promise<AndroidDevice> {
   }
   const emulatorBin = path.join(sdk, 'emulator', 'emulator');
 
-  // Check up front: a bad AVD name makes the emulator die instantly, which would otherwise only
-  // surface 180s later as an `adb wait-for-device` timeout pointing at the wrong step.
+  // Resolve the name up front: a bad AVD makes the emulator die instantly, which would otherwise
+  // only surface 180s later as an `adb wait-for-device` timeout pointing at the wrong step.
   const avds = await listAvds(emulatorBin);
-  if (!avds.includes(avd)) {
-    const available = avds.length > 0 ? avds.join(', ') : '(none)';
+  if (avds.length === 0) {
+    throw new Error('No Android AVD is installed. Create one with `avdmanager create avd`.');
+  }
+  if (avd != null && !avds.includes(avd)) {
     throw new Error(
-      `Android AVD "${avd}" does not exist. Available AVDs: ${available}. ` +
-        'Set ANDROID_AVD to one of them, or create it with `avdmanager create avd`.'
+      `Android AVD "${avd}" does not exist. Available AVDs: ${avds.join(', ')}. ` +
+        'Set ANDROID_AVD to one of them, or leave it unset to use the first.'
     );
   }
+  const target = avd ?? avds[0]!;
 
-  console.log(`[device] booting Android emulator: ${avd}`);
+  console.log(`[device] booting Android emulator: ${target}`);
   const proc = execa(
     emulatorBin,
     [
       '-avd',
-      avd,
+      target,
       '-no-window',
       '-no-audio',
       '-no-boot-anim',
@@ -81,7 +88,7 @@ export async function ensureAndroidDevice(avd: string): Promise<AndroidDevice> {
     // Bound the wait so a wedged emulator surfaces a clear error instead of hanging the caller's
     // hook until its (long) timeout fires. Racing against the emulator process means a crash is
     // reported immediately rather than as a timeout.
-    await Promise.race([watchEmulatorExit(proc, avd), waitForBoot(controller.signal)]);
+    await Promise.race([watchEmulatorExit(proc, target), waitForBoot(controller.signal)]);
 
     const udid = (await listAndroidDevices())[0];
     if (!udid) {

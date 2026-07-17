@@ -1,17 +1,21 @@
+use crate::js::JsCallback;
+use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use std::str::FromStr;
 use wvb::integrity;
+
+pub(crate) type IntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Promise<bool>>;
 
 /// Hash algorithm for bundle integrity verification.
 ///
-/// Supports SHA-2 family hash algorithms for cryptographic verification
-/// following the Subresource Integrity specification.
+/// Supports SHA-2 family hash algorithms for cryptographic verification.
 ///
 /// @example
 /// ```typescript
-/// // Integrity strings use these algorithms:
-/// // "sha256-abc123..." - SHA-256
-/// // "sha384-def456..." - SHA-384 (recommended)
-/// // "sha512-ghi789..." - SHA-512
+/// // Integrity strings are `<algorithm>:<base64>`:
+/// // "sha256:abc123..." - SHA-256
+/// // "sha384:def456..." - SHA-384 (recommended)
+/// // "sha512:ghi789..." - SHA-512
 /// ```
 #[napi(string_enum = "camelCase")]
 pub enum IntegrityAlgorithm {
@@ -43,6 +47,83 @@ impl From<IntegrityAlgorithm> for integrity::IntegrityAlgorithm {
   }
 }
 
+/// Computes the integrity of `data` with `algorithm`.
+///
+/// This is the write side of integrity: use it when publishing a bundle to produce the
+/// string a source or updater later verifies against.
+///
+/// @param {IntegrityAlgorithm} algorithm - Hash algorithm to digest with
+/// @param {Buffer} data - Bytes to digest
+/// @returns {Integrity} The computed integrity
+///
+/// @example
+/// ```typescript
+/// import { computeIntegrity } from '@wvb/node';
+///
+/// const integrity = computeIntegrity('sha256', data).serialize();
+/// // "sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg="
+/// ```
+#[napi]
+pub fn compute_integrity(algorithm: IntegrityAlgorithm, data: Buffer) -> Integrity {
+  Integrity {
+    inner: integrity::Integrity::compute(algorithm.into(), &data),
+  }
+}
+
+/// Parses a serialized integrity string (e.g. `"sha256:n4bQ..."`).
+///
+/// @param {string} integrity - Serialized `<algorithm>:<base64>` string
+/// @returns {Integrity} The parsed integrity
+///
+/// @example
+/// ```typescript
+/// import { parseIntegrity } from '@wvb/node';
+///
+/// const isValid = parseIntegrity(advertised).validate(data);
+/// ```
+#[napi]
+pub fn parse_integrity(integrity: String) -> crate::Result<Integrity> {
+  Ok(Integrity {
+    inner: integrity::Integrity::from_str(&integrity)?,
+  })
+}
+
+/// A digest over some bytes, serialized as `<algorithm>:<base64>` (e.g. `"sha256:n4bQ..."`).
+///
+/// Created by [`computeIntegrity`] or [`parseIntegrity`].
+#[napi]
+pub struct Integrity {
+  inner: integrity::Integrity,
+}
+
+#[napi]
+impl Integrity {
+  /// The raw digest bytes.
+  ///
+  /// @returns {Buffer} The digest
+  #[napi]
+  pub fn value(&self) -> Buffer {
+    self.inner.value().to_vec().into()
+  }
+
+  /// Whether `data` digests to this integrity.
+  ///
+  /// @param {Buffer} data - Bytes to check
+  /// @returns {boolean} `true` when the bytes match
+  #[napi]
+  pub fn validate(&self, data: Buffer) -> bool {
+    self.inner.validate(&data)
+  }
+
+  /// Serializes to `<algorithm>:<base64>`.
+  ///
+  /// @returns {string} The serialized integrity string
+  #[napi]
+  pub fn serialize(&self) -> String {
+    self.inner.serialize()
+  }
+}
+
 /// Policy for enforcing integrity verification during bundle operations.
 ///
 /// Controls when integrity hashes are required and how missing hashes are handled.
@@ -68,7 +149,7 @@ pub enum IntegrityPolicy {
   /// Verify integrity if provided, but allow operations without it.
   Optional,
   /// Skip integrity verification entirely.
-  None,
+  Off,
 }
 
 impl From<integrity::IntegrityPolicy> for IntegrityPolicy {
@@ -76,7 +157,7 @@ impl From<integrity::IntegrityPolicy> for IntegrityPolicy {
     match value {
       integrity::IntegrityPolicy::Strict => Self::Strict,
       integrity::IntegrityPolicy::Optional => Self::Optional,
-      integrity::IntegrityPolicy::None => Self::None,
+      integrity::IntegrityPolicy::Off => Self::Off,
     }
   }
 }
@@ -86,7 +167,7 @@ impl From<IntegrityPolicy> for integrity::IntegrityPolicy {
     match value {
       IntegrityPolicy::Strict => Self::Strict,
       IntegrityPolicy::Optional => Self::Optional,
-      IntegrityPolicy::None => Self::None,
+      IntegrityPolicy::Off => Self::Off,
     }
   }
 }

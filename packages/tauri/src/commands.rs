@@ -1,6 +1,6 @@
 use crate::WebviewBundleExtra;
 use tauri::{AppHandle, Runtime, command};
-use wvb::remote::{ListRemoteBundleInfo, RemoteBundleInfo};
+use wvb::remote::{ListRemoteBundleInfo, RemoteBundleInfo, RemoteFetchOptions};
 use wvb::source::{BundleManifestMetadata, BundleSourceVersion, ListBundleItem};
 use wvb::updater::BundleUpdateInfo;
 
@@ -147,13 +147,13 @@ pub(crate) async fn source_prune_remote_bundles<R: Runtime>(
 #[command]
 pub(crate) async fn remote_list_bundles<R: Runtime>(
   app: AppHandle<R>,
-  channel: Option<String>,
+  options: Option<RemoteFetchOptions>,
 ) -> crate::Result<Vec<ListRemoteBundleInfo>> {
   let wvb = app.wvb();
   let bundles = wvb
     .remote()
     .ok_or(crate::Error::RemoteIsNotInitialized)?
-    .list_bundles(channel.as_ref())
+    .list_bundles(options)
     .await?;
   Ok(bundles)
 }
@@ -162,13 +162,13 @@ pub(crate) async fn remote_list_bundles<R: Runtime>(
 pub(crate) async fn remote_get_info<R: Runtime>(
   app: AppHandle<R>,
   bundle_name: String,
-  channel: Option<String>,
+  options: Option<RemoteFetchOptions>,
 ) -> crate::Result<RemoteBundleInfo> {
   let wvb = app.wvb();
   let info = wvb
     .remote()
     .ok_or(crate::Error::RemoteIsNotInitialized)?
-    .get_current_info(&bundle_name, channel.as_ref())
+    .get_current_info(&bundle_name, options)
     .await?;
   Ok(info)
 }

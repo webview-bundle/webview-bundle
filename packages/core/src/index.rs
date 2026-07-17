@@ -15,6 +15,7 @@ use std::ops::{Deref, DerefMut};
 use crate::reader::AsyncReader;
 #[cfg(feature = "async")]
 use crate::writer::AsyncWriter;
+use crate::{ChecksumReadOptions, ChecksumWriteOptions};
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
@@ -152,17 +153,23 @@ pub(crate) struct IndexEntryMap(pub(crate) HashMap<String, IndexEntry>);
 /// # Example
 ///
 /// ```
-/// use wvb::{Bundle, BundleBuilder};
+/// use wvb::{Bundle, BundleEntry};
 ///
-/// let bundle = Bundle::builder()
-///     .add_file("/index.html", b"<html></html>", None)
-///     .add_file("/app.js", b"console.log('hello');", None)
-///     .build();
+/// let mut builder = Bundle::builder();
+/// builder.insert_entry(
+///     "/index.html",
+///     BundleEntry::new(b"<html></html>", "text/html", None),
+/// );
+/// builder.insert_entry(
+///     "/app.js",
+///     BundleEntry::new(b"console.log('hello');", "text/javascript", None),
+/// );
+/// let bundle = builder.build().unwrap();
 ///
 /// let index = bundle.descriptor().index();
 /// assert!(index.contains_path("/index.html"));
 /// assert!(index.contains_path("/app.js"));
-/// assert_eq!(index.len(), 2);
+/// assert_eq!(index.entries().len(), 2);
 /// ```
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Index {
@@ -254,16 +261,12 @@ fn write_index(index: &Index) -> crate::Result<Vec<u8>> {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct IndexWriterOptions {
-  pub(crate) checksum_seed: u32,
+  pub checksum: ChecksumWriteOptions,
 }
 
 impl IndexWriterOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  pub fn checksum_seed(&mut self, seed: u32) -> &mut Self {
-    self.checksum_seed = seed;
+  pub fn checksum(mut self, checksum: ChecksumWriteOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
@@ -285,6 +288,11 @@ impl<W: Write> IndexWriter<W> {
     Self { w, options }
   }
 
+  pub fn set_options(&mut self, options: IndexWriterOptions) -> &mut Self {
+    self.options = options;
+    self
+  }
+
   pub fn write_index(&mut self, index: &Index) -> crate::Result<Vec<u8>> {
     let bytes = write_index(index)?;
     self.w.write_all(&bytes)?;
@@ -302,7 +310,7 @@ impl<W: Write> Writer<Index> for IndexWriter<W> {
   fn write(&mut self, index: &Index) -> crate::Result<usize> {
     let mut bytes = vec![];
     bytes.extend(self.write_index(index)?);
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum)?);
     Ok(bytes.len())
   }
@@ -327,6 +335,11 @@ impl<W: AsyncWrite + Unpin> AsyncIndexWriter<W> {
     Self { w, options }
   }
 
+  pub fn set_options(&mut self, options: IndexWriterOptions) -> &mut Self {
+    self.options = options;
+    self
+  }
+
   pub async fn write_index(&mut self, index: &Index) -> crate::Result<Vec<u8>> {
     let bytes = write_index(index)?;
     self.w.write_all(&bytes).await?;
@@ -345,7 +358,7 @@ impl<W: AsyncWrite + Unpin> AsyncWriter<Index> for AsyncIndexWriter<W> {
   async fn write(&mut self, index: &Index) -> crate::Result<usize> {
     let mut bytes = vec![];
     bytes.extend(self.write_index(index).await?);
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum).await?);
     Ok(bytes.len())
   }
@@ -379,27 +392,18 @@ fn read_total(header: &Header) -> (u64, Vec<u8>) {
 pub struct IndexReader<R: Read + Seek> {
   r: R,
   header: Header,
-  options: IndexReaderOptions,
+  options: IndexReadOptions,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct IndexReaderOptions {
-  pub checksum_seed: u32,
-  pub verify_checksum: bool,
+/// How the index is read out of a bundle.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct IndexReadOptions {
+  pub checksum: ChecksumReadOptions,
 }
 
-impl IndexReaderOptions {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  pub fn checksum_seed(mut self, seed: u32) -> Self {
-    self.checksum_seed = seed;
-    self
-  }
-
-  pub fn verify_checksum(mut self, verify: bool) -> Self {
-    self.verify_checksum = verify;
+impl IndexReadOptions {
+  pub fn checksum(mut self, checksum: ChecksumReadOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
@@ -409,7 +413,7 @@ impl<R: Read + Seek> IndexReader<R> {
     Self::new_with_options(r, header, Default::default())
   }
 
-  pub fn new_with_options(r: R, header: Header, options: IndexReaderOptions) -> Self {
+  pub fn new_with_options(r: R, header: Header, options: IndexReadOptions) -> Self {
     Self { r, header, options }
   }
 
@@ -433,7 +437,7 @@ impl<R: Read + Seek> IndexReader<R> {
     self.r.seek(SeekFrom::Start(offset))?;
     self.r.read_exact(&mut buf)?;
 
-    let expected_checksum = make_checksum(self.options.checksum_seed, &buf);
+    let expected_checksum = make_checksum(self.options.checksum.seed, &buf);
     if checksum != expected_checksum {
       return Err(crate::Error::InvalidIndexChecksum);
     }
@@ -445,7 +449,7 @@ impl<R: Read + Seek> Reader<Index> for IndexReader<R> {
   fn read(&mut self) -> crate::Result<Index> {
     let index = self.read_index()?;
     let checksum = self.read_checksum()?;
-    if self.options.verify_checksum {
+    if self.options.checksum.verify {
       self.verify_checksum(checksum)?;
     }
     Ok(index)
@@ -456,7 +460,7 @@ impl<R: Read + Seek> Reader<Index> for IndexReader<R> {
 pub struct AsyncIndexReader<R: AsyncRead + AsyncSeek + Unpin> {
   r: R,
   header: Header,
-  options: IndexReaderOptions,
+  options: IndexReadOptions,
 }
 
 #[cfg(feature = "async")]
@@ -465,7 +469,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncIndexReader<R> {
     Self::new_with_options(r, header, Default::default())
   }
 
-  pub fn new_with_options(r: R, header: Header, options: IndexReaderOptions) -> Self {
+  pub fn new_with_options(r: R, header: Header, options: IndexReadOptions) -> Self {
     Self { r, header, options }
   }
 
@@ -489,7 +493,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncIndexReader<R> {
     self.r.seek(SeekFrom::Start(offset)).await?;
     self.r.read_exact(&mut buf).await?;
 
-    let expected_checksum = make_checksum(self.options.checksum_seed, &buf);
+    let expected_checksum = make_checksum(self.options.checksum.seed, &buf);
     if checksum != expected_checksum {
       return Err(crate::Error::InvalidIndexChecksum);
     }
@@ -502,7 +506,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> AsyncReader<Index> for AsyncIndexReader<R
   async fn read(&mut self) -> crate::Result<Index> {
     let index = self.read_index().await?;
     let checksum = self.read_checksum().await?;
-    if self.options.verify_checksum {
+    if self.options.checksum.verify {
       self.verify_checksum(checksum).await?;
     }
     Ok(index)

@@ -11,6 +11,10 @@ import {
 
 const SYMBOLS = {
   wvb_source_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
+  wvb_source_new_with_options: {
+    parameters: ['buffer', 'buffer', 'buffer'],
+    result: 'pointer',
+  },
   wvb_source_free: { parameters: ['pointer'], result: 'void' },
   // BundleSource data API (→ WvbResult). Disk/manifest ops run on the tokio runtime → nonblocking.
   wvb_source_list_bundles: { parameters: ['pointer'], result: 'pointer', nonblocking: true },
@@ -113,6 +117,13 @@ const SYMBOLS = {
     parameters: ['pointer', 'buffer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
+  },
+  // Integrity (→ WvbResult). Pure hashing over bytes already in memory → blocking.
+  wvb_compute_integrity: { parameters: ['buffer', 'buffer', 'usize'], result: 'pointer' },
+  wvb_parse_integrity: { parameters: ['buffer'], result: 'pointer' },
+  wvb_integrity_validate: {
+    parameters: ['buffer', 'buffer', 'usize'],
+    result: 'pointer',
   },
   // WvbResult accessors
   wvb_result_ok: { parameters: ['pointer'], result: 'u8' },

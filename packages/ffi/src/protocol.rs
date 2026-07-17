@@ -116,10 +116,10 @@ impl BundleProtocolHandler {
     let mut inner = protocol::BundleProtocol::new(source.inner.clone());
     if let Some(options) = options {
       if let Some(bundle_resolver) = options.bundle_resolver {
-        inner = inner.with_bundle_resolver(bundle_resolver.into());
+        inner = inner.set_bundle_resolver(bundle_resolver.into());
       }
       if let Some(path_resolver) = options.path_resolver {
-        inner = inner.with_path_resolver(path_resolver.into());
+        inner = inner.set_path_resolver(path_resolver.into());
       }
     }
     Arc::new(BundleProtocolHandler {

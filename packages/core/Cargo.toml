@@ -9,8 +9,7 @@ rust-version = "1.85.0"
 version      = "0.2.0"
 
 [lib]
-bench   = false
-doctest = false
+bench = false
 
 [dependencies]
 async-trait      = { workspace = true }
@@ -91,7 +90,7 @@ signature-ecdsa_secp384r1 = ["dep:p384"]
 signature-edd25519 = ["dep:ed25519-dalek", "ed25519-dalek/pem"]
 signature-rsa_pkcs1_v1_5 = ["dep:rsa", "rsa/sha2"]
 signature-rsa_pss = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
-source = ["dep:dashmap", "async", "_serde", "dep:semver"]
+source = ["dep:dashmap", "async", "_serde", "dep:semver", "tokio/macros"]
 testing = ["source", "remote", "dep:httpmock", "dep:time"]
 tracing = ["dep:tracing"]
 updater = ["remote", "source"]

@@ -1,12 +1,25 @@
 use crate::config::ErrorResponse;
-use crate::{Config, Protocol};
+use crate::{Config, ProtocolConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Runtime, http};
 use wvb::protocol;
 use wvb::remote::Remote;
-use wvb::source::BundleSource;
+use wvb::source::{BundleSource, BundleSourceOptions};
 use wvb::updater::Updater;
+
+/// A plain-text error response, used when a protocol has no [`ErrorResponse`] of its own.
+pub fn default_error_response(error: &crate::Error) -> http::Response<Vec<u8>> {
+  http::Response::builder()
+    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+    .header(http::header::CONTENT_TYPE, "text/plain")
+    .body(
+      format!("webview bundle protocol error: {error}")
+        .as_bytes()
+        .to_vec(),
+    )
+    .expect("static error response")
+}
 
 pub fn init<R: Runtime>(
   app: &AppHandle<R>,
@@ -70,26 +83,30 @@ impl<R: Runtime> WebviewBundle<R> {
       BundleSource::builder()
         .builtin_dir(builtin_dir.as_path())
         .remote_dir(config.source.resolve_remote_dir(&app)?.as_path())
+        .options(
+          BundleSourceOptions::default()
+            .integrity(config.source.integrity.clone())
+            .signature(config.source.signature.clone())
+            .header_read(config.source.header_read)
+            .index_read(config.source.index_read)
+            .data_read(config.source.data_read),
+        )
         .build(),
     );
     let mut protocols = HashMap::with_capacity(config.protocols.len());
     for protocol_config in &config.protocols {
       let scheme = protocol_config.scheme().to_string();
       let (kind, error_response) = match protocol_config {
-        Protocol::Bundle(config) => {
+        ProtocolConfig::Bundle(config) => {
           let mut bundle = protocol::BundleProtocol::new(source.clone());
-          if let Some(resolver) = config.bundle_resolver.clone() {
-            bundle = bundle.with_bundle_resolver(resolver);
-          }
-          if let Some(resolver) = config.path_resolver.clone() {
-            bundle = bundle.with_path_resolver(resolver);
-          }
+          bundle = bundle.set_bundle_resolver(config.bundle_resolver.clone());
+          bundle = bundle.set_path_resolver(config.path_resolver.clone());
           (
             ProtocolKind::Bundle(Arc::new(bundle)),
             config.error_response.clone(),
           )
         }
-        Protocol::Proxy(config) => {
+        ProtocolConfig::Proxy(config) => {
           let proxy = protocol::ProxyProtocol::new(config.resolver.clone());
           (
             ProtocolKind::Proxy(Arc::new(proxy)),
@@ -111,14 +128,14 @@ impl<R: Runtime> WebviewBundle<R> {
     let remote = config.build_remote()?.map(Arc::new);
     let updater = match remote.clone() {
       Some(remote) => {
-        let updater_config = match config.updater {
-          Some(ref updater) => Some(updater.build_config()?),
+        let updater_options = match config.updater {
+          Some(ref updater) => Some(updater.build_options()),
           None => None,
         };
         Some(Arc::new(Updater::new(
           source.clone(),
           remote,
-          updater_config,
+          updater_options,
         )))
       }
       None => None,
@@ -161,10 +178,10 @@ impl<R: Runtime> WebviewBundle<R> {
     match self
       .protocols
       .get(scheme)
-      .and_then(|protocol| protocol.error_response.as_ref())
+      .and_then(|p| p.error_response.as_ref())
     {
       Some(error_response) => error_response(error),
-      None => crate::config::default_error_response(error),
+      None => default_error_response(error),
     }
   }
 

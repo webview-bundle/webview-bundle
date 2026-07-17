@@ -19,6 +19,20 @@ export interface ProtocolHandler {
 export interface ProtocolOptions {
   protocol?: () => ElectronProtocol;
   privileges?: Privileges;
+  /**
+   * Builds the response when the handler throws (default: `500` with the error message). The error
+   * is a `WebviewBundleError` when it comes from the bundle itself, so it can be routed by code.
+   *
+   * @example
+   * ```typescript
+   * import { isWebviewBundleError } from '@wvb/node';
+   *
+   * errorResponse: e =>
+   *   isWebviewBundleError(e) && e.code === 'core.checksum_mismatch'
+   *     ? new Response('bundle corrupted', { status: 502 })
+   *     : new Response(e.message, { status: 500 });
+   * ```
+   */
   errorResponse?: (e: Error) => Response;
 }
 
@@ -178,7 +192,10 @@ export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}
   const protocol: Protocol = {
     scheme,
     handler: ({ source }) => {
-      const bundle = new BundleProtocol(source, { bundleResolver, pathResolver });
+      const bundle = new BundleProtocol(source, {
+        bundleResolver,
+        pathResolver,
+      });
       return {
         handle: async req => {
           const method = req.method.toLowerCase() as HttpMethod;

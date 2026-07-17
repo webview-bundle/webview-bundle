@@ -74,7 +74,7 @@ Use \`remote download\` if you need the actual bundle file.
       return 1;
     }
     const remote = new Remote(endpoint);
-    const info = await remote.getInfo(bundleName, this.channel);
+    const info = await remote.getInfo(bundleName, { channel: this.channel });
     this.logger.info(`Remote Webview Bundle info for ${c.info(bundleName)}`);
     this.logger.info(`  Version: ${c.bold(c.info(info.version))}`);
     this.logger.info(`  ETag: ${c.bold(c.info(info.etag ?? '(none)'))}`);
