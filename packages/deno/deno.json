@@ -8,7 +8,7 @@
   },
   "tasks": {
     "check": "deno check lib/**/*.ts scripts/**/*.ts",
-    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write",
+    "test": "deno test --allow-ffi --allow-read --allow-env --allow-write --allow-net",
     "build": "deno run --allow-read --allow-write --allow-run --allow-env scripts/build.ts"
   },
   "publish": {

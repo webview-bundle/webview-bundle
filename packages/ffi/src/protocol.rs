@@ -99,8 +99,6 @@ pub struct BundleProtocolOptions {
 /// By default the host portion of the URI identifies the bundle by name
 /// (e.g. `https://app.wvb/index.html` → bundle `"app"`, path `"/index.html"`);
 /// pass [`BundleProtocolOptions`] to resolve the bundle name or the path differently.
-/// Entries are served using the read options the [`BundleSource`] was configured with,
-/// including any data-checksum verification.
 /// Returns 200 with the entry body, 404 when the path is not found, or
 /// 200 with an empty body for HEAD requests.
 #[derive(uniffi::Object)]
@@ -118,10 +116,10 @@ impl BundleProtocolHandler {
     let mut inner = protocol::BundleProtocol::new(source.inner.clone());
     if let Some(options) = options {
       if let Some(bundle_resolver) = options.bundle_resolver {
-        inner = inner.with_bundle_resolver(bundle_resolver.into());
+        inner = inner.set_bundle_resolver(bundle_resolver.into());
       }
       if let Some(path_resolver) = options.path_resolver {
-        inner = inner.with_path_resolver(path_resolver.into());
+        inner = inner.set_path_resolver(path_resolver.into());
       }
     }
     Arc::new(BundleProtocolHandler {

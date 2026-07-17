@@ -1,7 +1,7 @@
 #[cfg(feature = "integrity")]
 use crate::integrity::IntegrityPolicy;
 #[cfg(feature = "signature")]
-use crate::signature::SignatureVerifier;
+use crate::signature::SignatureVerify;
 use crate::source::{
   BundleManifest, BundleManifestMetadata, BundleSourceKind, BundleSourceOptions,
   BundleSourceVersion, ListBundleManifestItem, ReadOnly, ReadWrite, utils,
@@ -291,7 +291,7 @@ impl BundleSource {
 
   /// The signature verifier applied to bundles of this kind on load, if any.
   #[cfg(feature = "signature")]
-  fn signature_verifier_on_load(&self, kind: &BundleSourceKind) -> Option<&SignatureVerifier> {
+  fn signature_verifier_on_load(&self, kind: &BundleSourceKind) -> Option<&SignatureVerify> {
     match self.options.signature.verify_mode.should_verify(kind) {
       true => self.options.signature.verify.as_ref(),
       false => None,
@@ -347,7 +347,7 @@ impl BundleSource {
       };
       if check_integrity {
         crate::integrity::verify_integrity(
-          self.options.integrity.policy,
+          &self.options.integrity.policy,
           &self.options.integrity.check,
           metadata.integrity.as_deref(),
           data.as_deref().unwrap_or_default(),
@@ -356,9 +356,9 @@ impl BundleSource {
       }
 
       #[cfg(feature = "signature")]
-      if let Some(verifier) = signature_verifier {
+      if let Some(verify) = signature_verifier {
         crate::signature::verify_signature(
-          verifier,
+          verify,
           metadata.integrity.as_deref(),
           metadata.signature.as_deref(),
         )
@@ -383,15 +383,15 @@ impl BundleSource {
     if let Some(data) = self.verified_bytes(filepath, bundle_name, version).await? {
       return Reader::<Bundle>::read(&mut BundleReader::new_with_options(
         Cursor::new(&data),
-        self.options.header_read_options,
-        self.options.index_read_options,
+        self.options.header_read,
+        self.options.index_read,
       ));
     }
     let mut file = open_file(filepath).await?;
     AsyncReader::<Bundle>::read(&mut AsyncBundleReader::new_with_options(
       &mut file,
-      self.options.header_read_options,
-      self.options.index_read_options,
+      self.options.header_read,
+      self.options.index_read,
     ))
     .await
   }
@@ -405,15 +405,15 @@ impl BundleSource {
     if let Some(data) = self.verified_bytes(filepath, bundle_name, version).await? {
       return Reader::<BundleDescriptor>::read(&mut BundleReader::new_with_options(
         Cursor::new(&data),
-        self.options.header_read_options,
-        self.options.index_read_options,
+        self.options.header_read,
+        self.options.index_read,
       ));
     }
     let mut file = open_file(filepath).await?;
     AsyncReader::<BundleDescriptor>::read(&mut AsyncBundleReader::new_with_options(
       &mut file,
-      self.options.header_read_options,
-      self.options.index_read_options,
+      self.options.header_read,
+      self.options.index_read,
     ))
     .await
   }
@@ -525,7 +525,7 @@ impl BundleSource {
     Ok(Arc::new(LoadedDescriptor {
       descriptor,
       filepath,
-      data_read_options: self.options.data_read_options,
+      data_read_options: self.options.data_read,
     }))
   }
 

@@ -1,13 +1,13 @@
 use reqwest::header::HeaderMap;
 
-/// Default total request timeout (milliseconds) applied when `HttpConfig::timeout` is
+/// Default total request timeout (milliseconds) applied when `HttpOptions::timeout` is
 /// not set. Bounds an otherwise-unbounded download: without it a stalled transfer would
 /// hang forever and keep holding the updater's per-bundle transaction lock. Override
-/// with [`HttpConfig::timeout`].
+/// with [`HttpOptions::timeout`].
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 120_000;
 
 #[derive(Debug, Clone, Default)]
-pub struct HttpConfig {
+pub struct HttpOptions {
   pub default_headers: Option<HeaderMap>,
   pub user_agent: Option<String>,
   pub timeout: Option<u64>,
@@ -20,7 +20,7 @@ pub struct HttpConfig {
   pub hickory_dns: Option<bool>,
 }
 
-impl HttpConfig {
+impl HttpOptions {
   pub fn new() -> Self {
     Self::default()
   }

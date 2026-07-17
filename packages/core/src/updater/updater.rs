@@ -1,126 +1,16 @@
-#[cfg(feature = "integrity")]
-use crate::integrity::{IntegrityChecker, IntegrityPolicy};
-use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
-#[cfg(feature = "signature")]
-use crate::signature::SignatureVerifier;
+use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo, RemoteFetchOptions};
 use crate::source::{BundleManifestMetadata, BundleSource};
+use crate::updater::{BundleUpdateInfo, UpdaterOptions};
 use crate::{BundleDescriptor, BundleReader, Reader};
 use dashmap::DashMap;
 use std::io::Cursor;
 use std::sync::Arc;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct BundleUpdateInfo {
-  pub name: String,
-  pub version: String,
-  pub local_version: Option<String>,
-  pub is_available: bool,
-  pub etag: Option<String>,
-  pub integrity: Option<String>,
-  pub signature: Option<String>,
-  pub last_modified: Option<String>,
-}
-
-impl From<&BundleUpdateInfo> for RemoteBundleInfo {
-  fn from(value: &BundleUpdateInfo) -> Self {
-    Self {
-      name: value.name.to_string(),
-      version: value.version.to_string(),
-      etag: value.etag.clone(),
-      integrity: value.integrity.clone(),
-      signature: value.signature.clone(),
-      last_modified: value.last_modified.clone(),
-    }
-  }
-}
-
-impl From<&RemoteBundleInfo> for BundleManifestMetadata {
-  fn from(value: &RemoteBundleInfo) -> Self {
-    Self {
-      etag: value.etag.clone(),
-      integrity: value.integrity.clone(),
-      signature: value.signature.clone(),
-      last_modified: value.last_modified.clone(),
-    }
-  }
-}
-
-#[derive(Default)]
-#[non_exhaustive]
-pub struct UpdaterConfig {
-  pub(crate) channel: Option<String>,
-  #[cfg(feature = "integrity")]
-  pub(crate) integrity_policy: IntegrityPolicy,
-  #[cfg(feature = "integrity")]
-  pub(crate) integrity_checker: IntegrityChecker,
-  #[cfg(feature = "signature")]
-  pub(crate) signature_verifier: Option<SignatureVerifier>,
-}
-
-impl UpdaterConfig {
-  pub fn channel(mut self, channel: impl Into<String>) -> Self {
-    self.channel = Some(channel.into());
-    self
-  }
-
-  #[cfg(feature = "integrity")]
-  pub fn integrity_checker(mut self, checker: IntegrityChecker) -> Self {
-    self.integrity_checker = checker;
-    self
-  }
-
-  /// How a bundle's integrity metadata is treated when it is downloaded or installed
-  /// (default: [`IntegrityPolicy::Optional`]). [`IntegrityPolicy::Off`] disables the check.
-  #[cfg(feature = "integrity")]
-  pub fn integrity_policy(mut self, policy: IntegrityPolicy) -> Self {
-    self.integrity_policy = policy;
-    self
-  }
-
-  /// Verifies that each bundle's integrity string was signed by the matching key.
-  ///
-  /// The signature signs the integrity string, not the bundle bytes, and is verified
-  /// independently of the integrity check — keep [`UpdaterConfig::integrity_policy`]
-  /// enabled for the signature to authenticate the bytes too.
-  #[cfg(feature = "signature")]
-  pub fn signature_verifier(mut self, verifier: SignatureVerifier) -> Self {
-    self.signature_verifier = Some(verifier);
-    self
-  }
-
-  /// Verifies `data` against the integrity and signature advertised for it. The two
-  /// checks run independently.
-  #[cfg(feature = "integrity")]
-  async fn verify(
-    &self,
-    integrity: Option<&str>,
-    signature: Option<&str>,
-    data: &[u8],
-  ) -> crate::Result<()> {
-    crate::integrity::verify_integrity(
-      self.integrity_policy,
-      &self.integrity_checker,
-      integrity,
-      data,
-    )
-    .await?;
-    #[cfg(feature = "signature")]
-    if let Some(verifier) = &self.signature_verifier {
-      crate::signature::verify_signature(verifier, integrity, signature).await?;
-    }
-    #[cfg(not(feature = "signature"))]
-    let _ = signature;
-    Ok(())
-  }
-}
-
 pub struct Updater {
   source: Arc<BundleSource>,
   remote: Arc<Remote>,
-  config: UpdaterConfig,
+  options: UpdaterOptions,
   // Per-bundle transaction lock.
   locks: DashMap<String, Arc<Mutex<()>>>,
 }
@@ -129,18 +19,21 @@ impl Updater {
   pub fn new(
     source: Arc<BundleSource>,
     remote: Arc<Remote>,
-    config: Option<UpdaterConfig>,
+    options: Option<UpdaterOptions>,
   ) -> Self {
     Self {
       source,
       remote,
-      config: config.unwrap_or_default(),
+      options: options.unwrap_or_default(),
       locks: DashMap::new(),
     }
   }
 
   pub async fn list_remotes(&self) -> crate::Result<Vec<ListRemoteBundleInfo>> {
-    self.remote.list_bundles(self.config.channel.as_ref()).await
+    self
+      .remote
+      .list_bundles(Some(self.to_fetch_options()))
+      .await
   }
 
   pub async fn get_update(
@@ -149,7 +42,7 @@ impl Updater {
   ) -> crate::Result<BundleUpdateInfo> {
     let remote_info = self
       .remote
-      .get_current_info(&bundle_name.into(), self.config.channel.as_ref())
+      .get_current_info(&bundle_name.into(), Some(self.to_fetch_options()))
       .await?;
     let info = self.to_update_info(remote_info).await?;
     Ok(info)
@@ -165,25 +58,20 @@ impl Updater {
     version: Option<String>,
   ) -> crate::Result<RemoteBundleInfo> {
     let bundle_name = bundle_name.into();
-    // Serialize against concurrent installs/downloads of this same bundle.
     let _guard = self.lock_bundle(&bundle_name).await;
-    // The bundle is parsed to validate that the response is a well-formed `.wvb`, but the
-    // raw bytes are what gets written: they are what the integrity string covers, so
-    // storing them verbatim keeps the on-disk file verifiable on every later load.
     let (info, _bundle, data) = match version {
       Some(ver) => self.remote.download_version(&bundle_name, &ver).await,
       None => {
         self
           .remote
-          .download(&bundle_name, self.config.channel.as_ref())
+          .download(&bundle_name, self.options.channel.as_ref())
           .await
       }
     }?;
 
     #[cfg(feature = "integrity")]
     self
-      .config
-      .verify(info.integrity.as_deref(), info.signature.as_deref(), &data)
+      .verify(&data, info.integrity.as_deref(), info.signature.as_deref())
       .await?;
 
     self
@@ -222,19 +110,15 @@ impl Updater {
       .get_remote_bundle_filepath(&bundle_name, &version)?;
     let data = tokio::fs::read(&filepath).await?;
 
-    // Parse the staged file before activating it: a file that is not a well-formed bundle
-    // must never become the active version, whether or not integrity is advertised for it.
-    // The descriptor covers the header and index; reading it as a full `Bundle` would copy
-    // the whole data section into a second buffer only to drop it.
+    // Parse the staged file before activating it.
     Reader::<BundleDescriptor>::read(&mut BundleReader::new(Cursor::new(&data)))?;
 
     #[cfg(feature = "integrity")]
     self
-      .config
       .verify(
+        &data,
         metadata.integrity.as_deref(),
         metadata.signature.as_deref(),
-        &data,
       )
       .await?;
 
@@ -249,6 +133,14 @@ impl Updater {
     let _ = self.source.prune_remote_bundles(&bundle_name).await;
 
     Ok(())
+  }
+
+  fn to_fetch_options(&self) -> RemoteFetchOptions {
+    let mut options = RemoteFetchOptions::default();
+    if let Some(channel) = &self.options.channel {
+      options = options.channel(channel);
+    }
+    options
   }
 
   async fn to_update_info(&self, info: RemoteBundleInfo) -> crate::Result<BundleUpdateInfo> {
@@ -279,5 +171,34 @@ impl Updater {
       .or_default()
       .clone();
     mutex.lock_owned().await
+  }
+
+  async fn verify(
+    &self,
+    data: &[u8],
+    integrity: Option<&str>,
+    signature: Option<&str>,
+  ) -> crate::Result<()> {
+    #[cfg(feature = "integrity")]
+    {
+      crate::integrity::verify_integrity(
+        &self.options.integrity.policy,
+        &self.options.integrity.check,
+        integrity,
+        data,
+      )
+      .await?;
+    }
+    #[cfg(feature = "signature")]
+    {
+      if let Some(verify) = &self.options.signature.verify {
+        crate::signature::verify_signature(verify, integrity, signature).await?;
+      }
+    }
+    #[cfg(not(feature = "integrity"))]
+    {
+      let _ = (data, metadata);
+    }
+    Ok(())
   }
 }

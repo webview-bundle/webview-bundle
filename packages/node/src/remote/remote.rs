@@ -5,7 +5,6 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::sync::Arc;
 use wvb::remote;
-use wvb::remote::HttpConfig;
 
 /// Options for creating a remote client.
 ///
@@ -106,6 +105,32 @@ impl From<RemoteBundleInfo> for remote::RemoteBundleInfo {
   }
 }
 
+/// Remote fetch options.
+///
+/// @property {string} [channel] - Channel to use for fetching bundles.
+#[napi(object)]
+pub struct RemoteFetchOptions {
+  pub channel: Option<String>,
+}
+
+impl From<RemoteFetchOptions> for remote::RemoteFetchOptions {
+  fn from(value: RemoteFetchOptions) -> Self {
+    let mut options = remote::RemoteFetchOptions::default();
+    if let Some(channel) = value.channel {
+      options = options.channel(channel);
+    }
+    options
+  }
+}
+
+impl From<remote::RemoteFetchOptions> for RemoteFetchOptions {
+  fn from(value: remote::RemoteFetchOptions) -> Self {
+    Self {
+      channel: value.channel,
+    }
+  }
+}
+
 /// HTTP client for downloading bundles from a remote server.
 ///
 /// The remote client implements the bundle HTTP protocol, allowing you to:
@@ -161,7 +186,7 @@ impl Remote {
     let mut builder = remote::Remote::builder().endpoint(endpoint);
     if let Some(options) = options {
       if let Some(http) = options.http {
-        builder = builder.http(HttpConfig::try_from(http)?);
+        builder = builder.http(remote::HttpOptions::try_from(http)?);
       }
       if let Some(on_download) = options.on_download {
         builder = builder.on_download(move |downloaded_bytes, total_bytes, endpoint| {
@@ -195,11 +220,11 @@ impl Remote {
   #[napi]
   pub async fn list_bundles(
     &self,
-    channel: Option<String>,
+    options: Option<RemoteFetchOptions>,
   ) -> crate::Result<Vec<ListRemoteBundleInfo>> {
     let bundles = self
       .inner
-      .list_bundles(channel.as_ref())
+      .list_bundles(options.map(Into::into))
       .await?
       .into_iter()
       .map(ListRemoteBundleInfo::from)
@@ -227,11 +252,11 @@ impl Remote {
   pub async fn get_info(
     &self,
     bundle_name: String,
-    channel: Option<String>,
+    options: Option<RemoteFetchOptions>,
   ) -> crate::Result<RemoteBundleInfo> {
     let info = self
       .inner
-      .get_current_info(&bundle_name, channel.as_ref())
+      .get_current_info(&bundle_name, options.map(Into::into))
       .await?;
     Ok(info.into())
   }

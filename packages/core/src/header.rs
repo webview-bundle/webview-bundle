@@ -8,6 +8,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use crate::reader::AsyncReader;
 #[cfg(feature = "async")]
 use crate::writer::AsyncWriter;
+use crate::{ChecksumReadOptions, ChecksumWriteOptions};
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
@@ -108,12 +109,12 @@ fn write_index_size(index_size: u32) -> Vec<u8> {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct HeaderWriterOptions {
-  pub(crate) checksum_seed: u32,
+  pub checksum: ChecksumWriteOptions,
 }
 
 impl HeaderWriterOptions {
-  pub fn checksum_seed(&mut self, seed: u32) -> &mut Self {
-    self.checksum_seed = seed;
+  pub fn checksum(mut self, checksum: ChecksumWriteOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
@@ -172,7 +173,7 @@ impl<W: Write> Writer<Header> for HeaderWriter<W> {
     bytes.extend(self.write_version(header.version)?);
     bytes.extend(self.write_index_size(header.index_size)?);
 
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum)?);
     Ok(bytes.len())
   }
@@ -235,7 +236,7 @@ impl<W: AsyncWrite + Unpin> AsyncWriter<Header> for AsyncHeaderWriter<W> {
     bytes.extend(self.write_version(header.version).await?);
     bytes.extend(self.write_index_size(header.index_size).await?);
 
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum).await?);
     Ok(bytes.len())
   }
@@ -285,45 +286,14 @@ fn read_total() -> (u64, [u8; Header::CHECKSUM_OFFSET as usize]) {
   )
 }
 
-/// How the header checksum is treated when the header is read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HeaderReadChecksumOptions {
-  /// Whether to verify the header checksum when the header is read (default: `true`).
-  pub verify: bool,
-  /// The seed the header checksum was built with
-  /// ([`HeaderWriterOptions::checksum_seed`], default: `0`).
-  pub seed: u32,
-}
-
-impl Default for HeaderReadChecksumOptions {
-  fn default() -> Self {
-    Self {
-      verify: true,
-      seed: 0,
-    }
-  }
-}
-
-impl HeaderReadChecksumOptions {
-  pub fn verify(mut self, verify: bool) -> Self {
-    self.verify = verify;
-    self
-  }
-
-  pub fn seed(mut self, seed: u32) -> Self {
-    self.seed = seed;
-    self
-  }
-}
-
 /// How the header is read out of a bundle.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct HeaderReadOptions {
-  pub checksum: HeaderReadChecksumOptions,
+  pub checksum: ChecksumReadOptions,
 }
 
 impl HeaderReadOptions {
-  pub fn checksum(mut self, checksum: HeaderReadChecksumOptions) -> Self {
+  pub fn checksum(mut self, checksum: ChecksumReadOptions) -> Self {
     self.checksum = checksum;
     self
   }

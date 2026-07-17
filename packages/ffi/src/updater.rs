@@ -1,8 +1,9 @@
-use crate::integrity::IntegrityPolicy;
+use crate::integrity::{IntegrityCheck, IntegrityPolicy};
 use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
-use crate::signature::SignatureVerifierOptions;
+use crate::signature::SignatureVerification;
 use crate::source::BundleSource;
 use std::sync::Arc;
+use wvb::signature;
 use wvb::updater;
 
 /// Result of checking whether a bundle update is available.
@@ -37,16 +38,68 @@ impl From<updater::BundleUpdateInfo> for BundleUpdateInfo {
   }
 }
 
+#[derive(uniffi::Record, Clone)]
+pub struct UpdaterIntegrityOptions {
+  /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
+  ///
+  /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
+  #[uniffi(default = None)]
+  pub policy: Option<IntegrityPolicy>,
+  /// A custom checker that validates bundle bytes against their integrity string
+  /// (default: the built-in checker, which compares the advertised hash).
+  #[uniffi(default = None)]
+  pub check: Option<Arc<dyn IntegrityCheck>>,
+}
+
+#[derive(uniffi::Record, Clone)]
+pub struct UpdaterSignatureOptions {
+  /// When set, the updater verifies the bundle signature over its integrity string before
+  /// applying an update — with a declarative public key or a custom function.
+  /// Verified independently of `integrity_policy` — keep the policy enabled for the
+  /// signature to also authenticate the bundle bytes.
+  #[uniffi(default = None)]
+  pub verify: Option<SignatureVerification>,
+}
+
 /// Optional configuration for the [`Updater`].
-#[derive(uniffi::Record, Clone, Debug)]
+#[derive(uniffi::Record, Clone)]
 pub struct UpdaterOptions {
   /// Release channel (e.g. `"stable"`, `"beta"`). Passed as a query parameter to the remote.
+  #[uniffi(default = None)]
   pub channel: Option<String>,
-  pub integrity_policy: Option<IntegrityPolicy>,
-  /// When set, the updater verifies the bundle signature over its integrity string before
-  /// applying an update. Verified independently of `integrity_policy` — keep the policy
-  /// enabled for the signature to also authenticate the bundle bytes.
-  pub signature_verifier: Option<SignatureVerifierOptions>,
+  #[uniffi(default = None)]
+  pub integrity: Option<UpdaterIntegrityOptions>,
+  #[uniffi(default = None)]
+  pub signature: Option<UpdaterSignatureOptions>,
+}
+
+fn updater_options(options: UpdaterOptions) -> Result<updater::UpdaterOptions, crate::Error> {
+  let mut updater_options = updater::UpdaterOptions::default();
+
+  if let Some(channel) = options.channel {
+    updater_options = updater_options.channel(channel);
+  }
+
+  if let Some(integrity) = options.integrity {
+    let mut integrity_options = updater::UpdaterIntegrityOptions::default();
+    if let Some(policy) = integrity.policy {
+      integrity_options = integrity_options.policy(policy.into());
+    }
+    if let Some(check) = integrity.check {
+      integrity_options = integrity_options.check(crate::integrity::into_checker(check));
+    }
+    updater_options = updater_options.integrity(integrity_options);
+  }
+
+  if let Some(signature) = options.signature {
+    let mut signature_options = updater::UpdaterSignatureOptions::default();
+    if let Some(verify) = signature.verify {
+      signature_options = signature_options.verify(signature::SignatureVerify::try_from(verify)?);
+    }
+    updater_options = updater_options.signature(signature_options);
+  }
+
+  Ok(updater_options)
 }
 
 /// Orchestrates the full update cycle: checks for a new version on the remote,
@@ -64,21 +117,9 @@ impl Updater {
     remote: Arc<Remote>,
     options: Option<UpdaterOptions>,
   ) -> Result<Arc<Updater>, crate::Error> {
-    let config = if let Some(opts) = options {
-      let mut config = updater::UpdaterConfig::default();
-      if let Some(channel) = opts.channel {
-        config = config.channel(channel);
-      }
-      if let Some(policy) = opts.integrity_policy {
-        config = config.integrity_policy(policy.into());
-      }
-      if let Some(verifier_opts) = opts.signature_verifier {
-        let verifier = wvb::signature::SignatureVerifier::try_from(verifier_opts)?;
-        config = config.signature_verifier(verifier);
-      }
-      Some(config)
-    } else {
-      None
+    let config = match options {
+      Some(options) => Some(updater_options(options)?),
+      None => None,
     };
     Ok(Arc::new(Updater {
       inner: updater::Updater::new(source.inner.clone(), remote.inner.clone(), config),

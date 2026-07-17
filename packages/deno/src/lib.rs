@@ -4,24 +4,27 @@ use base64ct::{Base64, Encoding};
 use error::ErrorCode;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
+use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 use tokio::runtime::Runtime;
 use wvb::http;
-use wvb::integrity::IntegrityPolicy;
+use wvb::integrity::{Integrity, IntegrityAlgorithm, IntegrityPolicy};
 use wvb::protocol::{
   BundleProtocol, HostnameSegment, Protocol, ProxyProtocol, ProxyResolver, UriBundleResolver,
   UriPathResolver,
 };
-use wvb::remote::{HttpConfig, Remote as CoreRemote};
+use wvb::remote::{HttpOptions, Remote as CoreRemote, RemoteFetchOptions};
 use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
-  RsaPssVerifier, SignatureVerifier,
+  RsaPssVerifier, SignatureVerify,
 };
 use wvb::source::{
-  self, BundleSource, BundleSourceIntegrityCheckMode, BundleSourceIntegrityOptions,
-  BundleSourceOptions, BundleSourceSignatureOptions, BundleSourceSignatureVerifyMode,
+  self, BundleSource, BundleSourceIntegrityOptions, BundleSourceOptions,
+  BundleSourceSignatureOptions, BundleSourceVerifyMode,
 };
-use wvb::updater::{Updater as CoreUpdater, UpdaterConfig};
+use wvb::updater::{
+  Updater as CoreUpdater, UpdaterIntegrityOptions, UpdaterOptions, UpdaterSignatureOptions,
+};
 
 fn runtime() -> &'static Runtime {
   static RT: OnceLock<Runtime> = OnceLock::new();
@@ -122,7 +125,7 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
       }
       match x.get("checkMode") {
         None | Some(serde_json::Value::Null) => {}
-        Some(m) => integrity = integrity.check_mode(parse_integrity_check_mode(m.as_str()?)?),
+        Some(m) => integrity = integrity.check_mode(parse_verify_mode(m.as_str()?)?),
       }
       options = options.integrity(integrity);
     }
@@ -142,56 +145,35 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
       }
       match x.get("verifyMode") {
         None | Some(serde_json::Value::Null) => {}
-        Some(m) => signature = signature.verify_mode(parse_signature_verify_mode(m.as_str()?)?),
+        Some(m) => signature = signature.verify_mode(parse_verify_mode(m.as_str()?)?),
       }
       options = options.signature(signature);
     }
   }
-  // Each per-section read-option group carries a single `checksum` object; the sections use distinct
-  // core types, so each group builds its own from the `(verify, seed)` the shared helper extracts,
-  // and only when the group actually gave a `checksum`.
+  // Each per-section read-option group carries a single `checksum` object, and all three sections
+  // check their checksum with the same core type — so a group only overrides the section it names,
+  // and only when it actually gave a `checksum`.
   match value.get("dataReadOptions") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => {
-      if let Some((verify, seed)) = parse_read_checksum_group(x)? {
-        let mut checksum = wvb::DataReadChecksumOptions::default();
-        if let Some(verify) = verify {
-          checksum = checksum.verify(verify);
-        }
-        if let Some(seed) = seed {
-          checksum = checksum.seed(seed);
-        }
-        options = options.data_read_options(wvb::DataReadOptions::default().checksum(checksum));
+      if let Some(checksum) = parse_read_checksum_group(x)? {
+        options = options.data_read(wvb::DataReadOptions::default().checksum(checksum));
       }
     }
   }
   match value.get("headerReadOptions") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => {
-      if let Some((verify, seed)) = parse_read_checksum_group(x)? {
-        let mut checksum = wvb::HeaderReadChecksumOptions::default();
-        if let Some(verify) = verify {
-          checksum = checksum.verify(verify);
-        }
-        if let Some(seed) = seed {
-          checksum = checksum.seed(seed);
-        }
-        options = options.header_read_options(wvb::HeaderReadOptions::default().checksum(checksum));
+      if let Some(checksum) = parse_read_checksum_group(x)? {
+        options = options.header_read(wvb::HeaderReadOptions::default().checksum(checksum));
       }
     }
   }
   match value.get("indexReadOptions") {
     None | Some(serde_json::Value::Null) => {}
     Some(x) => {
-      if let Some((verify, seed)) = parse_read_checksum_group(x)? {
-        let mut checksum = wvb::IndexReadChecksumOptions::default();
-        if let Some(verify) = verify {
-          checksum = checksum.verify(verify);
-        }
-        if let Some(seed) = seed {
-          checksum = checksum.seed(seed);
-        }
-        options = options.index_read_options(wvb::IndexReadOptions::default().checksum(checksum));
+      if let Some(checksum) = parse_read_checksum_group(x)? {
+        options = options.index_read(wvb::IndexReadOptions::default().checksum(checksum));
       }
     }
   }
@@ -200,10 +182,10 @@ fn parse_source_options(value: &serde_json::Value) -> Option<BundleSourceOptions
 
 /// Read a per-section read-option group `{ checksum?: { verify?, seed? } }`. A non-object group or an
 /// unknown group key returns `None` (fail closed). `Some(None)` means no `checksum` was given, and
-/// `Some(Some((verify, seed)))` carries the checksum keys the caller actually set.
+/// `Some(Some(checksum))` carries the checksum options the caller actually set.
 fn parse_read_checksum_group(
   value: &serde_json::Value,
-) -> Option<Option<(Option<bool>, Option<u32>)>> {
+) -> Option<Option<wvb::ChecksumReadOptions>> {
   let object = value.as_object()?;
   for key in object.keys() {
     if key != "checksum" {
@@ -216,25 +198,26 @@ fn parse_read_checksum_group(
   }
 }
 
-/// Read a `{ verify?, seed? }` read-checksum object into `(verify, seed)`, applying only the keys the
-/// caller gave. A non-object, an unknown sub-key, or an ill-typed value returns `None`, so the caller
-/// can fail closed rather than read a section unverified.
-fn parse_read_checksum(value: &serde_json::Value) -> Option<(Option<bool>, Option<u32>)> {
+/// Read a `{ verify?, seed? }` read-checksum object, applying only the keys the caller gave. A
+/// non-object, an unknown sub-key, or an ill-typed value returns `None`, so the caller can fail
+/// closed rather than read a section unverified.
+fn parse_read_checksum(value: &serde_json::Value) -> Option<wvb::ChecksumReadOptions> {
   let object = value.as_object()?;
   for key in object.keys() {
     if key != "verify" && key != "seed" {
       return None;
     }
   }
-  let verify = match object.get("verify") {
-    None | Some(serde_json::Value::Null) => None,
-    Some(x) => Some(x.as_bool()?),
-  };
-  let seed = match object.get("seed") {
-    None | Some(serde_json::Value::Null) => None,
-    Some(x) => Some(u32::try_from(x.as_u64()?).ok()?),
-  };
-  Some((verify, seed))
+  let mut checksum = wvb::ChecksumReadOptions::default();
+  match object.get("verify") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => checksum = checksum.verify(x.as_bool()?),
+  }
+  match object.get("seed") {
+    None | Some(serde_json::Value::Null) => {}
+    Some(x) => checksum = checksum.seed(u32::try_from(x.as_u64()?).ok()?),
+  }
+  Some(checksum)
 }
 
 /// `integrity.policy`/`integrityPolicy` string mapping shared by the source and the updater.
@@ -248,22 +231,17 @@ fn parse_integrity_policy(policy: &str) -> Option<IntegrityPolicy> {
   }
 }
 
-/// `integrity.checkMode` string mapping. Returns `None` for an unknown value, so the caller can
-/// fail closed rather than pick a default.
-fn parse_integrity_check_mode(mode: &str) -> Option<BundleSourceIntegrityCheckMode> {
-  match mode {
-    "all" => Some(BundleSourceIntegrityCheckMode::All),
-    "onlyRemote" => Some(BundleSourceIntegrityCheckMode::OnlyRemote),
-    _ => None,
-  }
+/// Remote fetch options for a `channel` crossing the C boundary, where `""` means "no channel".
+fn fetch_options(channel: &str) -> Option<RemoteFetchOptions> {
+  (!channel.is_empty()).then(|| RemoteFetchOptions::default().channel(channel))
 }
 
-/// `signature.verifyMode` string mapping. Returns `None` for an unknown value, so the caller can
-/// fail closed rather than pick a default.
-fn parse_signature_verify_mode(mode: &str) -> Option<BundleSourceSignatureVerifyMode> {
+/// `integrity.checkMode`/`signature.verifyMode` string mapping — both select the same core mode.
+/// Returns `None` for an unknown value, so the caller can fail closed rather than pick a default.
+fn parse_verify_mode(mode: &str) -> Option<BundleSourceVerifyMode> {
   match mode {
-    "all" => Some(BundleSourceSignatureVerifyMode::All),
-    "onlyRemote" => Some(BundleSourceSignatureVerifyMode::OnlyRemote),
+    "all" => Some(BundleSourceVerifyMode::All),
+    "onlyRemote" => Some(BundleSourceVerifyMode::OnlyRemote),
     _ => None,
   }
 }
@@ -351,14 +329,14 @@ pub unsafe extern "C" fn wvb_bundle_protocol_new(
     match options.get("bundleResolver") {
       None | Some(serde_json::Value::Null) => {}
       Some(value) => match parse_bundle_resolver(value) {
-        Some(resolver) => protocol = protocol.with_bundle_resolver(resolver),
+        Some(resolver) => protocol = protocol.set_bundle_resolver(resolver),
         None => return std::ptr::null_mut(),
       },
     }
     match options.get("pathResolver") {
       None | Some(serde_json::Value::Null) => {}
       Some(value) => match parse_path_resolver(value) {
-        Some(resolver) => protocol = protocol.with_path_resolver(resolver),
+        Some(resolver) => protocol = protocol.set_path_resolver(resolver),
         None => return std::ptr::null_mut(),
       },
     }
@@ -583,38 +561,120 @@ fn list_bundle_item_json(it: &source::ListBundleItem) -> serde_json::Value {
   })
 }
 
-/// Parse a JSON object of HTTP client options into an `HttpConfig`.
-fn parse_http_config(raw: &str) -> Option<HttpConfig> {
+/// Copy `len` bytes the caller only guarantees for the duration of this call.
+///
+/// # Safety
+/// `ptr` must be null, or point to `len` readable bytes.
+unsafe fn owned_bytes(ptr: *const u8, len: usize) -> Vec<u8> {
+  if ptr.is_null() || len == 0 {
+    Vec::new()
+  } else {
+    unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+  }
+}
+
+/// Compute the integrity of `data` under `algorithm` (`"sha256"`/`"sha384"`/`"sha512"`).
+/// The result's json is the serialized `<algorithm>:<base64>` string and its body is the
+/// raw digest.
+///
+/// # Safety
+/// `algorithm` must be a valid C string; `data` must be null or point to `data_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_compute_integrity(
+  algorithm: *const c_char,
+  data: *const u8,
+  data_len: usize,
+) -> *mut WvbResult {
+  let raw = unsafe { cstr(algorithm) };
+  let algorithm = match IntegrityAlgorithm::from_str(&raw) {
+    Ok(algorithm) => algorithm,
+    Err(e) => return core_err(e),
+  };
+  let integrity = Integrity::compute(algorithm, &unsafe { owned_bytes(data, data_len) });
+  ok_result(
+    serde_json::Value::String(integrity.serialize()),
+    integrity.value().to_vec(),
+  )
+}
+
+/// Parse a serialized `<algorithm>:<base64>` integrity string. The result's json is the
+/// re-serialized string and its body is the raw digest.
+///
+/// # Safety
+/// `integrity` must be a valid C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_parse_integrity(integrity: *const c_char) -> *mut WvbResult {
+  let raw = unsafe { cstr(integrity) };
+  match Integrity::from_str(&raw) {
+    Ok(integrity) => ok_result(
+      serde_json::Value::String(integrity.serialize()),
+      integrity.value().to_vec(),
+    ),
+    Err(e) => core_err(e),
+  }
+}
+
+/// Whether `data` digests to `integrity`. The result's json is the boolean.
+///
+/// # Safety
+/// `integrity` must be a valid C string; `data` must be null or point to `data_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wvb_integrity_validate(
+  integrity: *const c_char,
+  data: *const u8,
+  data_len: usize,
+) -> *mut WvbResult {
+  let raw = unsafe { cstr(integrity) };
+  match Integrity::from_str(&raw) {
+    Ok(integrity) => ok_result(
+      serde_json::Value::Bool(integrity.validate(&unsafe { owned_bytes(data, data_len) })),
+      Vec::new(),
+    ),
+    Err(e) => core_err(e),
+  }
+}
+
+/// Parse a JSON object of HTTP client options into [`HttpOptions`].
+fn parse_http_options(raw: &str) -> Option<HttpOptions> {
   let value: serde_json::Value = serde_json::from_str(raw).ok()?;
-  let mut config = HttpConfig::new();
+  let mut options = HttpOptions::new();
+  if let Some(x) = value.get("defaultHeaders").and_then(|x| x.as_object()) {
+    let mut headers = http::HeaderMap::with_capacity(x.len());
+    for (name, value) in x {
+      let name = http::HeaderName::from_bytes(name.as_bytes()).ok()?;
+      let value = http::HeaderValue::from_str(value.as_str()?).ok()?;
+      headers.insert(name, value);
+    }
+    options = options.default_headers(headers);
+  }
   if let Some(x) = value.get("userAgent").and_then(|x| x.as_str()) {
-    config = config.user_agent(x.to_string());
+    options = options.user_agent(x.to_string());
   }
   if let Some(x) = value.get("timeout").and_then(|x| x.as_u64()) {
-    config = config.timeout(x);
+    options = options.timeout(x);
   }
   if let Some(x) = value.get("readTimeout").and_then(|x| x.as_u64()) {
-    config = config.read_timeout(x);
+    options = options.read_timeout(x);
   }
   if let Some(x) = value.get("connectTimeout").and_then(|x| x.as_u64()) {
-    config = config.connect_timeout(x);
+    options = options.connect_timeout(x);
   }
   if let Some(x) = value.get("poolIdleTimeout").and_then(|x| x.as_u64()) {
-    config = config.pool_idle_timeout(x);
+    options = options.pool_idle_timeout(x);
   }
   if let Some(x) = value.get("poolMaxIdlePerHost").and_then(|x| x.as_u64()) {
-    config = config.pool_max_idle_per_host(x as usize);
+    options = options.pool_max_idle_per_host(x as usize);
   }
   if let Some(x) = value.get("referer").and_then(|x| x.as_bool()) {
-    config = config.referer(x);
+    options = options.referer(x);
   }
   if let Some(x) = value.get("tcpNodelay").and_then(|x| x.as_bool()) {
-    config = config.tcp_nodelay(x);
+    options = options.tcp_nodelay(x);
   }
   if let Some(x) = value.get("hickoryDns").and_then(|x| x.as_bool()) {
-    config = config.hickory_dns(x);
+    options = options.hickory_dns(x);
   }
-  Some(config)
+  Some(options)
 }
 
 /// Create a remote client. `http_json` is null/empty or a JSON object of HTTP options.
@@ -628,10 +688,10 @@ pub unsafe extern "C" fn wvb_remote_new(
 ) -> *mut WvbRemote {
   let endpoint = unsafe { cstr(endpoint) };
   let mut builder = CoreRemote::builder().endpoint(endpoint);
-  // parse_http_config returns None for an empty / unparsable string, so no separate guard is needed.
+  // parse_http_options returns None for an empty / unparsable string, so no separate guard is needed.
   let http_raw = unsafe { cstr(http_json) };
-  if let Some(config) = parse_http_config(&http_raw) {
-    builder = builder.http(config);
+  if let Some(options) = parse_http_options(&http_raw) {
+    builder = builder.http(options);
   }
   match builder.build() {
     Ok(remote) => Box::into_raw(Box::new(WvbRemote {
@@ -661,10 +721,7 @@ pub unsafe extern "C" fn wvb_remote_list_bundles(
     return null_handle_err("remote");
   };
   let channel = unsafe { cstr(channel) };
-  match runtime().block_on(async move {
-    let channel = (!channel.is_empty()).then_some(&channel);
-    remote.list_bundles(channel).await
-  }) {
+  match runtime().block_on(async move { remote.list_bundles(fetch_options(&channel)).await }) {
     Ok(list) => ok_result(
       serde_json::Value::Array(list.iter().map(list_info_json).collect()),
       Vec::new(),
@@ -687,8 +744,9 @@ pub unsafe extern "C" fn wvb_remote_get_info(
   let name = unsafe { cstr(bundle_name) };
   let channel = unsafe { cstr(channel) };
   match runtime().block_on(async move {
-    let channel = (!channel.is_empty()).then_some(&channel);
-    remote.get_current_info(&name, channel).await
+    remote
+      .get_current_info(&name, fetch_options(&channel))
+      .await
   }) {
     Ok(info) => ok_result(remote_info_json(&info), Vec::new()),
     Err(e) => core_err(e),
@@ -742,66 +800,66 @@ pub unsafe extern "C" fn wvb_remote_download_version(
 /// For the PEM key formats `data` is the PEM text; for the binary formats (`spkiDer`/`pkcs1Der`
 /// /`sec1`/`raw`) it is standard base64. Returns `None` on any parse, base64-decode, unsupported
 /// algorithm/format combination, or key-construction failure, so the caller can fail closed.
-fn build_signature_verifier(sv: &serde_json::Value) -> Option<SignatureVerifier> {
+fn build_signature_verifier(sv: &serde_json::Value) -> Option<SignatureVerify> {
   let algorithm = sv.get("algorithm")?.as_str()?;
   let key = sv.get("key")?;
   let format = key.get("format")?.as_str()?;
   let data = key.get("data")?.as_str()?;
   let bytes = || Base64::decode_vec(data).ok();
   let verifier = match (algorithm, format) {
-    ("ecdsaSecp256R1", "sec1") => SignatureVerifier::EcdsaSecp256r1(Arc::new(
+    ("ecdsaSecp256R1", "sec1") => SignatureVerify::EcdsaSecp256r1(Arc::new(
       EcdsaSecp256r1Verifier::from_sec1_bytes(&bytes()?).ok()?,
     )),
-    ("ecdsaSecp256R1", "spkiDer") => SignatureVerifier::EcdsaSecp256r1(Arc::new(
+    ("ecdsaSecp256R1", "spkiDer") => SignatureVerify::EcdsaSecp256r1(Arc::new(
       EcdsaSecp256r1Verifier::from_public_key_der(&bytes()?).ok()?,
     )),
-    ("ecdsaSecp256R1", "spkiPem") => SignatureVerifier::EcdsaSecp256r1(Arc::new(
+    ("ecdsaSecp256R1", "spkiPem") => SignatureVerify::EcdsaSecp256r1(Arc::new(
       EcdsaSecp256r1Verifier::from_public_key_pem(data).ok()?,
     )),
-    ("ecdsaSecp384R1", "sec1") => SignatureVerifier::EcdsaSecp384r1(Arc::new(
+    ("ecdsaSecp384R1", "sec1") => SignatureVerify::EcdsaSecp384r1(Arc::new(
       EcdsaSecp384r1Verifier::from_sec1_bytes(&bytes()?).ok()?,
     )),
-    ("ecdsaSecp384R1", "spkiDer") => SignatureVerifier::EcdsaSecp384r1(Arc::new(
+    ("ecdsaSecp384R1", "spkiDer") => SignatureVerify::EcdsaSecp384r1(Arc::new(
       EcdsaSecp384r1Verifier::from_public_key_der(&bytes()?).ok()?,
     )),
-    ("ecdsaSecp384R1", "spkiPem") => SignatureVerifier::EcdsaSecp384r1(Arc::new(
+    ("ecdsaSecp384R1", "spkiPem") => SignatureVerify::EcdsaSecp384r1(Arc::new(
       EcdsaSecp384r1Verifier::from_public_key_pem(data).ok()?,
     )),
-    ("ed25519", "spkiDer") => SignatureVerifier::Ed25519(Arc::new(
+    ("ed25519", "spkiDer") => SignatureVerify::Ed25519(Arc::new(
       Ed25519Verifier::from_public_key_der(&bytes()?).ok()?,
     )),
     ("ed25519", "spkiPem") => {
-      SignatureVerifier::Ed25519(Arc::new(Ed25519Verifier::from_public_key_pem(data).ok()?))
+      SignatureVerify::Ed25519(Arc::new(Ed25519Verifier::from_public_key_pem(data).ok()?))
     }
     ("ed25519", "raw") => {
       let raw = bytes()?;
       // Ed25519 raw keys must be exactly 32 bytes; reject anything else (fail closed).
       let arr: [u8; 32] = raw.as_slice().try_into().ok()?;
-      SignatureVerifier::Ed25519(Arc::new(Ed25519Verifier::from_public_key_bytes(&arr).ok()?))
+      SignatureVerify::Ed25519(Arc::new(Ed25519Verifier::from_public_key_bytes(&arr).ok()?))
     }
-    ("rsaPkcs1V15", "pkcs1Der") => SignatureVerifier::RsaPkcs1V15(Arc::new(
+    ("rsaPkcs1V15", "pkcs1Der") => SignatureVerify::RsaPkcs1V15(Arc::new(
       RsaPkcs1V15Verifier::from_pkcs1_der(&bytes()?).ok()?,
     )),
     ("rsaPkcs1V15", "pkcs1Pem") => {
-      SignatureVerifier::RsaPkcs1V15(Arc::new(RsaPkcs1V15Verifier::from_pkcs1_pem(data).ok()?))
+      SignatureVerify::RsaPkcs1V15(Arc::new(RsaPkcs1V15Verifier::from_pkcs1_pem(data).ok()?))
     }
-    ("rsaPkcs1V15", "spkiDer") => SignatureVerifier::RsaPkcs1V15(Arc::new(
+    ("rsaPkcs1V15", "spkiDer") => SignatureVerify::RsaPkcs1V15(Arc::new(
       RsaPkcs1V15Verifier::from_public_key_der(&bytes()?).ok()?,
     )),
-    ("rsaPkcs1V15", "spkiPem") => SignatureVerifier::RsaPkcs1V15(Arc::new(
+    ("rsaPkcs1V15", "spkiPem") => SignatureVerify::RsaPkcs1V15(Arc::new(
       RsaPkcs1V15Verifier::from_public_key_pem(data).ok()?,
     )),
     ("rsaPss", "pkcs1Der") => {
-      SignatureVerifier::RsaPss(Arc::new(RsaPssVerifier::from_pkcs1_der(&bytes()?).ok()?))
+      SignatureVerify::RsaPss(Arc::new(RsaPssVerifier::from_pkcs1_der(&bytes()?).ok()?))
     }
     ("rsaPss", "pkcs1Pem") => {
-      SignatureVerifier::RsaPss(Arc::new(RsaPssVerifier::from_pkcs1_pem(data).ok()?))
+      SignatureVerify::RsaPss(Arc::new(RsaPssVerifier::from_pkcs1_pem(data).ok()?))
     }
-    ("rsaPss", "spkiDer") => SignatureVerifier::RsaPss(Arc::new(
+    ("rsaPss", "spkiDer") => SignatureVerify::RsaPss(Arc::new(
       RsaPssVerifier::from_public_key_der(&bytes()?).ok()?,
     )),
     ("rsaPss", "spkiPem") => {
-      SignatureVerifier::RsaPss(Arc::new(RsaPssVerifier::from_public_key_pem(data).ok()?))
+      SignatureVerify::RsaPss(Arc::new(RsaPssVerifier::from_public_key_pem(data).ok()?))
     }
     _ => return None,
   };
@@ -827,7 +885,7 @@ pub unsafe extern "C" fn wvb_updater_new(
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
       return std::ptr::null_mut();
     };
-    let mut config = UpdaterConfig::default();
+    let mut config = UpdaterOptions::default();
     if let Some(channel) = value.get("channel").and_then(|x| x.as_str()) {
       config = config.channel(channel.to_string());
     }
@@ -835,7 +893,9 @@ pub unsafe extern "C" fn wvb_updater_new(
     match value.get("integrityPolicy") {
       None | Some(serde_json::Value::Null) => {}
       Some(x) => match x.as_str().and_then(parse_integrity_policy) {
-        Some(policy) => config = config.integrity_policy(policy),
+        Some(policy) => {
+          config = config.integrity(UpdaterIntegrityOptions::default().policy(policy))
+        }
         None => return std::ptr::null_mut(),
       },
     }
@@ -844,7 +904,9 @@ pub unsafe extern "C" fn wvb_updater_new(
     match value.get("signatureVerifier") {
       None | Some(serde_json::Value::Null) => {}
       Some(sv) => match build_signature_verifier(sv) {
-        Some(verifier) => config = config.signature_verifier(verifier),
+        Some(verifier) => {
+          config = config.signature(UpdaterSignatureOptions::default().verify(verifier))
+        }
         None => return std::ptr::null_mut(),
       },
     }
@@ -1225,37 +1287,29 @@ mod tests {
     format!("{options:?}")
   }
 
+  /// The read-checksum options carrying the given overrides.
+  fn checksum(verify: bool, seed: u32) -> wvb::ChecksumReadOptions {
+    wvb::ChecksumReadOptions::default()
+      .verify(verify)
+      .seed(seed)
+  }
+
   /// A `BundleSourceOptions` carrying only the given data-checksum overrides.
   fn data_checksum(verify: bool, seed: u32) -> BundleSourceOptions {
-    BundleSourceOptions::default().data_read_options(
-      wvb::DataReadOptions::default().checksum(
-        wvb::DataReadChecksumOptions::default()
-          .verify(verify)
-          .seed(seed),
-      ),
-    )
+    BundleSourceOptions::default()
+      .data_read(wvb::DataReadOptions::default().checksum(checksum(verify, seed)))
   }
 
   /// A `BundleSourceOptions` carrying only the given header-checksum overrides.
   fn header_checksum(verify: bool, seed: u32) -> BundleSourceOptions {
-    BundleSourceOptions::default().header_read_options(
-      wvb::HeaderReadOptions::default().checksum(
-        wvb::HeaderReadChecksumOptions::default()
-          .verify(verify)
-          .seed(seed),
-      ),
-    )
+    BundleSourceOptions::default()
+      .header_read(wvb::HeaderReadOptions::default().checksum(checksum(verify, seed)))
   }
 
   /// A `BundleSourceOptions` carrying only the given index-checksum overrides.
   fn index_checksum(verify: bool, seed: u32) -> BundleSourceOptions {
-    BundleSourceOptions::default().index_read_options(
-      wvb::IndexReadOptions::default().checksum(
-        wvb::IndexReadChecksumOptions::default()
-          .verify(verify)
-          .seed(seed),
-      ),
-    )
+    BundleSourceOptions::default()
+      .index_read(wvb::IndexReadOptions::default().checksum(checksum(verify, seed)))
   }
 
   #[test]

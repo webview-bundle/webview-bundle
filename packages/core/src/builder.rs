@@ -2,7 +2,7 @@ use crate::checksum::{CHECKSUM_LEN, make_checksum};
 use crate::header::HeaderWriterOptions;
 use crate::index::{Index, IndexEntry, IndexWriterOptions};
 use crate::version::Version;
-use crate::{Bundle, BundleDescriptor, Header, IndexWriter, Writer};
+use crate::{Bundle, BundleDescriptor, ChecksumWriteOptions, Header, IndexWriter, Writer};
 use http::HeaderMap;
 use lz4_flex::compress_prepend_size;
 use std::collections::HashMap;
@@ -49,24 +49,24 @@ impl BundleEntry {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct BundleBuilderOptions {
-  pub(crate) header: HeaderWriterOptions,
-  pub(crate) index: IndexWriterOptions,
-  pub(crate) data_checksum_seed: u32,
+  pub header: HeaderWriterOptions,
+  pub index: IndexWriterOptions,
+  pub data_checksum: ChecksumWriteOptions,
 }
 
 impl BundleBuilderOptions {
-  pub fn header(&mut self, options: HeaderWriterOptions) -> &mut Self {
+  pub fn header(mut self, options: HeaderWriterOptions) -> Self {
     self.header = options;
     self
   }
 
-  pub fn index(&mut self, options: IndexWriterOptions) -> &mut Self {
+  pub fn index(mut self, options: IndexWriterOptions) -> Self {
     self.index = options;
     self
   }
 
-  pub fn data_checksum_seed(&mut self, seed: u32) -> &mut Self {
-    self.data_checksum_seed = seed;
+  pub fn data_checksum(mut self, checksum: ChecksumWriteOptions) -> Self {
+    self.data_checksum = checksum;
     self
   }
 }
@@ -192,7 +192,7 @@ impl BundleBuilder {
     entries.sort_by(|a, b| a.0.cmp(b.0));
 
     for (_path, entry) in entries {
-      let checksum = make_checksum(self.options.data_checksum_seed, entry.data());
+      let checksum = make_checksum(self.options.data_checksum.seed, entry.data());
       data.extend_from_slice(entry.data());
       data.extend_from_slice(&checksum.to_be_bytes());
     }

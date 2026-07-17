@@ -11,8 +11,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import {
   BundleBuilder,
   BundleSource,
+  computeIntegrity,
   type ErrorCode,
   isWebviewBundleError,
+  parseIntegrity,
   Remote,
   Updater,
   writeBundleIntoBuffer,
@@ -115,6 +117,48 @@ afterAll(() => {
   return new Promise<void>((resolve, reject) => {
     if (server == null) return resolve();
     server.close(e => (e != null ? reject(e) : resolve()));
+  });
+});
+
+describe('integrity (compute / parse)', () => {
+  it('computes the string core computes', () => {
+    // Same vector as core's own integrity_serialize test.
+    const integrity = computeIntegrity('sha256', Buffer.from('test', 'utf8')).serialize();
+    expect(integrity).toBe('sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=');
+  });
+
+  it('agrees with the producer helper on every algorithm', async () => {
+    const data = randomBytes(256);
+    for (const algorithm of ['sha256', 'sha384', 'sha512'] as const) {
+      expect(computeIntegrity(algorithm, data).serialize()).toBe(
+        await makeIntegrity({ algorithm }, data)
+      );
+    }
+  });
+
+  it('round-trips through parse and validates the right bytes only', () => {
+    const data = Buffer.from('<h1>hello</h1>', 'utf8');
+    const serialized = computeIntegrity('sha384', data).serialize();
+    const parsed = parseIntegrity(serialized);
+
+    expect(parsed.serialize()).toBe(serialized);
+    expect(parsed.value()).toHaveLength(48); // sha384 = 48 bytes
+    expect(parsed.validate(data)).toBe(true);
+    expect(parsed.validate(Buffer.from('tampered', 'utf8'))).toBe(false);
+  });
+
+  it('rejects a malformed integrity string as a webview-bundle error', () => {
+    expect(() => parseIntegrity('not-an-integrity')).toThrow(
+      expect.objectContaining({ code: 'core.invalid_integrity' })
+    );
+  });
+
+  it('produces a string that validates the bundle bytes it was computed over', () => {
+    const builder = new BundleBuilder();
+    builder.insertEntry('/index.html', Buffer.from('<h1>hello</h1>', 'utf8'));
+    const buf = writeBundleIntoBuffer(builder.build());
+
+    expect(parseIntegrity(computeIntegrity('sha256', buf).serialize()).validate(buf)).toBe(true);
   });
 });
 

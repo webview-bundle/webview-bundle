@@ -9,14 +9,16 @@ use ed25519_dalek::{Signer, SigningKey};
 use std::sync::Arc;
 use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{BundleProtocol, Protocol};
-use wvb::signature::{Ed25519Verifier, SignatureVerifier};
+use wvb::signature::{Ed25519Verifier, SignatureVerify};
 use wvb::source::{
-  BundleSourceIntegrityCheckMode, BundleSourceIntegrityOptions, BundleSourceOptions,
-  BundleSourceSignatureOptions, BundleSourceSignatureVerifyMode,
+  BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
+  BundleSourceVerifyMode,
 };
 use wvb::testing::*;
-use wvb::updater::{Updater, UpdaterConfig};
-use wvb::{BundleBuilderOptions, BundleEntry, DataReadChecksumOptions, DataReadOptions};
+use wvb::updater::{Updater, UpdaterIntegrityOptions, UpdaterOptions, UpdaterSignatureOptions};
+use wvb::{
+  BundleBuilderOptions, BundleEntry, ChecksumReadOptions, ChecksumWriteOptions, DataReadOptions,
+};
 
 const INDEX: &str = "/index.html";
 const BODY: &[u8] = b"<h1>hello</h1>";
@@ -29,10 +31,10 @@ fn signing_key() -> SigningKey {
   SigningKey::from_bytes(&[7u8; 32])
 }
 
-fn verifier() -> SignatureVerifier {
+fn verifier() -> SignatureVerify {
   let key = Ed25519Verifier::from_public_key_bytes(&signing_key().verifying_key().to_bytes())
     .expect("valid verifying key");
-  SignatureVerifier::Ed25519(Arc::new(key))
+  SignatureVerify::Ed25519(Arc::new(key))
 }
 
 fn sign(message: &[u8]) -> String {
@@ -150,9 +152,8 @@ async fn protocol_verification_can_be_turned_off() {
 
   // The protocol reads through the source, so turning verification off on the source lets
   // the damaged checksum through — only the checksum byte is corrupt, so it still decompresses.
-  let options = BundleSourceOptions::default().data_read_options(
-    DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(false)),
-  );
+  let options = BundleSourceOptions::default()
+    .data_read(DataReadOptions::default().checksum(ChecksumReadOptions::default().verify(false)));
   let protocol = BundleProtocol::new(Arc::new(system.source().get_source_with(options)));
   let resp = protocol
     .handle(get("https://app.wvb/index.html"))
@@ -165,8 +166,8 @@ async fn protocol_verification_can_be_turned_off() {
 /// packed with a non-zero seed is served only when the source carries the same seed.
 #[tokio::test]
 async fn protocol_serves_with_the_source_checksum_seed() {
-  let mut builder_options = BundleBuilderOptions::default();
-  builder_options.data_checksum_seed(42);
+  let builder_options =
+    BundleBuilderOptions::default().data_checksum(ChecksumWriteOptions::default().seed(42));
 
   let mut system = MockSystem::new();
   system
@@ -174,9 +175,8 @@ async fn protocol_serves_with_the_source_checksum_seed() {
     .add_builtin_bundle(app("1.0.0").with_builder_options(builder_options))
     .set_builtin_current_version("app", "1.0.0");
 
-  let matching = BundleSourceOptions::default().data_read_options(
-    DataReadOptions::default().checksum(DataReadChecksumOptions::default().seed(42)),
-  );
+  let matching = BundleSourceOptions::default()
+    .data_read(DataReadOptions::default().checksum(ChecksumReadOptions::default().seed(42)));
   let protocol = BundleProtocol::new(Arc::new(system.source().get_source_with(matching)));
   let resp = protocol
     .handle(get("https://app.wvb/index.html"))
@@ -231,9 +231,8 @@ async fn source_read_options_apply_to_loaded_descriptor() {
     .source()
     .corrupt_builtin_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
-  let options = BundleSourceOptions::default().data_read_options(
-    DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(true)),
-  );
+  let options = BundleSourceOptions::default()
+    .data_read(DataReadOptions::default().checksum(ChecksumReadOptions::default().verify(true)));
   let source = system.source().get_source_with(options);
   let descriptor = source.load_descriptor("app").await.unwrap();
   let err = descriptor.get_data(INDEX).await.unwrap_err();
@@ -283,9 +282,7 @@ async fn load_verifies_the_index_checksum() {
 /// Header/index verification can be turned off through the source's read options.
 #[tokio::test]
 async fn header_index_verification_can_be_turned_off() {
-  use wvb::{
-    HeaderReadChecksumOptions, HeaderReadOptions, IndexReadChecksumOptions, IndexReadOptions,
-  };
+  use wvb::{HeaderReadOptions, IndexReadOptions};
 
   let mut system = MockSystem::new();
   system
@@ -297,12 +294,10 @@ async fn header_index_verification_can_be_turned_off() {
     .corrupt_builtin_bundle("app", "1.0.0", |data| data[13] ^= 0xff);
 
   let options = BundleSourceOptions::default()
-    .header_read_options(
-      HeaderReadOptions::default().checksum(HeaderReadChecksumOptions::default().verify(false)),
+    .header_read(
+      HeaderReadOptions::default().checksum(ChecksumReadOptions::default().verify(false)),
     )
-    .index_read_options(
-      IndexReadOptions::default().checksum(IndexReadChecksumOptions::default().verify(false)),
-    );
+    .index_read(IndexReadOptions::default().checksum(ChecksumReadOptions::default().verify(false)));
   let source = system.source().get_source_with(options);
   source.load_descriptor("app").await.unwrap();
 }
@@ -371,7 +366,7 @@ async fn check_mode_only_remote_leaves_builtin_bundles_alone() {
   let options = BundleSourceOptions::default().integrity(
     BundleSourceIntegrityOptions::default()
       .policy(IntegrityPolicy::Strict)
-      .check_mode(BundleSourceIntegrityCheckMode::OnlyRemote),
+      .check_mode(BundleSourceVerifyMode::OnlyRemote),
   );
   let source = Arc::new(system.source().get_source_with(options));
 
@@ -398,7 +393,7 @@ async fn check_mode_all_with_strict_policy_requires_builtin_integrity() {
   let options = BundleSourceOptions::default().integrity(
     BundleSourceIntegrityOptions::default()
       .policy(IntegrityPolicy::Strict)
-      .check_mode(BundleSourceIntegrityCheckMode::All),
+      .check_mode(BundleSourceVerifyMode::All),
   );
   let source = system.source().get_source_with(options);
 
@@ -417,9 +412,8 @@ async fn check_mode_all_under_optional_policy_allows_missing_integrity() {
     .add_builtin_bundle(app("1.0.0")) // no integrity metadata
     .set_builtin_current_version("app", "1.0.0");
 
-  let options = BundleSourceOptions::default().integrity(
-    BundleSourceIntegrityOptions::default().check_mode(BundleSourceIntegrityCheckMode::All),
-  );
+  let options = BundleSourceOptions::default()
+    .integrity(BundleSourceIntegrityOptions::default().check_mode(BundleSourceVerifyMode::All));
   let source = Arc::new(system.source().get_source_with(options));
 
   let protocol = BundleProtocol::new(source);
@@ -595,9 +589,9 @@ async fn a_downloaded_bundle_verifies_on_load() {
     source.clone(),
     remote,
     Some(
-      UpdaterConfig::default()
-        .integrity_policy(IntegrityPolicy::Strict)
-        .signature_verifier(verifier()),
+      UpdaterOptions::default()
+        .integrity(UpdaterIntegrityOptions::default().policy(IntegrityPolicy::Strict))
+        .signature(UpdaterSignatureOptions::default().verify(verifier())),
     ),
   );
 
@@ -656,7 +650,7 @@ async fn signature_verify_mode_all_reaches_builtin_bundles() {
   let options = BundleSourceOptions::default().signature(
     BundleSourceSignatureOptions::default()
       .verify(verifier())
-      .verify_mode(BundleSourceSignatureVerifyMode::All),
+      .verify_mode(BundleSourceVerifyMode::All),
   );
   let source = system.source().get_source_with(options);
   let err = source.load_descriptor("app").await.unwrap_err();
@@ -703,9 +697,9 @@ async fn updater_rejects_a_bad_signature_on_download_with_integrity_off() {
     source,
     remote,
     Some(
-      UpdaterConfig::default()
-        .integrity_policy(IntegrityPolicy::Off)
-        .signature_verifier(verifier()),
+      UpdaterOptions::default()
+        .integrity(UpdaterIntegrityOptions::default().policy(IntegrityPolicy::Off))
+        .signature(UpdaterSignatureOptions::default().verify(verifier())),
     ),
   );
 
@@ -741,9 +735,9 @@ async fn updater_installs_a_signed_but_mismatched_bundle_only_for_the_load_to_re
     source.clone(),
     remote,
     Some(
-      UpdaterConfig::default()
-        .integrity_policy(IntegrityPolicy::Off)
-        .signature_verifier(verifier()),
+      UpdaterOptions::default()
+        .integrity(UpdaterIntegrityOptions::default().policy(IntegrityPolicy::Off))
+        .signature(UpdaterSignatureOptions::default().verify(verifier())),
     ),
   );
 

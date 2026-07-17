@@ -62,11 +62,13 @@ impl From<&wvb::IndexEntry> for IndexEntry {
   }
 }
 
-/// View into the index section of a bundle. Backed by the parent [`Bundle`] via
-/// an `Arc` so that individual entries can be read without copying the whole bundle.
+/// View into the index section of a bundle.
+///
+/// Holds the index metadata itself, so it is available on a metadata-only descriptor
+/// (from `BundleSource::fetch_descriptor`) as well as on a fully loaded [`Bundle`].
 #[derive(uniffi::Object)]
 pub struct Index {
-  bundle: Arc<wvb::Bundle>,
+  inner: wvb::Index,
 }
 
 #[uniffi::export]
@@ -74,9 +76,7 @@ impl Index {
   /// Returns all index entries keyed by their path (e.g. `"/index.html"`).
   pub fn entries(&self) -> HashMap<String, IndexEntry> {
     self
-      .bundle
-      .descriptor()
-      .index()
+      .inner
       .entries()
       .iter()
       .map(|(k, v)| (k.to_string(), IndexEntry::from(v)))
@@ -84,27 +84,20 @@ impl Index {
   }
 
   pub fn get_entry(&self, path: String) -> Option<IndexEntry> {
-    self
-      .bundle
-      .descriptor()
-      .index()
-      .get_entry(&path)
-      .map(IndexEntry::from)
+    self.inner.get_entry(&path).map(IndexEntry::from)
   }
 
   pub fn contains_path(&self, path: String) -> bool {
-    self.bundle.descriptor().index().contains_path(&path)
+    self.inner.contains_path(&path)
   }
 }
 
 /// Internal storage for [`BundleDescriptor`].
 ///
-/// `Owned` holds a standalone descriptor (returned by `fetch_descriptor`); it
-/// has no data section so `index()` is not supported on this variant.
-/// `Arc` shares a cached descriptor (returned via `LoadedDescriptor::descriptor`);
-/// like `Owned` it carries only metadata, so `index()` is not supported either.
-/// `Bundle` shares the full bundle via `Arc` so both descriptor and data can be
-/// accessed through the same object.
+/// `Owned` holds a standalone descriptor (returned by `fetch_descriptor`) and `Arc` a
+/// cached one (returned via `LoadedDescriptor::descriptor`); both carry only header and
+/// index metadata, so reading an entry's data means reopening the bundle file by path.
+/// `Bundle` shares the full bundle via `Arc`, so its data section is already in memory.
 pub(crate) enum BundleDescriptorInner {
   Owned(wvb::BundleDescriptor),
   Arc(Arc<wvb::BundleDescriptor>),
@@ -136,22 +129,11 @@ impl BundleDescriptor {
     })
   }
 
-  /// Returns an [`Index`] view backed by the full bundle.
-  ///
-  /// # Panics
-  /// Panics when called on a metadata-only descriptor (obtained via
-  /// `BundleSource::fetch_descriptor` or `LoadedDescriptor::descriptor`), because
-  /// those variants have no data section. Use `BundleSource::fetch_bundle` instead
-  /// when data access is required.
+  /// Returns the bundle's [`Index`].
   pub fn index(&self) -> Arc<Index> {
-    match &self.inner {
-      BundleDescriptorInner::Bundle(b) => Arc::new(Index { bundle: b.clone() }),
-      BundleDescriptorInner::Owned(_) | BundleDescriptorInner::Arc(_) => {
-        panic!(
-          "BundleDescriptor without a data section does not support index(). Use fetch_bundle() instead."
-        );
-      }
-    }
+    Arc::new(Index {
+      inner: self.descriptor().index().clone(),
+    })
   }
 
   pub fn index_entries(&self) -> HashMap<String, IndexEntry> {
@@ -175,6 +157,70 @@ impl BundleDescriptor {
   pub fn contains_path(&self, path: String) -> bool {
     self.descriptor().index().contains_path(&path)
   }
+
+  /// Reads the entry at `path` out of the bundle file at `filepath`.
+  ///
+  /// A descriptor carries only header and index metadata, so the bundle file is reopened
+  /// to read the entry's bytes on demand. Returns `None` when `path` is not in the bundle.
+  pub fn get_data(&self, filepath: String, path: String) -> Result<Option<Vec<u8>>, crate::Error> {
+    let file = open_file(&filepath)?;
+    let data = self.descriptor().get_data(file, &path)?;
+    Ok(data)
+  }
+
+  /// Reads the stored xxHash-32 checksum of the entry at `path` out of the bundle file at
+  /// `filepath`. Returns `None` when `path` is not in the bundle.
+  pub fn get_data_checksum(
+    &self,
+    filepath: String,
+    path: String,
+  ) -> Result<Option<u32>, crate::Error> {
+    let file = open_file(&filepath)?;
+    let checksum = self.descriptor().get_data_checksum(file, &path)?;
+    Ok(checksum)
+  }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl BundleDescriptor {
+  /// Asynchronously reads the entry at `path` out of the bundle file at `filepath`.
+  ///
+  /// Returns `None` when `path` is not in the bundle.
+  pub async fn async_get_data(
+    &self,
+    filepath: String,
+    path: String,
+  ) -> Result<Option<Vec<u8>>, crate::Error> {
+    let file = async_open_file(&filepath).await?;
+    let data = self.descriptor().async_get_data(file, &path).await?;
+    Ok(data)
+  }
+
+  /// Asynchronously reads the stored xxHash-32 checksum of the entry at `path` out of the
+  /// bundle file at `filepath`. Returns `None` when `path` is not in the bundle.
+  pub async fn async_get_data_checksum(
+    &self,
+    filepath: String,
+    path: String,
+  ) -> Result<Option<u32>, crate::Error> {
+    let file = async_open_file(&filepath).await?;
+    let checksum = self
+      .descriptor()
+      .async_get_data_checksum(file, &path)
+      .await?;
+    Ok(checksum)
+  }
+}
+
+fn open_file(filepath: &str) -> Result<std::fs::File, crate::Error> {
+  std::fs::File::open(std::path::Path::new(filepath))
+    .map_err(|e| crate::Error::from(wvb::Error::Io(e)))
+}
+
+async fn async_open_file(filepath: &str) -> Result<tokio::fs::File, crate::Error> {
+  tokio::fs::File::open(std::path::Path::new(filepath))
+    .await
+    .map_err(|e| crate::Error::from(wvb::Error::Io(e)))
 }
 
 /// A fully loaded bundle, giving access to both descriptor metadata and raw entry data.
@@ -252,27 +298,122 @@ pub fn write_bundle_to_bytes(bundle: Arc<Bundle>) -> Result<Vec<u8>, crate::Erro
 pub struct BuildOptions {
   pub header: Option<BuildHeaderOptions>,
   pub index: Option<BuildIndexOptions>,
-  /// Seed for the CRC-32 checksum written into each data entry.
-  pub data_checksum_seed: Option<u32>,
+  pub data_checksum: Option<ChecksumWriteOptions>,
 }
 
-/// Checksum options for the bundle header section.
+/// How each entry's xxHash-32 data checksum is verified when its data is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ChecksumReadOptions {
+  /// Verify each entry's data checksum when its data is read (default: `true`).
+  #[uniffi(default = None)]
+  pub verify: Option<bool>,
+  /// The seed the data checksums were built with (default: `0`).
+  #[uniffi(default = None)]
+  pub seed: Option<u32>,
+}
+
+impl From<ChecksumReadOptions> for wvb::ChecksumReadOptions {
+  fn from(value: ChecksumReadOptions) -> Self {
+    let mut options = wvb::ChecksumReadOptions::default();
+    if let Some(verify) = value.verify {
+      options = options.verify(verify);
+    }
+    if let Some(seed) = value.seed {
+      options = options.seed(seed);
+    }
+    options
+  }
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ChecksumWriteOptions {
+  /// The seed the data checksums were built with (default: `0`).
+  #[uniffi(default = None)]
+  pub seed: Option<u32>,
+}
+
+impl From<ChecksumWriteOptions> for wvb::ChecksumWriteOptions {
+  fn from(value: ChecksumWriteOptions) -> Self {
+    let mut options = wvb::ChecksumWriteOptions::default();
+    if let Some(seed) = value.seed {
+      options = options.seed(seed);
+    }
+    options
+  }
+}
+
+/// How each entry's data checksum is verified when its data is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct DataReadOptions {
+  /// How each entry's data checksum is verified.
+  #[uniffi(default = None)]
+  pub checksum: Option<ChecksumReadOptions>,
+}
+
+impl From<DataReadOptions> for wvb::DataReadOptions {
+  fn from(value: DataReadOptions) -> Self {
+    let mut options = wvb::DataReadOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
+    }
+    options
+  }
+}
+
+/// How a bundle's header checksum is verified when its header is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HeaderReadOptions {
+  /// How the header checksum is verified.
+  #[uniffi(default = None)]
+  pub checksum: Option<ChecksumReadOptions>,
+}
+
+impl From<HeaderReadOptions> for wvb::HeaderReadOptions {
+  fn from(value: HeaderReadOptions) -> Self {
+    let mut options = wvb::HeaderReadOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
+    }
+    options
+  }
+}
+/// How a bundle's index checksum is verified when its index is read.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct IndexReadOptions {
+  /// How the index checksum is verified.
+  #[uniffi(default = None)]
+  pub checksum: Option<ChecksumReadOptions>,
+}
+
+impl From<IndexReadOptions> for wvb::IndexReadOptions {
+  fn from(value: IndexReadOptions) -> Self {
+    let mut options = wvb::IndexReadOptions::default();
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
+    }
+    options
+  }
+}
+
+/// Options for the bundle header section.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BuildHeaderOptions {
-  pub checksum_seed: Option<u32>,
+  #[uniffi(default = None)]
+  pub checksum: Option<ChecksumWriteOptions>,
 }
 
-/// Checksum options for the bundle index section.
+/// Pptions for the bundle index section.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct BuildIndexOptions {
-  pub checksum_seed: Option<u32>,
+  #[uniffi(default = None)]
+  pub checksum: Option<ChecksumWriteOptions>,
 }
 
 impl From<BuildHeaderOptions> for HeaderWriterOptions {
   fn from(value: BuildHeaderOptions) -> Self {
     let mut options = HeaderWriterOptions::default();
-    if let Some(seed) = value.checksum_seed {
-      options.checksum_seed(seed);
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
     }
     options
   }
@@ -281,8 +422,8 @@ impl From<BuildHeaderOptions> for HeaderWriterOptions {
 impl From<BuildIndexOptions> for IndexWriterOptions {
   fn from(value: BuildIndexOptions) -> Self {
     let mut options = IndexWriterOptions::default();
-    if let Some(seed) = value.checksum_seed {
-      options.checksum_seed(seed);
+    if let Some(checksum) = value.checksum {
+      options = options.checksum(checksum.into());
     }
     options
   }
@@ -292,13 +433,13 @@ impl From<BuildOptions> for BundleBuilderOptions {
   fn from(value: BuildOptions) -> Self {
     let mut options = BundleBuilderOptions::default();
     if let Some(header) = value.header {
-      options.header(header.into());
+      options = options.header(header.into());
     }
     if let Some(index) = value.index {
-      options.index(index.into());
+      options = options.index(index.into());
     }
-    if let Some(seed) = value.data_checksum_seed {
-      options.data_checksum_seed(seed);
+    if let Some(checksum) = value.data_checksum {
+      options = options.data_checksum(checksum.into());
     }
     options
   }
@@ -387,5 +528,131 @@ impl BundleBuilder {
     Ok(Arc::new(Bundle {
       inner: Arc::new(bundle),
     }))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  const BODY: &[u8] = b"<h1>hello</h1>";
+
+  fn bundle() -> wvb::Bundle {
+    let mut builder = wvb::BundleBuilder::new();
+    builder.insert_entry("/index.html", BundleEntry::new(BODY, "text/html", None));
+    builder.build().unwrap()
+  }
+
+  /// Writes `bundle` to a unique temp path and returns it. The caller removes it.
+  fn write_to_temp(bundle: &wvb::Bundle, tag: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("wvb-ffi-{}-{tag}.wvb", std::process::id()));
+    let mut buf = vec![];
+    Writer::<wvb::Bundle>::write(&mut BundleWriter::new(&mut buf), bundle).unwrap();
+    std::fs::write(&path, &buf).unwrap();
+    path
+  }
+
+  /// A metadata-only descriptor reopens the file to read an entry's bytes on demand.
+  #[test]
+  fn descriptor_reads_entry_data_from_the_file() {
+    let bundle = bundle();
+    let path = write_to_temp(&bundle, "get-data");
+    let descriptor = BundleDescriptor {
+      inner: BundleDescriptorInner::Owned(bundle.descriptor().clone()),
+    };
+    let filepath = path.to_str().unwrap().to_string();
+
+    let data = descriptor
+      .get_data(filepath.clone(), "/index.html".to_string())
+      .unwrap();
+    assert_eq!(data.as_deref(), Some(BODY));
+
+    // A path that is not in the bundle reads back as None rather than erroring.
+    let missing = descriptor
+      .get_data(filepath.clone(), "/nope.html".to_string())
+      .unwrap();
+    assert!(missing.is_none());
+
+    // The checksum agrees with the one the fully loaded bundle reports.
+    let checksum = descriptor
+      .get_data_checksum(filepath, "/index.html".to_string())
+      .unwrap();
+    assert_eq!(checksum, bundle.get_data_checksum("/index.html").unwrap());
+
+    std::fs::remove_file(&path).unwrap();
+  }
+
+  #[tokio::test]
+  async fn descriptor_reads_entry_data_asynchronously() {
+    let bundle = bundle();
+    let path = write_to_temp(&bundle, "async-get-data");
+    let descriptor = BundleDescriptor {
+      inner: BundleDescriptorInner::Owned(bundle.descriptor().clone()),
+    };
+    let filepath = path.to_str().unwrap().to_string();
+
+    let data = descriptor
+      .async_get_data(filepath.clone(), "/index.html".to_string())
+      .await
+      .unwrap();
+    assert_eq!(data.as_deref(), Some(BODY));
+
+    let checksum = descriptor
+      .async_get_data_checksum(filepath, "/index.html".to_string())
+      .await
+      .unwrap();
+    assert_eq!(checksum, bundle.get_data_checksum("/index.html").unwrap());
+
+    std::fs::remove_file(&path).unwrap();
+  }
+
+  /// `fetch_descriptor` hands back a metadata-only descriptor. Reading its index used to
+  /// panic, which crosses the FFI boundary as an abort rather than a catchable error.
+  #[test]
+  fn index_is_readable_from_a_metadata_only_descriptor() {
+    let bundle = bundle();
+    let descriptor = BundleDescriptor {
+      inner: BundleDescriptorInner::Owned(bundle.descriptor().clone()),
+    };
+
+    let index = descriptor.index();
+    assert!(index.contains_path("/index.html".to_string()));
+    assert_eq!(index.entries().len(), 1);
+  }
+
+  /// The cached-descriptor variant handed out by `LoadedDescriptor::descriptor`.
+  #[test]
+  fn index_is_readable_from_a_shared_descriptor() {
+    let bundle = bundle();
+    let descriptor = BundleDescriptor {
+      inner: BundleDescriptorInner::Arc(Arc::new(bundle.descriptor().clone())),
+    };
+
+    assert!(descriptor.index().contains_path("/index.html".to_string()));
+  }
+
+  /// The fully loaded variant keeps working, and agrees with the metadata-only one.
+  #[test]
+  fn index_from_a_loaded_bundle_matches_the_descriptor() {
+    let bundle = Arc::new(bundle());
+    let loaded = BundleDescriptor {
+      inner: BundleDescriptorInner::Bundle(bundle.clone()),
+    };
+    let metadata_only = BundleDescriptor {
+      inner: BundleDescriptorInner::Owned(bundle.descriptor().clone()),
+    };
+
+    assert_eq!(
+      loaded
+        .index()
+        .get_entry("/index.html".to_string())
+        .unwrap()
+        .content_length,
+      metadata_only
+        .index()
+        .get_entry("/index.html".to_string())
+        .unwrap()
+        .content_length,
+    );
   }
 }

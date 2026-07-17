@@ -7,6 +7,7 @@ use crate::writer::Writer;
 use lz4_flex::decompress_size_prepended;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
+use crate::ChecksumReadOptions;
 #[cfg(feature = "async")]
 use crate::{
   AsyncHeaderReader, AsyncHeaderWriter, AsyncIndexReader, AsyncIndexWriter, AsyncReader,
@@ -15,45 +16,14 @@ use crate::{
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
-/// How an entry's xxHash-32 checksum is treated when its data is read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DataReadChecksumOptions {
-  /// Whether to verify each entry's checksum when its data is read (default: `true`).
-  pub verify: bool,
-  /// The seed the bundle's data checksums were built with
-  /// ([`crate::BundleBuilderOptions::data_checksum_seed`], default: `0`).
-  pub seed: u32,
-}
-
-impl Default for DataReadChecksumOptions {
-  fn default() -> Self {
-    Self {
-      verify: true,
-      seed: 0,
-    }
-  }
-}
-
-impl DataReadChecksumOptions {
-  pub fn verify(mut self, verify: bool) -> Self {
-    self.verify = verify;
-    self
-  }
-
-  pub fn seed(mut self, seed: u32) -> Self {
-    self.seed = seed;
-    self
-  }
-}
-
 /// How entry data is read out of a bundle's data section.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct DataReadOptions {
-  pub checksum: DataReadChecksumOptions,
+  pub checksum: ChecksumReadOptions,
 }
 
 impl DataReadOptions {
-  pub fn checksum(mut self, checksum: DataReadChecksumOptions) -> Self {
+  pub fn checksum(mut self, checksum: ChecksumReadOptions) -> Self {
     self.checksum = checksum;
     self
   }
@@ -75,7 +45,8 @@ impl DataReadOptions {
 /// # async {
 /// # use tokio::fs::File;
 /// let mut file = File::open("app.wvb").await.unwrap();
-/// let descriptor: BundleDescriptor = AsyncBundleReader::new(&mut file).read().await.unwrap();
+/// let mut reader = AsyncBundleReader::new(&mut file);
+/// let descriptor = AsyncReader::<BundleDescriptor>::read(&mut reader).await.unwrap();
 ///
 /// // Check if file exists
 /// if descriptor.index().contains_path("/index.html") {
@@ -164,8 +135,7 @@ impl BundleDescriptor {
       .await
   }
 
-  /// Asynchronously reads the data from the bundle, verifying the entry checksum when
-  /// [`DataReadOptions::verify_checksum`] is set.
+  /// Asynchronously reads the data from the bundle.
   ///
   /// Returns `None` if the path doesn't exist in the bundle, and
   /// [`crate::Error::ChecksumMismatch`] if the entry's data is corrupted.
@@ -224,7 +194,8 @@ impl BundleDescriptor {
 /// # use tokio::fs::File;
 /// // Read entire bundle into memory
 /// let mut file = File::open("app.wvb").await.unwrap();
-/// let bundle: Bundle = AsyncBundleReader::new(&mut file).read().await.unwrap();
+/// let mut reader = AsyncBundleReader::new(&mut file);
+/// let bundle = AsyncReader::<Bundle>::read(&mut reader).await.unwrap();
 ///
 /// // Access files directly
 /// let html = bundle.get_data("/index.html").unwrap().unwrap();
@@ -243,11 +214,14 @@ impl Bundle {
   /// # Example
   ///
   /// ```
-  /// use wvb::Bundle;
+  /// use wvb::{Bundle, BundleEntry};
   ///
   /// let mut builder = Bundle::builder();
-  /// builder.add_file("/index.html", b"<html></html>", None);
-  /// let bundle = builder.build();
+  /// builder.insert_entry(
+  ///     "/index.html",
+  ///     BundleEntry::new(b"<html></html>", "text/html", None),
+  /// );
+  /// let bundle = builder.build().unwrap();
   /// ```
   pub fn builder() -> BundleBuilder {
     BundleBuilder::new()
@@ -272,10 +246,10 @@ impl Bundle {
   /// # Example
   ///
   /// ```
-  /// # use wvb::Bundle;
-  /// let bundle = Bundle::builder()
-  ///     .add_file("/test.txt", b"hello", None)
-  ///     .build();
+  /// # use wvb::{Bundle, BundleEntry};
+  /// let mut builder = Bundle::builder();
+  /// builder.insert_entry("/test.txt", BundleEntry::new(b"hello", "text/plain", None));
+  /// let bundle = builder.build().unwrap();
   ///
   /// let data = bundle.get_data("/test.txt").unwrap().unwrap();
   /// assert_eq!(data, b"hello");
@@ -612,7 +586,7 @@ impl<W: AsyncWrite + Unpin> AsyncWriter<Bundle> for AsyncBundleWriter<W> {
 mod tests {
   use super::*;
   use crate::version::Version;
-  use crate::{BundleBuilderOptions, BundleEntry};
+  use crate::{BundleBuilderOptions, BundleEntry, ChecksumWriteOptions};
   use http::{HeaderMap, header};
   use std::io::Cursor;
 
@@ -734,8 +708,8 @@ mod tests {
   }
 
   fn bundle_with_seed(seed: u32) -> Bundle {
-    let mut options = BundleBuilderOptions::default();
-    options.data_checksum_seed(seed);
+    let options =
+      BundleBuilderOptions::default().data_checksum(ChecksumWriteOptions::default().seed(seed));
     let mut builder = BundleBuilder::new_with_options(options);
     builder.insert_entry(
       "/index.html",
@@ -745,7 +719,7 @@ mod tests {
   }
 
   fn verifying(seed: u32) -> DataReadOptions {
-    DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(true).seed(seed))
+    DataReadOptions::default().checksum(ChecksumReadOptions::default().verify(true).seed(seed))
   }
 
   #[test]
@@ -795,7 +769,7 @@ mod tests {
     // either decompresses to garbage or fails inside lz4. This is why the checksum is
     // compared before decompression.
     let unverified =
-      DataReadOptions::default().checksum(DataReadChecksumOptions::default().verify(false));
+      DataReadOptions::default().checksum(ChecksumReadOptions::default().verify(false));
     assert!(!matches!(
       bundle.get_data_with_options("/index.html", unverified),
       Err(crate::Error::ChecksumMismatch)

@@ -16,6 +16,10 @@ export const writeBundle: typeof binding.writeBundle = wrapFunction(binding.writ
 export const writeBundleIntoBuffer: typeof binding.writeBundleIntoBuffer = wrapFunction(
   binding.writeBundleIntoBuffer
 );
+export const computeIntegrity: typeof binding.computeIntegrity = wrapFunction(
+  binding.computeIntegrity
+);
+export const parseIntegrity: typeof binding.parseIntegrity = wrapFunction(binding.parseIntegrity);
 
 const BUNDLE_SOURCE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'builtinDir',

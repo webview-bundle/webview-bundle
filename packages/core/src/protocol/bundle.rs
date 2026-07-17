@@ -120,12 +120,12 @@ impl BundleProtocol {
     }
   }
 
-  pub fn with_bundle_resolver(mut self, bundle_resolver: UriBundleResolver) -> Self {
+  pub fn set_bundle_resolver(mut self, bundle_resolver: UriBundleResolver) -> Self {
     self.bundle_resolver = bundle_resolver;
     self
   }
 
-  pub fn with_path_resolver(mut self, path_resolver: UriPathResolver) -> Self {
+  pub fn set_path_resolver(mut self, path_resolver: UriPathResolver) -> Self {
     self.path_resolver = path_resolver;
     self
   }
@@ -762,7 +762,7 @@ mod tests {
     );
     let protocol = Arc::new(
       BundleProtocol::new(source.clone())
-        .with_bundle_resolver(UriBundleResolver::custom(|_| Some("app".to_owned()))),
+        .set_bundle_resolver(UriBundleResolver::custom(|_| Some("app".to_owned()))),
     );
     let resp = protocol
       .handle(
@@ -788,8 +788,8 @@ mod tests {
     );
     let protocol = Arc::new(
       BundleProtocol::new(source.clone())
-        .with_bundle_resolver(UriBundleResolver::pathname(Some(0)))
-        .with_path_resolver(UriPathResolver::custom(|_| "/index.html".to_owned())),
+        .set_bundle_resolver(UriBundleResolver::pathname(Some(0)))
+        .set_path_resolver(UriPathResolver::custom(|_| "/index.html".to_owned())),
     );
     let resp = protocol
       .handle(
@@ -814,7 +814,7 @@ mod tests {
         .build(),
     );
     let protocol =
-      Arc::new(BundleProtocol::new(source.clone()).with_path_resolver(UriPathResolver::exact()));
+      Arc::new(BundleProtocol::new(source.clone()).set_path_resolver(UriPathResolver::exact()));
     let served_as_is = protocol
       .handle(
         Request::builder()
@@ -849,7 +849,7 @@ mod tests {
         .build(),
     );
     let protocol = Arc::new(
-      BundleProtocol::new(source.clone()).with_path_resolver(UriPathResolver::html_extension()),
+      BundleProtocol::new(source.clone()).set_path_resolver(UriPathResolver::html_extension()),
     );
     let resp = protocol
       .handle(

@@ -1,12 +1,11 @@
-use crate::integrity::IntegrityPolicy;
-use crate::js::{JsCallback, JsCallbackExt};
+use crate::integrity::{IntegrityChecker, IntegrityPolicy};
+use crate::js::JsCallbackExt;
 use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
 use crate::signature::SignatureVerifier;
 use crate::source::BundleSource;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::sync::Arc;
-use wvb::integrity::IntegrityChecker;
 use wvb::updater;
 
 /// Information about a bundle update.
@@ -70,8 +69,6 @@ impl From<BundleUpdateInfo> for updater::BundleUpdateInfo {
   }
 }
 
-pub(crate) type UpdateIntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Promise<bool>>;
-
 /// Configuration options for the updater.
 ///
 /// @property {string} [channel] - Update channel (e.g., "stable", "beta")
@@ -113,25 +110,26 @@ pub struct UpdaterOptions {
   pub channel: Option<String>,
   pub integrity_policy: Option<IntegrityPolicy>,
   #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
-  pub integrity_checker: Option<UpdateIntegrityChecker>,
+  pub integrity_checker: Option<IntegrityChecker>,
   #[napi(
     ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
   )]
   pub signature_verifier: Option<SignatureVerifier>,
 }
 
-impl From<UpdaterOptions> for updater::UpdaterConfig {
+impl From<UpdaterOptions> for updater::UpdaterOptions {
   fn from(value: UpdaterOptions) -> Self {
-    let mut config = updater::UpdaterConfig::default();
+    let mut options = updater::UpdaterOptions::default();
     if let Some(channel) = value.channel {
-      config = config.channel(channel);
+      options = options.channel(channel);
     }
+    let mut integrity_options = updater::UpdaterIntegrityOptions::default();
     if let Some(policy) = value.integrity_policy {
-      config = config.integrity_policy(policy.into());
+      integrity_options = integrity_options.policy(policy.into());
     }
     if let Some(checker) = value.integrity_checker {
-      config = config.integrity_checker(IntegrityChecker::Custom(Arc::new(
-        move |data, signature| {
+      integrity_options = integrity_options.check(wvb::integrity::IntegrityCheck::Custom(
+        Arc::new(move |data, signature| {
           let buffer = Buffer::from(data);
           let signature = signature.to_string();
           let callback = Arc::clone(&checker);
@@ -142,13 +140,15 @@ impl From<UpdaterOptions> for updater::UpdaterConfig {
               .await?;
             Ok(ret)
           })
-        },
-      )));
+        }),
+      ));
     }
+    options = options.integrity(integrity_options);
     if let Some(verifier) = value.signature_verifier {
-      config = config.signature_verifier(verifier.inner);
+      options =
+        options.signature(updater::UpdaterSignatureOptions::default().verify(verifier.inner));
     }
-    config
+    options
   }
 }
 

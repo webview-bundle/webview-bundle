@@ -1,6 +1,9 @@
-use crate::bundle::{Bundle, BundleDescriptor, BundleDescriptorInner};
+use crate::bundle::{
+  Bundle, BundleDescriptor, BundleDescriptorInner, DataReadOptions, HeaderReadOptions,
+  IndexReadOptions,
+};
 use crate::integrity::IntegrityPolicy;
-use crate::signature::SignatureVerifierOptions;
+use crate::signature::SignatureVerification;
 use std::sync::Arc;
 use wvb::signature;
 use wvb::source;
@@ -151,10 +154,7 @@ pub struct BundleSourceConfig {
   pub remote_manifest_filepath: Option<String>,
 }
 
-/// Which bundles a load-time verification applies to.
-///
-/// A bundle is verified once per version, when it is first read; the result is cached with
-/// the descriptor, so serving a bundle does not re-hash it on every request.
+/// Which bundles a load-time verification applies to
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum BundleSourceVerifyMode {
   /// Verify both builtin and remote bundles.
@@ -166,33 +166,28 @@ pub enum BundleSourceVerifyMode {
   OnlyRemote,
 }
 
-impl From<BundleSourceVerifyMode> for source::BundleSourceIntegrityCheckMode {
+impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
   fn from(v: BundleSourceVerifyMode) -> Self {
     match v {
-      BundleSourceVerifyMode::All => source::BundleSourceIntegrityCheckMode::All,
-      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceIntegrityCheckMode::OnlyRemote,
-    }
-  }
-}
-
-impl From<BundleSourceVerifyMode> for source::BundleSourceSignatureVerifyMode {
-  fn from(v: BundleSourceVerifyMode) -> Self {
-    match v {
-      BundleSourceVerifyMode::All => source::BundleSourceSignatureVerifyMode::All,
-      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceSignatureVerifyMode::OnlyRemote,
+      BundleSourceVerifyMode::All => source::BundleSourceVerifyMode::All,
+      BundleSourceVerifyMode::OnlyRemote => source::BundleSourceVerifyMode::OnlyRemote,
     }
   }
 }
 
 /// How bundles are checked against the integrity recorded for them in the manifest when
 /// they are loaded from disk.
-#[derive(uniffi::Record, Clone, Debug)]
+#[derive(uniffi::Record, Clone)]
 pub struct BundleSourceIntegrityOptions {
   /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
   ///
   /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
   #[uniffi(default = None)]
   pub policy: Option<IntegrityPolicy>,
+  /// A custom checker that validates bundle bytes against their integrity string
+  /// (default: the built-in checker, which compares the advertised hash).
+  #[uniffi(default = None)]
+  pub check: Option<Arc<dyn crate::integrity::IntegrityCheck>>,
   /// Which bundles are checked on load (default: [`BundleSourceVerifyMode::OnlyRemote`]).
   #[uniffi(default = None)]
   pub check_mode: Option<BundleSourceVerifyMode>,
@@ -205,73 +200,16 @@ pub struct BundleSourceIntegrityOptions {
 /// independently of the integrity check, so pair it with an enabled
 /// [`BundleSourceOptions::integrity`] to also authenticate the bytes — signature
 /// verification alone does not read them.
-#[derive(uniffi::Record, Clone, Debug)]
+#[derive(uniffi::Record, Clone)]
 pub struct BundleSourceSignatureOptions {
-  /// Verifies that a bundle's integrity string was signed by the matching key
-  /// (default: off).
+  /// Verifies that a bundle's integrity string was signed by the matching key — with a
+  /// declarative public key or a custom function (default: off).
   #[uniffi(default = None)]
-  pub verify: Option<SignatureVerifierOptions>,
+  pub verify: Option<SignatureVerification>,
   /// Which bundles have their signature verified on load
   /// (default: [`BundleSourceVerifyMode::OnlyRemote`]).
   #[uniffi(default = None)]
   pub verify_mode: Option<BundleSourceVerifyMode>,
-}
-
-/// How each entry's xxHash-32 data checksum is verified when its data is read.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct DataReadChecksumOptions {
-  /// Verify each entry's data checksum when its data is read (default: `true`).
-  #[uniffi(default = None)]
-  pub verify: Option<bool>,
-  /// The seed the data checksums were built with (default: `0`).
-  #[uniffi(default = None)]
-  pub seed: Option<u32>,
-}
-
-/// How each entry's data checksum is verified when its data is read.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct DataReadOptions {
-  /// How each entry's data checksum is verified.
-  #[uniffi(default = None)]
-  pub checksum: Option<DataReadChecksumOptions>,
-}
-
-/// How a bundle's xxHash-32 header checksum is verified when its header is read.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct HeaderReadChecksumOptions {
-  /// Verify the header checksum when the header is read (default: `true`).
-  #[uniffi(default = None)]
-  pub verify: Option<bool>,
-  /// The seed the header checksum was built with (default: `0`).
-  #[uniffi(default = None)]
-  pub seed: Option<u32>,
-}
-
-/// How a bundle's header checksum is verified when its header is read.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct HeaderReadOptions {
-  /// How the header checksum is verified.
-  #[uniffi(default = None)]
-  pub checksum: Option<HeaderReadChecksumOptions>,
-}
-
-/// How a bundle's xxHash-32 index checksum is verified when its index is read.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct IndexReadChecksumOptions {
-  /// Verify the index checksum when the index is read (default: `true`).
-  #[uniffi(default = None)]
-  pub verify: Option<bool>,
-  /// The seed the index checksum was built with (default: `0`).
-  #[uniffi(default = None)]
-  pub seed: Option<u32>,
-}
-
-/// How a bundle's index checksum is verified when its index is read.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct IndexReadOptions {
-  /// How the index checksum is verified.
-  #[uniffi(default = None)]
-  pub checksum: Option<IndexReadChecksumOptions>,
 }
 
 /// Optional verification settings for a [`BundleSource`].
@@ -280,7 +218,7 @@ pub struct IndexReadOptions {
 /// whole bundle file (each paid once per version), the header and index checksum checks
 /// applied when a descriptor is read on load, and the per-entry data checksum applied by
 /// [`LoadedDescriptor::get_data`].
-#[derive(uniffi::Record, Clone, Debug)]
+#[derive(uniffi::Record, Clone)]
 pub struct BundleSourceOptions {
   /// How bundles are checked against their manifest integrity metadata on load.
   #[uniffi(default = None)]
@@ -290,13 +228,13 @@ pub struct BundleSourceOptions {
   pub signature: Option<BundleSourceSignatureOptions>,
   /// How each entry's checksum is verified when its data is read.
   #[uniffi(default = None)]
-  pub data_read_options: Option<DataReadOptions>,
+  pub data_read: Option<DataReadOptions>,
   /// How a bundle's header checksum is verified when its descriptor is read on load.
   #[uniffi(default = None)]
-  pub header_read_options: Option<HeaderReadOptions>,
+  pub header_read: Option<HeaderReadOptions>,
   /// How a bundle's index checksum is verified when its descriptor is read on load.
   #[uniffi(default = None)]
-  pub index_read_options: Option<IndexReadOptions>,
+  pub index_read: Option<IndexReadOptions>,
 }
 
 /// Unified access point for bundles from both the builtin and remote sources.
@@ -330,6 +268,9 @@ fn source_options(
     if let Some(policy) = integrity.policy {
       integrity_options = integrity_options.policy(policy.into());
     }
+    if let Some(check) = integrity.check {
+      integrity_options = integrity_options.check(crate::integrity::into_checker(check));
+    }
     if let Some(mode) = integrity.check_mode {
       integrity_options = integrity_options.check_mode(mode.into());
     }
@@ -337,8 +278,8 @@ fn source_options(
   }
   if let Some(sig) = options.signature {
     let mut signature_options = source::BundleSourceSignatureOptions::default();
-    if let Some(verifier_opts) = sig.verify {
-      let verifier = signature::SignatureVerifier::try_from(verifier_opts)?;
+    if let Some(verification) = sig.verify {
+      let verifier = signature::SignatureVerify::try_from(verification)?;
       signature_options = signature_options.verify(verifier);
     }
     if let Some(mode) = sig.verify_mode {
@@ -346,44 +287,14 @@ fn source_options(
     }
     source_options = source_options.signature(signature_options);
   }
-  if let Some(read_options) = options.data_read_options {
-    if let Some(checksum_options) = read_options.checksum {
-      let mut checksum = wvb::DataReadChecksumOptions::default();
-      if let Some(verify) = checksum_options.verify {
-        checksum = checksum.verify(verify);
-      }
-      if let Some(seed) = checksum_options.seed {
-        checksum = checksum.seed(seed);
-      }
-      source_options =
-        source_options.data_read_options(wvb::DataReadOptions::default().checksum(checksum));
-    }
+  if let Some(read_options) = options.data_read {
+    source_options = source_options.data_read(read_options.into());
   }
-  if let Some(read_options) = options.header_read_options {
-    if let Some(checksum_options) = read_options.checksum {
-      let mut checksum = wvb::HeaderReadChecksumOptions::default();
-      if let Some(verify) = checksum_options.verify {
-        checksum = checksum.verify(verify);
-      }
-      if let Some(seed) = checksum_options.seed {
-        checksum = checksum.seed(seed);
-      }
-      source_options =
-        source_options.header_read_options(wvb::HeaderReadOptions::default().checksum(checksum));
-    }
+  if let Some(read_options) = options.header_read {
+    source_options = source_options.header_read(read_options.into());
   }
-  if let Some(read_options) = options.index_read_options {
-    if let Some(checksum_options) = read_options.checksum {
-      let mut checksum = wvb::IndexReadChecksumOptions::default();
-      if let Some(verify) = checksum_options.verify {
-        checksum = checksum.verify(verify);
-      }
-      if let Some(seed) = checksum_options.seed {
-        checksum = checksum.seed(seed);
-      }
-      source_options =
-        source_options.index_read_options(wvb::IndexReadOptions::default().checksum(checksum));
-    }
+  if let Some(read_options) = options.index_read {
+    source_options = source_options.index_read(read_options.into());
   }
   Ok(source_options)
 }
@@ -628,6 +539,7 @@ impl BundleSource {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::bundle::ChecksumReadOptions;
   use wvb::integrity;
 
   #[test]
@@ -635,50 +547,45 @@ mod tests {
     let options = BundleSourceOptions {
       integrity: Some(BundleSourceIntegrityOptions {
         policy: Some(IntegrityPolicy::Strict),
+        check: None,
         check_mode: Some(BundleSourceVerifyMode::All),
       }),
       signature: Some(BundleSourceSignatureOptions {
         verify: None,
         verify_mode: Some(BundleSourceVerifyMode::OnlyRemote),
       }),
-      data_read_options: Some(DataReadOptions {
-        checksum: Some(DataReadChecksumOptions {
+      data_read: Some(DataReadOptions {
+        checksum: Some(ChecksumReadOptions {
           verify: Some(false),
           seed: Some(42),
         }),
       }),
-      header_read_options: Some(HeaderReadOptions {
-        checksum: Some(HeaderReadChecksumOptions {
+      header_read: Some(HeaderReadOptions {
+        checksum: Some(ChecksumReadOptions {
           verify: Some(true),
           seed: Some(7),
         }),
       }),
-      index_read_options: None,
+      index_read: None,
     };
 
     let expected = source::BundleSourceOptions::default()
       .integrity(
         source::BundleSourceIntegrityOptions::default()
           .policy(integrity::IntegrityPolicy::Strict)
-          .check_mode(source::BundleSourceIntegrityCheckMode::All),
+          .check_mode(source::BundleSourceVerifyMode::All),
       )
       .signature(
         source::BundleSourceSignatureOptions::default()
-          .verify_mode(source::BundleSourceSignatureVerifyMode::OnlyRemote),
+          .verify_mode(source::BundleSourceVerifyMode::OnlyRemote),
       )
-      .data_read_options(
-        wvb::DataReadOptions::default().checksum(
-          wvb::DataReadChecksumOptions::default()
-            .verify(false)
-            .seed(42),
-        ),
+      .data_read(
+        wvb::DataReadOptions::default()
+          .checksum(wvb::ChecksumReadOptions::default().verify(false).seed(42)),
       )
-      .header_read_options(
-        wvb::HeaderReadOptions::default().checksum(
-          wvb::HeaderReadChecksumOptions::default()
-            .verify(true)
-            .seed(7),
-        ),
+      .header_read(
+        wvb::HeaderReadOptions::default()
+          .checksum(wvb::ChecksumReadOptions::default().verify(true).seed(7)),
       );
 
     assert_eq!(
@@ -688,13 +595,39 @@ mod tests {
   }
 
   #[test]
+  fn source_options_maps_a_custom_integrity_check() {
+    struct AlwaysValid;
+    #[async_trait::async_trait]
+    impl crate::integrity::IntegrityCheck for AlwaysValid {
+      async fn check(&self, _data: Vec<u8>, _integrity: String) -> bool {
+        true
+      }
+    }
+
+    let options = BundleSourceOptions {
+      integrity: Some(BundleSourceIntegrityOptions {
+        policy: None,
+        check: Some(Arc::new(AlwaysValid)),
+        check_mode: None,
+      }),
+      signature: None,
+      data_read: None,
+      header_read: None,
+      index_read: None,
+    };
+
+    let mapped = source_options(options).unwrap();
+    assert!(format!("{mapped:?}").contains("IntegrityChecker::Custom"));
+  }
+
+  #[test]
   fn source_options_all_none_equals_default() {
     let options = BundleSourceOptions {
       integrity: None,
       signature: None,
-      data_read_options: None,
-      header_read_options: None,
-      index_read_options: None,
+      data_read: None,
+      header_read: None,
+      index_read: None,
     };
 
     assert_eq!(

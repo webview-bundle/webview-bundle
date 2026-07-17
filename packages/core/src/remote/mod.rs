@@ -21,22 +21,40 @@
 //! # #[cfg(all(feature = "remote", feature = "source"))]
 //! # async {
 //! use wvb::remote::Remote;
-//! use wvb::source::BundleSource;
+//! use wvb::source::{BundleManifestMetadata, BundleSource};
 //!
-//! let remote = Remote::new("https://updates.example.com");
+//! let remote = Remote::builder()
+//!     .endpoint("https://updates.example.com")
+//!     .build()
+//!     .unwrap();
 //! let source = BundleSource::builder()
 //!     .remote_dir("./remote")
 //!     .build();
 //!
 //! // List available bundles
-//! let bundles = remote.list_bundles().await.unwrap();
+//! let bundles = remote.list_bundles(None).await.unwrap();
 //!
-//! // Get bundle info
-//! let info = remote.fetch_bundle("app").await.unwrap();
+//! // Get bundle info without downloading it
+//! let info = remote.get_current_info("app", None).await.unwrap();
 //! println!("Latest version: {}", info.version);
 //!
 //! // Download and install
-//! remote.download_and_write(&source, "app", &info).await.unwrap();
+//! let (info, _bundle, data) = remote.download("app", None).await.unwrap();
+//! source
+//!     .write_remote_bundle_data(
+//!         "app",
+//!         &info.version,
+//!         &data,
+//!         BundleManifestMetadata {
+//!             etag: info.etag,
+//!             integrity: info.integrity,
+//!             signature: info.signature,
+//!             last_modified: info.last_modified,
+//!         },
+//!     )
+//!     .await
+//!     .unwrap();
+//! source.update_remote_version("app", &info.version).await.unwrap();
 //! # };
 //! ```
 //!
@@ -49,8 +67,12 @@
 //! - `Webview-Bundle-Integrity`: Optional integrity hash for verification
 //! - `Webview-Bundle-Signature`: Optional digital signature
 
+mod dto;
 mod http;
+mod options;
 mod remote;
 
+pub use dto::*;
 pub use http::*;
+pub use options::*;
 pub use remote::*;

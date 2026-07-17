@@ -37,7 +37,7 @@
 //!
 //! // Remote version takes priority over builtin
 //! let version = source.load_version("app").await.unwrap();
-//! let bundle = source.fetch("app").await.unwrap();
+//! let bundle = source.fetch_bundle("app").await.unwrap();
 //!
 //! // List all available bundles
 //! let bundles = source.list_bundles().await.unwrap();

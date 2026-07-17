@@ -47,9 +47,9 @@ private let indexJsData = Data("console.log('hello')".utf8)
     let builder = BundleBuilder(version: nil)
     _ = try builder.insertEntry(path: "/index.js", data: indexJsData, contentType: nil, headers: nil)
     _ = try builder.build(options: BuildOptions(
-        header: BuildHeaderOptions(checksumSeed: 1),
-        index: BuildIndexOptions(checksumSeed: 2),
-        dataChecksumSeed: 3
+        header: BuildHeaderOptions(checksum: ChecksumWriteOptions(seed: 1)),
+        index: BuildIndexOptions(checksum: ChecksumWriteOptions(seed: 2)),
+        dataChecksum: ChecksumWriteOptions(seed: 3)
     ))
 }
 
@@ -175,7 +175,7 @@ private let indexJsData = Data("console.log('hello')".utf8)
 @Test func remote_list_bundles() async throws {
     try await withMockServer { port in
         let remote = try Remote(endpoint: "http://localhost:\(port)")
-        let bundles = try await remote.listBundles(channel: nil)
+        let bundles = try await remote.listBundles(options: nil)
         #expect(bundles.count == 1)
         #expect(bundles[0].name == "bundle1")
         #expect(bundles[0].version == "1.0.0")
@@ -185,7 +185,7 @@ private let indexJsData = Data("console.log('hello')".utf8)
 @Test func remote_get_info() async throws {
     try await withMockServer { port in
         let remote = try Remote(endpoint: "http://localhost:\(port)")
-        let info = try await remote.getInfo(bundleName: "bundle1", channel: nil)
+        let info = try await remote.getInfo(bundleName: "bundle1", options: nil)
         #expect(info.name == "bundle1")
         #expect(info.version == "1.0.0")
     }

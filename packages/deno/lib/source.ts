@@ -50,60 +50,35 @@ export interface BundleSourceSignatureOptions {
 }
 
 /**
- * How a bundle's entry-data xxHash checksum is verified when its data is read through this source.
+ * How a bundle section's xxHash checksum is verified when that section is read through this
+ * source. The same options apply to the header, the index and each entry's data.
  *
  * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
  * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
  */
-export interface DataReadChecksumOptions {
-  /** Verify the data checksum when it is read. Default: `true`. */
+export interface ChecksumReadOptions {
+  /** Verify the section's checksum when it is read. Default: `true`. */
   verify?: boolean;
-  /** The seed the data checksum was built with. Default: `0`. */
+  /** The seed the checksum was built with. Default: `0`. */
   seed?: number;
 }
 
 /** How each entry's data is read out of a bundle's data section. */
 export interface DataReadOptions {
   /** How the data checksum is verified. */
-  checksum?: DataReadChecksumOptions;
-}
-
-/**
- * How a bundle's header xxHash checksum is verified when its descriptor is read through this source.
- *
- * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
- * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
- */
-export interface HeaderReadChecksumOptions {
-  /** Verify the header checksum when it is read. Default: `true`. */
-  verify?: boolean;
-  /** The seed the header checksum was built with. Default: `0`. */
-  seed?: number;
+  checksum?: ChecksumReadOptions;
 }
 
 /** How a bundle's header is read. */
 export interface HeaderReadOptions {
   /** How the header checksum is verified. */
-  checksum?: HeaderReadChecksumOptions;
-}
-
-/**
- * How a bundle's index xxHash checksum is verified when its descriptor is read through this source.
- *
- * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
- * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
- */
-export interface IndexReadChecksumOptions {
-  /** Verify the index checksum when it is read. Default: `true`. */
-  verify?: boolean;
-  /** The seed the index checksum was built with. Default: `0`. */
-  seed?: number;
+  checksum?: ChecksumReadOptions;
 }
 
 /** How a bundle's index is read. */
 export interface IndexReadOptions {
   /** How the index checksum is verified. */
-  checksum?: IndexReadChecksumOptions;
+  checksum?: ChecksumReadOptions;
 }
 
 export interface BundleSourceConfig {

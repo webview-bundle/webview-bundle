@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-use wvb::remote::{HttpConfig, Remote};
+use wvb::remote::{HttpOptions, Remote};
 
 #[tokio::test]
 async fn download_times_out() {
@@ -15,7 +15,7 @@ async fn download_times_out() {
 
   let remote = Remote::builder()
     .endpoint(format!("http://127.0.0.1:{port}"))
-    .http(HttpConfig::new().timeout(150))
+    .http(HttpOptions::new().timeout(150))
     .build()
     .unwrap();
 

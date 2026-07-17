@@ -88,6 +88,11 @@ function patchPrototype(klass: AnyConstructor): void {
 
 /**
  * Patch every method of every class the native binding exports.
+ *
+ * Only prototype methods can be patched: napi defines a class's static methods as
+ * non-configurable and non-writable, which blocks both `defineProperty` and a `Proxy` `get`
+ * trap. Native APIs that would otherwise be static factories are therefore exported as free
+ * functions (e.g. `computeIntegrity`) and wrapped with [`wrapFunction`] instead.
  */
 export function patchBinding(binding: Record<string, unknown>): void {
   for (const value of Object.values(binding)) {

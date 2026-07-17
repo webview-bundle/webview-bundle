@@ -118,6 +118,13 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
+  // Integrity (→ WvbResult). Pure hashing over bytes already in memory → blocking.
+  wvb_compute_integrity: { parameters: ['buffer', 'buffer', 'usize'], result: 'pointer' },
+  wvb_parse_integrity: { parameters: ['buffer'], result: 'pointer' },
+  wvb_integrity_validate: {
+    parameters: ['buffer', 'buffer', 'usize'],
+    result: 'pointer',
+  },
   // WvbResult accessors
   wvb_result_ok: { parameters: ['pointer'], result: 'u8' },
   wvb_result_json: { parameters: ['pointer'], result: 'pointer' },

@@ -1,7 +1,6 @@
 use napi_derive::napi;
 use std::collections::HashMap;
 use wvb::http::{HeaderMap, HeaderName, HeaderValue};
-use wvb::remote::HttpConfig;
 
 #[derive(Default)]
 #[napi(object)]
@@ -18,10 +17,10 @@ pub struct HttpOptions {
   pub hickory_dns: Option<bool>,
 }
 
-impl TryFrom<HttpOptions> for HttpConfig {
+impl TryFrom<HttpOptions> for wvb::remote::HttpOptions {
   type Error = crate::Error;
   fn try_from(value: HttpOptions) -> Result<Self, Self::Error> {
-    let mut config = HttpConfig::new();
+    let mut options = wvb::remote::HttpOptions::new();
     if let Some(default_headers) = value.default_headers {
       let mut headers = HeaderMap::with_capacity(default_headers.len());
       for (n, v) in default_headers {
@@ -29,34 +28,35 @@ impl TryFrom<HttpOptions> for HttpConfig {
         let value = HeaderValue::from_bytes(v.as_bytes())?;
         headers.insert(name, value);
       }
+      options = options.default_headers(headers);
     }
     if let Some(user_agent) = value.user_agent {
-      config = config.user_agent(user_agent);
+      options = options.user_agent(user_agent);
     }
     if let Some(timeout) = value.timeout {
-      config = config.timeout(timeout as u64);
+      options = options.timeout(timeout as u64);
     }
     if let Some(read_timeout) = value.read_timeout {
-      config = config.read_timeout(read_timeout as u64);
+      options = options.read_timeout(read_timeout as u64);
     }
     if let Some(connect_timeout) = value.connect_timeout {
-      config = config.connect_timeout(connect_timeout as u64);
+      options = options.connect_timeout(connect_timeout as u64);
     }
     if let Some(pool_idle_timeout) = value.pool_idle_timeout {
-      config = config.pool_idle_timeout(pool_idle_timeout as u64);
+      options = options.pool_idle_timeout(pool_idle_timeout as u64);
     }
     if let Some(pool_max_idle_per_host) = value.pool_max_idle_per_host {
-      config = config.pool_max_idle_per_host(pool_max_idle_per_host as usize);
+      options = options.pool_max_idle_per_host(pool_max_idle_per_host as usize);
     }
     if let Some(referer) = value.referer {
-      config = config.referer(referer);
+      options = options.referer(referer);
     }
     if let Some(tcp_nodelay) = value.tcp_nodelay {
-      config = config.tcp_nodelay(tcp_nodelay);
+      options = options.tcp_nodelay(tcp_nodelay);
     }
     if let Some(hickory_dns) = value.hickory_dns {
-      config = config.hickory_dns(hickory_dns);
+      options = options.hickory_dns(hickory_dns);
     }
-    Ok(config)
+    Ok(options)
   }
 }

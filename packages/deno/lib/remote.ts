@@ -2,6 +2,8 @@ import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
 
 export interface HttpOptions {
+  /** Headers sent with every request. */
+  defaultHeaders?: Record<string, string>;
   userAgent?: string;
   timeout?: number;
   readTimeout?: number;

@@ -29,14 +29,20 @@
 //! ## Quick Start
 //!
 //! ```no_run
-//! use wvb::{Bundle, BundleBuilder};
+//! use wvb::{Bundle, BundleBuilder, BundleEntry};
 //!
 //! # async {
 //! // Create a new bundle
 //! let mut builder = BundleBuilder::new();
-//! builder.add_file("/index.html", b"<html>...</html>", None);
-//! builder.add_file("/app.js", b"console.log('hello');", None);
-//! let bundle = builder.build();
+//! builder.insert_entry(
+//!     "/index.html",
+//!     BundleEntry::new(b"<html>...</html>", "text/html", None),
+//! );
+//! builder.insert_entry(
+//!     "/app.js",
+//!     BundleEntry::new(b"console.log('hello');", "text/javascript", None),
+//! );
+//! let bundle = builder.build().unwrap();
 //!
 //! // Write to file
 //! # use wvb::{AsyncBundleWriter, AsyncWriter};
@@ -47,7 +53,10 @@
 //! // Read from file
 //! # use wvb::{AsyncBundleReader, AsyncReader};
 //! let mut file = File::open("app.wvb").await.unwrap();
-//! let bundle: Bundle = AsyncBundleReader::new(&mut file).read().await.unwrap();
+//! let mut reader = AsyncBundleReader::new(&mut file);
+//! // `AsyncBundleReader` reads either a `Bundle` or a `BundleDescriptor`, and the future
+//! // it returns is opaque — so the one you want is named on the call.
+//! let bundle = AsyncReader::<Bundle>::read(&mut reader).await.unwrap();
 //!
 //! // Access files
 //! let html = bundle.get_data("/index.html").unwrap().unwrap();
@@ -81,7 +90,7 @@
 //!     .build();
 //!
 //! // Load current version (remote takes priority)
-//! let bundle = source.fetch("app").await.unwrap();
+//! let bundle = source.fetch_bundle("app").await.unwrap();
 //! # };
 //! ```
 //!
@@ -93,16 +102,35 @@
 //! # #[cfg(all(feature = "remote", feature = "source"))]
 //! # async {
 //! use wvb::remote::Remote;
-//! use wvb::source::BundleSource;
+//! use wvb::source::{BundleManifestMetadata, BundleSource};
 //!
-//! let remote = Remote::new("https://updates.example.com");
+//! let remote = Remote::builder()
+//!     .endpoint("https://updates.example.com")
+//!     .build()
+//!     .unwrap();
 //! let source = BundleSource::builder()
 //!     .remote_dir("./remote")
 //!     .build();
 //!
-//! // Download and install update
-//! let bundle_info = remote.fetch_bundle("app").await.unwrap();
-//! remote.download_and_write(&source, "app", &bundle_info).await.unwrap();
+//! // Download the current version, then write the bytes exactly as received: the
+//! // integrity string covers those bytes, so storing them verbatim keeps the file
+//! // verifiable on every later load.
+//! let (info, _bundle, data) = remote.download("app", None).await.unwrap();
+//! source
+//!     .write_remote_bundle_data(
+//!         "app",
+//!         &info.version,
+//!         &data,
+//!         BundleManifestMetadata {
+//!             etag: info.etag,
+//!             integrity: info.integrity,
+//!             signature: info.signature,
+//!             last_modified: info.last_modified,
+//!         },
+//!     )
+//!     .await
+//!     .unwrap();
+//! source.update_remote_version("app", &info.version).await.unwrap();
 //! # };
 //! ```
 

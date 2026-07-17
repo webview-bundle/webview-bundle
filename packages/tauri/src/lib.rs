@@ -4,13 +4,7 @@ use tauri::{
   plugin::{Builder, TauriPlugin},
 };
 
-pub use config::{
-  BundleProtocolConfig, BundleSourceIntegrityCheckMode, BundleSourceSignatureVerifyMode, Config,
-  DataReadChecksumOptions, DataReadOptions, ErrorResponse, HeaderReadChecksumOptions,
-  HeaderReadOptions, HostnameSegment, Http, IndexReadChecksumOptions, IndexReadOptions,
-  IntegrityPolicy, Protocol, ProxyResolver, Remote, SignatureVerifier, Source, SourceIntegrity,
-  SourceSignature, Updater, UriBundleResolver, UriPathResolver, default_error_response,
-};
+pub use config::*;
 pub use wvb::signature::{
   EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
   RsaPssVerifier,
@@ -24,6 +18,8 @@ mod error;
 mod state;
 
 pub use error::{Error, Result};
+pub use state::default_error_response;
+pub use wvb;
 
 use state::WebviewBundle;
 

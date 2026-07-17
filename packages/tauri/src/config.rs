@@ -3,33 +3,15 @@ use std::sync::Arc;
 use tauri::http;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, Runtime};
-use wvb::remote;
-use wvb::source::{
-  BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
-};
-use wvb::updater::UpdaterConfig;
-pub use wvb::{
-  DataReadChecksumOptions, DataReadOptions, HeaderReadChecksumOptions, HeaderReadOptions,
-  IndexReadChecksumOptions, IndexReadOptions,
-};
-
-pub use wvb::integrity::IntegrityPolicy;
-pub use wvb::protocol::{HostnameSegment, ProxyResolver, UriBundleResolver, UriPathResolver};
-pub use wvb::remote::HttpConfig as Http;
-pub use wvb::signature::SignatureVerifier;
-pub use wvb::source::{BundleSourceIntegrityCheckMode, BundleSourceSignatureVerifyMode};
-
-type SignatureVerifierBuilder =
-  Arc<dyn Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync>;
 
 #[derive(Clone, Default)]
-pub struct Updater {
+pub struct UpdaterConfig {
   pub(crate) channel: Option<String>,
-  pub(crate) integrity_policy: Option<IntegrityPolicy>,
-  pub(crate) signature_verifier: Option<SignatureVerifierBuilder>,
+  pub(crate) integrity: wvb::updater::UpdaterIntegrityOptions,
+  pub(crate) signature: wvb::updater::UpdaterSignatureOptions,
 }
 
-impl Updater {
+impl UpdaterConfig {
   pub fn new() -> Self {
     Self::default()
   }
@@ -39,41 +21,24 @@ impl Updater {
     self
   }
 
-  pub fn integrity_policy(mut self, policy: IntegrityPolicy) -> Self {
-    self.integrity_policy = Some(policy);
+  pub fn integrity(mut self, integrity: wvb::updater::UpdaterIntegrityOptions) -> Self {
+    self.integrity = integrity;
     self
   }
 
-  /// Verifies that each bundle's integrity string was signed by the matching key.
-  ///
-  /// The signature signs the integrity string, not the bundle bytes, and is verified
-  /// independently of [`Updater::integrity_policy`] — keep the policy enabled
-  /// ([`IntegrityPolicy::Strict`] or [`IntegrityPolicy::Optional`], not
-  /// [`IntegrityPolicy::Off`]) for the signature to also authenticate the downloaded
-  /// bytes.
-  ///
-  /// The builder runs once, when the plugin initializes; its error aborts setup.
-  pub fn signature_verifier<F>(mut self, builder: F) -> Self
-  where
-    F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
-  {
-    self.signature_verifier = Some(Arc::new(builder));
+  pub fn signature(mut self, signature: wvb::updater::UpdaterSignatureOptions) -> Self {
+    self.signature = signature;
     self
   }
 
-  pub(crate) fn build_config(&self) -> crate::Result<UpdaterConfig> {
-    let mut config = UpdaterConfig::default();
+  pub(crate) fn build_options(&self) -> wvb::updater::UpdaterOptions {
+    let mut options = wvb::updater::UpdaterOptions::default();
     if let Some(ref channel) = self.channel {
-      config = config.channel(channel.clone());
+      options = options.channel(channel.clone());
     }
-    if let Some(policy) = self.integrity_policy {
-      config = config.integrity_policy(policy);
-    }
-    if let Some(ref builder) = self.signature_verifier {
-      let verifier = builder()?;
-      config = config.signature_verifier(verifier);
-    }
-    Ok(config)
+    options = options.integrity(self.integrity.clone());
+    options = options.signature(self.signature.clone());
+    options
   }
 }
 
@@ -100,87 +65,27 @@ impl<R: Runtime> Dir<R> {
   }
 }
 
-/// How bundles are checked against their manifest integrity metadata when they are
-/// loaded from disk.
 #[derive(Clone, Default)]
-pub struct SourceIntegrity {
-  pub(crate) policy: Option<IntegrityPolicy>,
-  pub(crate) check_mode: Option<BundleSourceIntegrityCheckMode>,
-}
-
-impl SourceIntegrity {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
-  ///
-  /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
-  pub fn policy(mut self, policy: IntegrityPolicy) -> Self {
-    self.policy = Some(policy);
-    self
-  }
-
-  /// Which bundles are checked on load (default: [`BundleSourceIntegrityCheckMode::OnlyRemote`]).
-  pub fn check_mode(mut self, mode: BundleSourceIntegrityCheckMode) -> Self {
-    self.check_mode = Some(mode);
-    self
-  }
-}
-
-/// How bundle signatures are verified when bundles are loaded from disk.
-#[derive(Clone, Default)]
-pub struct SourceSignature {
-  pub(crate) verify: Option<SignatureVerifierBuilder>,
-  pub(crate) verify_mode: Option<BundleSourceSignatureVerifyMode>,
-}
-
-impl SourceSignature {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  /// Verifies that a bundle's integrity string was signed by the matching key
-  /// (default: off).
-  ///
-  /// The builder runs once, when the plugin initializes; its error aborts setup.
-  pub fn verify<F>(mut self, builder: F) -> Self
-  where
-    F: Fn() -> Result<SignatureVerifier, wvb::Error> + Send + Sync + 'static,
-  {
-    self.verify = Some(Arc::new(builder));
-    self
-  }
-
-  /// Which bundles have their signature verified on load
-  /// (default: [`BundleSourceSignatureVerifyMode::OnlyRemote`]).
-  pub fn verify_mode(mut self, mode: BundleSourceSignatureVerifyMode) -> Self {
-    self.verify_mode = Some(mode);
-    self
-  }
-}
-
-#[derive(Clone, Default)]
-pub struct Source<R: Runtime> {
+pub struct SourceConfig<R: Runtime> {
   pub(crate) builtin_dir: Option<Dir<R>>,
   pub(crate) remote_dir: Option<Dir<R>>,
-  pub(crate) integrity: SourceIntegrity,
-  pub(crate) signature: SourceSignature,
-  pub(crate) header_read_options: Option<HeaderReadOptions>,
-  pub(crate) index_read_options: Option<IndexReadOptions>,
-  pub(crate) data_read_options: Option<DataReadOptions>,
+  pub(crate) integrity: wvb::source::BundleSourceIntegrityOptions,
+  pub(crate) signature: wvb::source::BundleSourceSignatureOptions,
+  pub(crate) header_read: wvb::HeaderReadOptions,
+  pub(crate) index_read: wvb::IndexReadOptions,
+  pub(crate) data_read: wvb::DataReadOptions,
 }
 
-impl<R: Runtime> Source<R> {
+impl<R: Runtime> SourceConfig<R> {
   pub fn new() -> Self {
     Self {
       builtin_dir: None,
       remote_dir: None,
-      integrity: SourceIntegrity::default(),
-      signature: SourceSignature::default(),
-      header_read_options: None,
-      index_read_options: None,
-      data_read_options: None,
+      integrity: Default::default(),
+      signature: Default::default(),
+      header_read: Default::default(),
+      index_read: Default::default(),
+      data_read: Default::default(),
     }
   }
 
@@ -206,39 +111,28 @@ impl<R: Runtime> Source<R> {
 
   /// How bundles are checked against their manifest integrity metadata when they are
   /// loaded from disk.
-  ///
-  /// A bundle is verified once per version, not once per request. By default the check
-  /// runs under the [`IntegrityPolicy::Optional`] policy on remote bundles only
-  /// ([`BundleSourceIntegrityCheckMode::OnlyRemote`]).
-  pub fn integrity(mut self, integrity: SourceIntegrity) -> Self {
+  pub fn integrity(mut self, integrity: wvb::source::BundleSourceIntegrityOptions) -> Self {
     self.integrity = integrity;
     self
   }
 
   /// How bundle signatures are verified when bundles are loaded from disk.
-  ///
-  /// The signature signs a bundle's integrity string, not its bytes, and is verified
-  /// independently of the integrity check — keep the [`Source::integrity`] policy enabled
-  /// for the signature to also authenticate the bytes. By default verification applies to
-  /// remote bundles only ([`BundleSourceSignatureVerifyMode::OnlyRemote`]).
-  ///
-  /// A bundle is verified once per version, not once per request.
-  pub fn signature(mut self, signature: SourceSignature) -> Self {
+  pub fn signature(mut self, signature: wvb::source::BundleSourceSignatureOptions) -> Self {
     self.signature = signature;
     self
   }
 
   /// How a bundle's header is checked when its descriptor is read on load
   /// (default: checksum verification on, seed `0`).
-  pub fn header_read_options(mut self, options: HeaderReadOptions) -> Self {
-    self.header_read_options = Some(options);
+  pub fn header_read(mut self, options: wvb::HeaderReadOptions) -> Self {
+    self.header_read = options;
     self
   }
 
   /// How a bundle's index is checked when its descriptor is read on load
   /// (default: checksum verification on, seed `0`).
-  pub fn index_read_options(mut self, options: IndexReadOptions) -> Self {
-    self.index_read_options = Some(options);
+  pub fn index_read(mut self, options: wvb::IndexReadOptions) -> Self {
+    self.index_read = options;
     self
   }
 
@@ -247,40 +141,9 @@ impl<R: Runtime> Source<R> {
   ///
   /// This covers every read made through the source, including the entries the bundle
   /// protocol serves.
-  pub fn data_read_options(mut self, options: DataReadOptions) -> Self {
-    self.data_read_options = Some(options);
+  pub fn data_read(mut self, options: wvb::DataReadOptions) -> Self {
+    self.data_read = options;
     self
-  }
-
-  pub(crate) fn build_options(&self) -> crate::Result<BundleSourceOptions> {
-    let mut options = BundleSourceOptions::default();
-    let mut integrity = BundleSourceIntegrityOptions::default();
-    if let Some(policy) = self.integrity.policy {
-      integrity = integrity.policy(policy);
-    }
-    if let Some(mode) = self.integrity.check_mode {
-      integrity = integrity.check_mode(mode);
-    }
-    options = options.integrity(integrity);
-    let mut signature = BundleSourceSignatureOptions::default();
-    if let Some(ref builder) = self.signature.verify {
-      let verifier = builder()?;
-      signature = signature.verify(verifier);
-    }
-    if let Some(mode) = self.signature.verify_mode {
-      signature = signature.verify_mode(mode);
-    }
-    options = options.signature(signature);
-    if let Some(header) = self.header_read_options {
-      options = options.header_read_options(header);
-    }
-    if let Some(index) = self.index_read_options {
-      options = options.index_read_options(index);
-    }
-    if let Some(data) = self.data_read_options {
-      options = options.data_read_options(data);
-    }
-    Ok(options)
   }
 
   /// Resolves the builtin bundle directory.
@@ -289,7 +152,7 @@ impl<R: Runtime> Source<R> {
   /// filesystem path the core can read directly. On **Android** bundled
   /// resources live inside the APK as `asset://` paths that `std::fs` cannot
   /// read, so apps shipping builtin bundles must extract them at startup and
-  /// point here via [`Source::builtin_dir_fn`]. Apps that only use remote
+  /// point here via [`SourceConfig::builtin_dir_fn`]. Apps that only use remote
   /// (downloaded) bundles are unaffected.
   pub(crate) fn resolve_builtin_dir(&self, app: &AppHandle<R>) -> crate::Result<PathBuf> {
     let dir = match self.builtin_dir {
@@ -313,17 +176,17 @@ impl<R: Runtime> Source<R> {
 }
 
 #[derive(Clone, Default)]
-pub struct Remote {
-  builder: remote::RemoteBuilder,
+pub struct RemoteConfig {
+  builder: wvb::remote::RemoteBuilder,
 }
 
-impl Remote {
+impl RemoteConfig {
   pub fn new(endpoint: impl Into<String>) -> Self {
-    let builder = remote::Remote::builder().endpoint(endpoint);
+    let builder = wvb::remote::Remote::builder().endpoint(endpoint);
     Self { builder }
   }
 
-  pub fn http(mut self, http: Http) -> Self {
+  pub fn http(mut self, http: wvb::remote::HttpOptions) -> Self {
     self.builder = self.builder.http(http);
     self
   }
@@ -336,7 +199,7 @@ impl Remote {
     self
   }
 
-  pub(crate) fn build(self) -> crate::Result<remote::Remote> {
+  pub(crate) fn build(self) -> crate::Result<wvb::remote::Remote> {
     let remote = self.builder.build()?;
     Ok(remote)
   }
@@ -345,24 +208,11 @@ impl Remote {
 /// Builds the response for a request the protocol failed to serve.
 pub type ErrorResponse = Arc<dyn Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync>;
 
-/// A plain-text error response, used when a protocol has no [`ErrorResponse`] of its own.
-pub fn default_error_response(error: &crate::Error) -> http::Response<Vec<u8>> {
-  http::Response::builder()
-    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-    .header(http::header::CONTENT_TYPE, "text/plain")
-    .body(
-      format!("webview bundle protocol error: {error}")
-        .as_bytes()
-        .to_vec(),
-    )
-    .expect("static error response")
-}
-
 #[derive(Clone)]
 pub struct BundleProtocolConfig {
   scheme: String,
-  pub(crate) bundle_resolver: Option<UriBundleResolver>,
-  pub(crate) path_resolver: Option<UriPathResolver>,
+  pub(crate) bundle_resolver: wvb::protocol::UriBundleResolver,
+  pub(crate) path_resolver: wvb::protocol::UriPathResolver,
   pub(crate) error_response: Option<ErrorResponse>,
 }
 
@@ -370,38 +220,22 @@ impl BundleProtocolConfig {
   pub fn new<S: Into<String>>(scheme: S) -> Self {
     Self {
       scheme: scheme.into(),
-      bundle_resolver: None,
-      path_resolver: None,
+      bundle_resolver: Default::default(),
+      path_resolver: Default::default(),
       error_response: None,
     }
   }
 
   /// The response for a request this protocol fails to serve
-  /// (default: [`default_error_response`], a `500` with the message).
+  /// (default: [`default_error_response`](crate::default_error_response), a `500` with the message).
   ///
   /// ```no_run
   /// # use tauri::http;
-  /// # use wvb_tauri::{Error, Protocol};
-  /// Protocol::bundle("app").error_response(|e| {
+  /// # use wvb_tauri::{Error, ProtocolConfig};
+  /// ProtocolConfig::bundle("app").error_response(|e| {
   ///   let missing = matches!(e, Error::Core(wvb::Error::BundleNotFound));
   ///   http::Response::builder()
   ///     .status(if missing { 404 } else { 500 })
-  ///     .body(e.to_string().into_bytes())
-  ///     .unwrap()
-  /// });
-  /// ```
-  ///
-  /// A corrupted entry (when the source's [`Source::data_read_options`] keep checksum
-  /// verification on) arrives here as [`wvb::ErrorCode::ChecksumMismatch`], so it can be
-  /// answered on its own terms:
-  ///
-  /// ```no_run
-  /// # use tauri::http;
-  /// # use wvb_tauri::{Error, Protocol};
-  /// Protocol::bundle("app").error_response(|e| {
-  ///   let corrupted = matches!(e, Error::Core(err) if err.code() == wvb::ErrorCode::ChecksumMismatch);
-  ///   http::Response::builder()
-  ///     .status(if corrupted { 502 } else { 500 })
   ///     .body(e.to_string().into_bytes())
   ///     .unwrap()
   /// });
@@ -415,27 +249,30 @@ impl BundleProtocolConfig {
   }
 
   /// How the bundle name is resolved from the request uri
-  /// (default: [`UriBundleResolver::hostname`] with the first hostname segment).
+  /// (default: [`UriBundleResolver::hostname`](wvb::protocol::UriBundleResolver::hostname) with
+  /// the first hostname segment).
   ///
   /// ```no_run
-  /// # use wvb_tauri::{HostnameSegment, Protocol, UriBundleResolver};
-  /// Protocol::bundle("app")
+  /// # use wvb::protocol::{HostnameSegment, UriBundleResolver};
+  /// # use wvb_tauri::ProtocolConfig;
+  /// ProtocolConfig::bundle("app")
   ///   .bundle_resolver(UriBundleResolver::hostname(Some(HostnameSegment::StripSuffix), Some(true)));
   /// ```
-  pub fn bundle_resolver(mut self, resolver: UriBundleResolver) -> Self {
-    self.bundle_resolver = Some(resolver);
+  pub fn bundle_resolver(mut self, resolver: wvb::protocol::UriBundleResolver) -> Self {
+    self.bundle_resolver = resolver;
     self
   }
 
   /// How the file path in the bundle is resolved from the request uri
-  /// (default: [`UriPathResolver::directory_index`]).
+  /// (default: [`UriPathResolver::directory_index`](wvb::protocol::UriPathResolver::directory_index)).
   ///
   /// ```no_run
-  /// # use wvb_tauri::{Protocol, UriPathResolver};
-  /// Protocol::bundle("app").path_resolver(UriPathResolver::html_extension());
+  /// # use wvb::protocol::UriPathResolver;
+  /// # use wvb_tauri::ProtocolConfig;
+  /// ProtocolConfig::bundle("app").path_resolver(UriPathResolver::html_extension());
   /// ```
-  pub fn path_resolver(mut self, resolver: UriPathResolver) -> Self {
-    self.path_resolver = Some(resolver);
+  pub fn path_resolver(mut self, resolver: wvb::protocol::UriPathResolver) -> Self {
+    self.path_resolver = resolver;
     self
   }
 }
@@ -443,12 +280,12 @@ impl BundleProtocolConfig {
 #[derive(Clone)]
 pub struct ProxyProtocolConfig {
   scheme: String,
-  pub(crate) resolver: ProxyResolver,
+  pub(crate) resolver: wvb::protocol::ProxyResolver,
   pub(crate) error_response: Option<ErrorResponse>,
 }
 
 impl ProxyProtocolConfig {
-  pub fn new<S: Into<String>>(scheme: S, resolver: ProxyResolver) -> Self {
+  pub fn new<S: Into<String>>(scheme: S, resolver: wvb::protocol::ProxyResolver) -> Self {
     Self {
       scheme: scheme.into(),
       resolver,
@@ -457,7 +294,7 @@ impl ProxyProtocolConfig {
   }
 
   /// The response for a request this protocol fails to serve — e.g. a dev server that is not up
-  /// yet (default: [`default_error_response`], a `500` with the message).
+  /// yet (default: [`default_error_response`](crate::default_error_response), a `500` with the message).
   pub fn error_response<F>(mut self, error_response: F) -> Self
   where
     F: Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync + 'static,
@@ -468,80 +305,83 @@ impl ProxyProtocolConfig {
 }
 
 #[derive(Clone)]
-pub enum Protocol {
+pub enum ProtocolConfig {
   Bundle(BundleProtocolConfig),
   Proxy(ProxyProtocolConfig),
 }
 
-impl Protocol {
+impl ProtocolConfig {
   pub fn bundle<S: Into<String>>(scheme: S) -> BundleProtocolConfig {
     BundleProtocolConfig::new(scheme)
   }
 
-  pub fn proxy<S: Into<String>>(scheme: S, resolver: ProxyResolver) -> ProxyProtocolConfig {
+  pub fn proxy<S: Into<String>>(
+    scheme: S,
+    resolver: wvb::protocol::ProxyResolver,
+  ) -> ProxyProtocolConfig {
     ProxyProtocolConfig::new(scheme, resolver)
   }
 
   pub fn scheme(&self) -> &str {
     match self {
-      Protocol::Bundle(x) => &x.scheme,
-      Protocol::Proxy(x) => &x.scheme,
+      ProtocolConfig::Bundle(x) => &x.scheme,
+      ProtocolConfig::Proxy(x) => &x.scheme,
     }
   }
 }
 
-impl From<BundleProtocolConfig> for Protocol {
+impl From<BundleProtocolConfig> for ProtocolConfig {
   fn from(value: BundleProtocolConfig) -> Self {
-    Protocol::Bundle(value)
+    ProtocolConfig::Bundle(value)
   }
 }
 
-impl From<ProxyProtocolConfig> for Protocol {
+impl From<ProxyProtocolConfig> for ProtocolConfig {
   fn from(value: ProxyProtocolConfig) -> Self {
-    Protocol::Proxy(value)
+    ProtocolConfig::Proxy(value)
   }
 }
 
 #[derive(Clone, Default)]
 pub struct Config<R: Runtime> {
-  pub(crate) source: Source<R>,
-  pub(crate) protocols: Vec<Protocol>,
-  pub(crate) remote: Option<Remote>,
-  pub(crate) updater: Option<Updater>,
+  pub(crate) source: SourceConfig<R>,
+  pub(crate) protocols: Vec<ProtocolConfig>,
+  pub(crate) remote: Option<RemoteConfig>,
+  pub(crate) updater: Option<UpdaterConfig>,
 }
 
 impl<R: Runtime> Config<R> {
   pub fn new() -> Self {
     Self {
-      source: Source::new(),
+      source: SourceConfig::new(),
       protocols: vec![],
-      remote: Default::default(),
+      remote: None,
       updater: None,
     }
   }
 
-  pub fn source(mut self, source: Source<R>) -> Self {
+  pub fn source(mut self, source: SourceConfig<R>) -> Self {
     self.source = source;
     self
   }
 
-  pub fn protocol<P: Into<Protocol>>(mut self, protocol: P) -> Self {
+  pub fn protocol<P: Into<ProtocolConfig>>(mut self, protocol: P) -> Self {
     self.protocols.push(protocol.into());
     self
   }
 
-  pub fn remote(mut self, remote: Remote) -> Self {
+  pub fn remote(mut self, remote: RemoteConfig) -> Self {
     self.remote = Some(remote);
     self
   }
 
   /// Configures updater integrity/signature verification. Requires a remote.
-  pub fn updater(mut self, updater: Updater) -> Self {
+  pub fn updater(mut self, updater: UpdaterConfig) -> Self {
     self.updater = Some(updater);
     self
   }
 
-  pub(crate) fn build_remote(&self) -> crate::Result<Option<remote::Remote>> {
+  pub(crate) fn build_remote(&self) -> crate::Result<Option<wvb::remote::Remote>> {
     if let Some(ref remote_config) = self.remote {
       let remote = remote_config.clone().build()?;
       Ok(Some(remote))

@@ -7,11 +7,14 @@ import {
   BundleSource,
   type BundleSourceConfig,
   type BundleSourceVerifyMode,
+  computeIntegrity,
   type HttpResponse,
+  type IntegrityAlgorithm,
   type IntegrityPolicy,
   loadLib,
   type PathResolver,
   ProxyProtocol,
+  parseIntegrity,
   Remote,
   Updater,
   WebviewBundleError,
@@ -362,4 +365,61 @@ Deno.test('Updater fails closed on an invalid signatureVerifier key', () => {
         },
       })
   );
+});
+
+Deno.test('Remote sends the configured http options on every request', async () => {
+  let seen: Headers | undefined;
+  const server = Deno.serve({ port: 0, onListen: () => {} }, req => {
+    seen = req.headers;
+    return Response.json([{ name: 'app', version: '1.0.0' }]);
+  });
+  try {
+    using remote = new Remote(`http://127.0.0.1:${server.addr.port}`, {
+      http: {
+        defaultHeaders: { authorization: 'Bearer tok-123', 'x-tenant': 'acme' },
+        userAgent: 'wvb-deno-test/1.0',
+      },
+    });
+    await remote.listBundles();
+
+    assertEquals(seen?.get('authorization'), 'Bearer tok-123');
+    assertEquals(seen?.get('x-tenant'), 'acme');
+    assertEquals(seen?.get('user-agent'), 'wvb-deno-test/1.0');
+  } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test('computeIntegrity produces the string core produces', () => {
+  // Same vector as core's own integrity_serialize test.
+  const integrity = computeIntegrity('sha256', new TextEncoder().encode('test'));
+  assertEquals(integrity.serialize(), 'sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=');
+  assertEquals(integrity.value(), decodeBase64('n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg='));
+});
+
+Deno.test('computeIntegrity digests each algorithm to its own width', () => {
+  const data = new TextEncoder().encode('<h1>hello</h1>');
+  const widths: Record<IntegrityAlgorithm, number> = { sha256: 32, sha384: 48, sha512: 64 };
+  for (const [algorithm, width] of Object.entries(widths) as [IntegrityAlgorithm, number][]) {
+    const integrity = computeIntegrity(algorithm, data);
+    assert(integrity.serialize().startsWith(`${algorithm}:`));
+    assertEquals(integrity.value().length, width);
+  }
+});
+
+Deno.test('parseIntegrity round-trips and validates the right bytes only', () => {
+  const data = new TextEncoder().encode('<h1>hello</h1>');
+  const serialized = computeIntegrity('sha384', data).serialize();
+  const parsed = parseIntegrity(serialized);
+
+  assertEquals(parsed.serialize(), serialized);
+  assertEquals(parsed.value(), computeIntegrity('sha384', data).value());
+  assert(parsed.validate(data));
+  assert(!parsed.validate(new TextEncoder().encode('tampered')));
+});
+
+Deno.test('parseIntegrity rejects a malformed string with the shared error code', () => {
+  const error = assertThrows(() => parseIntegrity('not-an-integrity'));
+  assert(error instanceof WebviewBundleError);
+  assertEquals(error.code, 'core.invalid_integrity');
 });

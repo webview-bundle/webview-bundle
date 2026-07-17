@@ -8,6 +8,8 @@ import { BundleBuilder, Remote, WebviewBundleError, writeBundleIntoBuffer } from
 let port: number;
 let server: ServerType;
 let allowOnlyLatest = false;
+let lastRequestHeaders: Headers | undefined;
+let lastRequestUrl: string | undefined;
 
 beforeAll(async () => {
   port = await getPort();
@@ -26,14 +28,16 @@ beforeAll(async () => {
   }
 
   // GET /bundles
-  app.get('/bundles', c =>
-    c.json([
+  app.get('/bundles', c => {
+    lastRequestHeaders = c.req.raw.headers;
+    lastRequestUrl = c.req.url;
+    return c.json([
       {
         name: 'bundle1',
         version: '1.0.0',
       },
-    ])
-  );
+    ]);
+  });
   // GET /bundles/{name}
   app.get('/bundles/:name', async c => {
     const bundleName = c.req.param('name');
@@ -127,5 +131,37 @@ describe('remote', () => {
     expect(() => new Remote('')).toThrow(
       expect.objectContaining({ code: 'core.invalid_remote_config' })
     );
+  });
+
+  it('sends the fetch channel as a query parameter', async () => {
+    const remote = new Remote(`http://localhost:${port}`);
+    await remote.listBundles({ channel: 'beta' });
+    expect(new URL(lastRequestUrl as string).searchParams.get('channel')).toBe('beta');
+  });
+
+  // Callers pass `{ channel }` straight through, so an undefined channel has to behave exactly
+  // like passing no options at all rather than sending an empty channel.
+  it('an undefined channel is identical to passing no options', async () => {
+    const remote = new Remote(`http://localhost:${port}`);
+    await remote.listBundles();
+    const withoutOptions = lastRequestUrl;
+
+    await remote.listBundles({ channel: undefined });
+    expect(lastRequestUrl).toBe(withoutOptions);
+    expect(new URL(lastRequestUrl as string).searchParams.has('channel')).toBe(false);
+  });
+
+  it('sends the configured http options on every request', async () => {
+    const remote = new Remote(`http://localhost:${port}`, {
+      http: {
+        defaultHeaders: { authorization: 'Bearer tok-123', 'x-tenant': 'acme' },
+        userAgent: 'wvb-test/1.0',
+      },
+    });
+    await remote.listBundles();
+
+    expect(lastRequestHeaders?.get('authorization')).toBe('Bearer tok-123');
+    expect(lastRequestHeaders?.get('x-tenant')).toBe('acme');
+    expect(lastRequestHeaders?.get('user-agent')).toBe('wvb-test/1.0');
   });
 });

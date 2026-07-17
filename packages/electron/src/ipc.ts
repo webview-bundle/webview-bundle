@@ -88,9 +88,9 @@ const handlers: InvokeHandlers = {
   sourcePruneRemoteBundles: async (wvb, { bundleName }) =>
     wvb.source.pruneRemoteBundles(bundleName),
   // remote
-  remoteListBundles: async (wvb, { channel }) => ensureRemote(wvb).listBundles(channel),
+  remoteListBundles: async (wvb, { channel }) => ensureRemote(wvb).listBundles({ channel }),
   remoteGetInfo: async (wvb, { bundleName, channel }) =>
-    ensureRemote(wvb).getInfo(bundleName, channel),
+    ensureRemote(wvb).getInfo(bundleName, { channel }),
   remoteDownload: async (wvb, { bundleName, channel }) => {
     const [info] = await ensureRemote(wvb).download(bundleName, channel);
     return info;

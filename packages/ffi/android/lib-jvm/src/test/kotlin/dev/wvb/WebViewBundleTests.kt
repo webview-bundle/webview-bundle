@@ -61,9 +61,9 @@ class WebViewBundleTests {
         assertNotNull(
             builder.build(
                 BuildOptions(
-                    header = BuildHeaderOptions(checksumSeed = 1u),
-                    index = BuildIndexOptions(checksumSeed = 2u),
-                    dataChecksumSeed = 3u,
+                    header = BuildHeaderOptions(checksum = ChecksumWriteOptions(seed = 1u)),
+                    index = BuildIndexOptions(checksum = ChecksumWriteOptions(seed = 2u)),
+                    dataChecksum = ChecksumWriteOptions(seed = 3u),
                 )
             )
         )

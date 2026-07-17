@@ -1,5 +1,4 @@
 use crate::integrity::{Integrity, IntegrityPolicy};
-use std::future::Future;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -18,13 +17,13 @@ pub type CustomChecker = dyn Fn(
 
 #[non_exhaustive]
 #[derive(Default, Clone)]
-pub enum IntegrityChecker {
+pub enum IntegrityCheck {
   #[default]
   Default,
   Custom(Arc<CustomChecker>),
 }
 
-impl std::fmt::Debug for IntegrityChecker {
+impl std::fmt::Debug for IntegrityCheck {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let name = match self {
       Self::Default => "Default",
@@ -34,7 +33,7 @@ impl std::fmt::Debug for IntegrityChecker {
   }
 }
 
-impl IntegrityChecker {
+impl IntegrityCheck {
   pub async fn check(&self, integrity: &str, data: &[u8]) -> crate::Result<()> {
     match self {
       Self::Default => {
@@ -58,21 +57,18 @@ impl IntegrityChecker {
 }
 
 /// Verifies `data` against the `integrity` advertised for it, as `policy` dictates.
-///
-/// `integrity` comes from the remote's response headers (on download) or from the bundle
-/// manifest (on load/install).
 pub(crate) async fn verify_integrity(
-  policy: IntegrityPolicy,
-  check: &IntegrityChecker,
+  policy: &IntegrityPolicy,
+  check: &IntegrityCheck,
   integrity: Option<&str>,
   data: &[u8],
 ) -> crate::Result<()> {
-  if policy == IntegrityPolicy::Off {
+  if policy == &IntegrityPolicy::Off {
     return Ok(());
   }
   match integrity {
     Some(integrity) => check.check(integrity, data).await,
-    None if policy == IntegrityPolicy::Strict => Err(crate::Error::IntegrityVerifyFailed),
+    None if policy == &IntegrityPolicy::Strict => Err(crate::Error::IntegrityVerifyFailed),
     None => Ok(()),
   }
 }
@@ -93,8 +89,8 @@ mod tests {
     // Even a wrong integrity string is not looked at.
     let wrong = integrity_of(b"other bytes");
     verify_integrity(
-      IntegrityPolicy::Off,
-      &IntegrityChecker::Default,
+      &IntegrityPolicy::Off,
+      &IntegrityCheck::Default,
       Some(&wrong),
       DATA,
     )
@@ -104,22 +100,20 @@ mod tests {
 
   #[tokio::test]
   async fn policy_optional_checks_when_present() {
-    let check = IntegrityChecker::Default;
+    let check = IntegrityCheck::Default;
     verify_integrity(
-      IntegrityPolicy::Optional,
+      &IntegrityPolicy::Optional,
       &check,
       Some(&integrity_of(DATA)),
       DATA,
     )
     .await
     .unwrap();
-    // Absent integrity is tolerated.
-    verify_integrity(IntegrityPolicy::Optional, &check, None, DATA)
+    verify_integrity(&IntegrityPolicy::Optional, &check, None, DATA)
       .await
       .unwrap();
-    // Present but wrong is not.
     let err = verify_integrity(
-      IntegrityPolicy::Optional,
+      &IntegrityPolicy::Optional,
       &check,
       Some(&integrity_of(b"other")),
       DATA,
@@ -132,8 +126,8 @@ mod tests {
   #[tokio::test]
   async fn policy_strict_requires_integrity() {
     let err = verify_integrity(
-      IntegrityPolicy::Strict,
-      &IntegrityChecker::Default,
+      &IntegrityPolicy::Strict,
+      &IntegrityCheck::Default,
       None,
       DATA,
     )

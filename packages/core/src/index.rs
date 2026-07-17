@@ -15,6 +15,7 @@ use std::ops::{Deref, DerefMut};
 use crate::reader::AsyncReader;
 #[cfg(feature = "async")]
 use crate::writer::AsyncWriter;
+use crate::{ChecksumReadOptions, ChecksumWriteOptions};
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
@@ -152,17 +153,23 @@ pub(crate) struct IndexEntryMap(pub(crate) HashMap<String, IndexEntry>);
 /// # Example
 ///
 /// ```
-/// use wvb::{Bundle, BundleBuilder};
+/// use wvb::{Bundle, BundleEntry};
 ///
-/// let bundle = Bundle::builder()
-///     .add_file("/index.html", b"<html></html>", None)
-///     .add_file("/app.js", b"console.log('hello');", None)
-///     .build();
+/// let mut builder = Bundle::builder();
+/// builder.insert_entry(
+///     "/index.html",
+///     BundleEntry::new(b"<html></html>", "text/html", None),
+/// );
+/// builder.insert_entry(
+///     "/app.js",
+///     BundleEntry::new(b"console.log('hello');", "text/javascript", None),
+/// );
+/// let bundle = builder.build().unwrap();
 ///
 /// let index = bundle.descriptor().index();
 /// assert!(index.contains_path("/index.html"));
 /// assert!(index.contains_path("/app.js"));
-/// assert_eq!(index.len(), 2);
+/// assert_eq!(index.entries().len(), 2);
 /// ```
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Index {
@@ -254,12 +261,12 @@ fn write_index(index: &Index) -> crate::Result<Vec<u8>> {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct IndexWriterOptions {
-  pub(crate) checksum_seed: u32,
+  pub checksum: ChecksumWriteOptions,
 }
 
 impl IndexWriterOptions {
-  pub fn checksum_seed(&mut self, seed: u32) -> &mut Self {
-    self.checksum_seed = seed;
+  pub fn checksum(mut self, checksum: ChecksumWriteOptions) -> Self {
+    self.checksum = checksum;
     self
   }
 }
@@ -281,6 +288,11 @@ impl<W: Write> IndexWriter<W> {
     Self { w, options }
   }
 
+  pub fn set_options(&mut self, options: IndexWriterOptions) -> &mut Self {
+    self.options = options;
+    self
+  }
+
   pub fn write_index(&mut self, index: &Index) -> crate::Result<Vec<u8>> {
     let bytes = write_index(index)?;
     self.w.write_all(&bytes)?;
@@ -298,7 +310,7 @@ impl<W: Write> Writer<Index> for IndexWriter<W> {
   fn write(&mut self, index: &Index) -> crate::Result<usize> {
     let mut bytes = vec![];
     bytes.extend(self.write_index(index)?);
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum)?);
     Ok(bytes.len())
   }
@@ -323,6 +335,11 @@ impl<W: AsyncWrite + Unpin> AsyncIndexWriter<W> {
     Self { w, options }
   }
 
+  pub fn set_options(&mut self, options: IndexWriterOptions) -> &mut Self {
+    self.options = options;
+    self
+  }
+
   pub async fn write_index(&mut self, index: &Index) -> crate::Result<Vec<u8>> {
     let bytes = write_index(index)?;
     self.w.write_all(&bytes).await?;
@@ -341,7 +358,7 @@ impl<W: AsyncWrite + Unpin> AsyncWriter<Index> for AsyncIndexWriter<W> {
   async fn write(&mut self, index: &Index) -> crate::Result<usize> {
     let mut bytes = vec![];
     bytes.extend(self.write_index(index).await?);
-    let checksum = make_checksum(self.options.checksum_seed, &bytes);
+    let checksum = make_checksum(self.options.checksum.seed, &bytes);
     bytes.extend(self.write_checksum(checksum).await?);
     Ok(bytes.len())
   }
@@ -378,45 +395,14 @@ pub struct IndexReader<R: Read + Seek> {
   options: IndexReadOptions,
 }
 
-/// How the index checksum is treated when the index is read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IndexReadChecksumOptions {
-  /// Whether to verify the index checksum when the index is read (default: `true`).
-  pub verify: bool,
-  /// The seed the index checksum was built with
-  /// ([`IndexWriterOptions::checksum_seed`], default: `0`).
-  pub seed: u32,
-}
-
-impl Default for IndexReadChecksumOptions {
-  fn default() -> Self {
-    Self {
-      verify: true,
-      seed: 0,
-    }
-  }
-}
-
-impl IndexReadChecksumOptions {
-  pub fn verify(mut self, verify: bool) -> Self {
-    self.verify = verify;
-    self
-  }
-
-  pub fn seed(mut self, seed: u32) -> Self {
-    self.seed = seed;
-    self
-  }
-}
-
 /// How the index is read out of a bundle.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct IndexReadOptions {
-  pub checksum: IndexReadChecksumOptions,
+  pub checksum: ChecksumReadOptions,
 }
 
 impl IndexReadOptions {
-  pub fn checksum(mut self, checksum: IndexReadChecksumOptions) -> Self {
+  pub fn checksum(mut self, checksum: ChecksumReadOptions) -> Self {
     self.checksum = checksum;
     self
   }

@@ -9,8 +9,7 @@ rust-version = "1.85.0"
 version      = "0.2.0"
 
 [lib]
-bench   = false
-doctest = false
+bench = false
 
 [dependencies]
 async-trait      = { workspace = true }

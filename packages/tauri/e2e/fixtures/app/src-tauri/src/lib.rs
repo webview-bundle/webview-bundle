@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use wvb_tauri::{Config, Protocol, Source};
+use wvb_tauri::{Config, ProtocolConfig, SourceConfig};
 
 /// Resolves the builtin bundle directory for the e2e run.
 ///
@@ -22,8 +22,8 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(wvb_tauri::init(
       Config::new()
-        .source(Source::new().builtin_dir_fn(resolve_bundles_dir))
-        .protocol(Protocol::bundle("bundle")),
+        .source(SourceConfig::new().builtin_dir_fn(resolve_bundles_dir))
+        .protocol(ProtocolConfig::bundle("bundle")),
     ))
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
