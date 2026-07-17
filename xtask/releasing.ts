@@ -155,17 +155,17 @@ async function writeRootCargoToml(targets: ReleaseTarget[], dryRun: boolean): Pr
     return false;
   }
   const raw = await fs.readFile(path.join(ROOT_DIR, 'Cargo.toml'), 'utf8');
-  const toml = parseCargoToml(raw);
+  let edited = raw;
   for (const target of targets) {
     for (const versionedFile of target.package.versionedFiles) {
       if (versionedFile.type !== 'Cargo.toml') {
         continue;
       }
-      editCargoTomlVersion(toml, versionedFile.nextVersion, versionedFile.name);
+      edited = editCargoTomlVersion(edited, versionedFile.nextVersion, versionedFile.name);
     }
   }
   await runActions(
-    [{ type: 'write', path: 'Cargo.toml', content: formatCargoToml(toml), prevContent: raw }],
+    [{ type: 'write', path: 'Cargo.toml', content: formatCargoToml(edited), prevContent: raw }],
     { dryRun }
   );
   return true;

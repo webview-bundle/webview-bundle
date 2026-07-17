@@ -231,6 +231,35 @@ export class Package {
     return this;
   }
 
+  /**
+   * Why `version` cannot be this package's next version, or `null` when it can. It has to be ahead
+   * of *every* manifest: `release` only publishes what the merge commit raised, and a package's
+   * nested manifests (e.g. the napi platform packages) must not be walked backwards.
+   */
+  rejectVersion(version: Version): string | null {
+    const blocking = this.versionedFiles.find(file => !version.greaterThan(file.version));
+    return blocking == null
+      ? null
+      : `${blocking.name} is already at ${blocking.version.toString()}`;
+  }
+
+  /**
+   * Set every manifest's pending version to `version`, instead of deriving it from a bump rule.
+   * Unlike {@link bumpVersion} — which advances each manifest from its own version — this lands
+   * them all on one version, so a package's manifests can be aligned with each other (and with
+   * other packages).
+   */
+  setVersion(version: Version): this {
+    const reason = this.rejectVersion(version);
+    if (reason != null) {
+      throw new Error(`cannot set ${this.name} to ${version.toString()}: ${reason}`);
+    }
+    for (const versionedFile of this.versionedFiles) {
+      versionedFile.setVersion(version);
+    }
+    return this;
+  }
+
   /** Set every manifest's pending version to a prerelease of its current version. */
   bumpPrerelease(id: string, build: string): this {
     for (const versionedFile of this.versionedFiles) {

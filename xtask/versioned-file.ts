@@ -150,6 +150,11 @@ export class VersionedFile {
     this._nextVersion.bump(rule);
   }
 
+  /** Set the pending version to an exact version, instead of deriving it from a bump rule. */
+  setVersion(version: Version): void {
+    this._nextVersion = version.clone();
+  }
+
   /** Set the pending version to a prerelease of the current version (`x.y.z-<id>.<build>`). */
   setPrerelease(id: string, build: string): void {
     this._nextVersion = this.pkgManager.version.clone();
@@ -303,9 +308,7 @@ class Cargo implements PackageManager {
   }
 
   write(nextVersion: Version): Action[] {
-    const edited = parseCargoToml(this.raw);
-    editCargoTomlVersion(edited, nextVersion);
-    const content = formatCargoToml(edited);
+    const content = formatCargoToml(editCargoTomlVersion(this.raw, nextVersion));
 
     return [
       {
