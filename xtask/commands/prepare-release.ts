@@ -1,4 +1,4 @@
-import { checkbox, select } from '@inquirer/prompts';
+import { checkbox, input, select } from '@inquirer/prompts';
 import { Command, Option } from 'clipanion';
 import { type Commit, openRepository, type Repository } from 'es-git';
 import { Changelog } from '../changelog.ts';
@@ -16,14 +16,22 @@ import {
   releasePathspecs,
   writeReleaseTargets,
 } from '../releasing.ts';
-import type { BumpRule } from '../version.ts';
+import { type BumpRule, Version } from '../version.ts';
 
-type BumpChoice = BumpRule | 'skip';
+type BumpChoice = BumpRule | 'exact' | 'skip';
 
 interface ChangeChoice {
   name: string;
   value: string;
   checked: boolean;
+}
+
+function parseVersion(raw: string): Version | null {
+  try {
+    return Version.parse(raw.trim());
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -148,13 +156,17 @@ export class PrepareReleaseCommand extends Command {
       directCommits.length === 0
         ? `dependency update: ${changedDeps.map(dep => dep.name).join(', ')}`
         : 'direct changes';
-    const bump = await this.promptBump(prefix, reason);
+    const bump = await this.promptBump(prefix, pkg, reason);
     if (bump === 'skip') {
       console.log(`${prefix} skipped.`);
       return null;
     }
 
-    pkg.bumpVersion(bump);
+    if (bump === 'exact') {
+      pkg.setVersion(await this.promptExactVersion(prefix, pkg));
+    } else {
+      pkg.bumpVersion(bump);
+    }
     const changes = this.buildChanges(selectedCommitIds, summaryByCommitId, changedDeps);
     const changelog = await Changelog.load(pkg.changelog).catch(() => null);
     return { package: pkg, changes, changelog };
@@ -206,18 +218,40 @@ export class PrepareReleaseCommand extends Command {
     });
   }
 
-  private promptBump(prefix: string, reason: string): Promise<BumpChoice> {
+  private promptBump(prefix: string, pkg: Package, reason: string): Promise<BumpChoice> {
+    // `pkg.version` hands out a fresh copy, so previewing a rule never touches the package.
+    const preview = (rule: BumpRule): string => pkg.version.bump(rule).toString();
     return select<BumpChoice>({
       message: `${prefix} Select version bump (${reason})`,
       choices: [
-        { name: 'patch', value: 'patch' },
-        { name: 'minor', value: 'minor' },
-        { name: 'major', value: 'major' },
+        { name: `patch (${preview('patch')})`, value: 'patch' },
+        { name: `minor (${preview('minor')})`, value: 'minor' },
+        { name: `major (${preview('major')})`, value: 'major' },
+        { name: 'exact version', value: 'exact' },
         { name: 'skip (do not release)', value: 'skip' },
       ],
       default: 'patch',
       loop: false,
     });
+  }
+
+  /**
+   * Prompt for an explicit next version, for when no bump rule expresses the intent — typically
+   * landing several packages on one shared version. Re-prompts until the input is a version the
+   * package accepts, so a typo cannot abort a run part-way through the package list.
+   */
+  private async promptExactVersion(prefix: string, pkg: Package): Promise<Version> {
+    const raw = await input({
+      message: `${prefix} Exact version (current ${pkg.version.toString()})`,
+      validate: value => {
+        const version = parseVersion(value);
+        if (version == null) {
+          return `invalid version: ${value.trim()}`;
+        }
+        return pkg.rejectVersion(version) ?? true;
+      },
+    });
+    return parseVersion(raw)!;
   }
 
   /** Turn the selected commits (+ an automatic dependency-bump note) into changelog entries. */

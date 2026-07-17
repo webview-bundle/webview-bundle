@@ -3,6 +3,7 @@ import type { PackageConfig } from './config.ts';
 import { Package } from './package.ts';
 import type { Ports } from './ports.ts';
 import { observePublishState, planPackagePublish, publishPackage } from './releasing.ts';
+import { Version } from './version.ts';
 import { VersionedFile } from './versioned-file.ts';
 
 function npmManifest(
@@ -109,6 +110,38 @@ describe('deno.json manifest', () => {
     });
     // The source scan is empty (fixture dir does not exist), so only the imports keys remain.
     expect(file.dependencyNames).toEqual(['@wvb/deno', '@std/path']);
+  });
+});
+
+describe('Package#setVersion', () => {
+  it('lands every manifest on the given version, whatever each started from', () => {
+    const pkg = makePackage([
+      crateManifest('wvb-tauri', '0.1.0'),
+      crateManifest('wvb-tauri-e2e-app', '0.0.0', { publish: false }),
+    ]);
+    pkg.setVersion(Version.parse('0.3.0'));
+    expect(pkg.versionedFiles.map(f => f.nextVersion.toString())).toEqual(['0.3.0', '0.3.0']);
+    expect(pkg.hasChanged).toBe(true);
+  });
+
+  it('rejects a version that is not ahead of the package', () => {
+    const pkg = makePackage([crateManifest('wvb', '0.2.0')]);
+    expect(pkg.rejectVersion(Version.parse('0.2.0'))).toBe('wvb is already at 0.2.0');
+    expect(pkg.rejectVersion(Version.parse('0.1.0'))).toBe('wvb is already at 0.2.0');
+    expect(pkg.rejectVersion(Version.parse('0.3.0'))).toBeNull();
+  });
+
+  it('rejects a version that would walk a nested manifest backwards', () => {
+    const pkg = makePackage([
+      npmManifest('@wvb/node', '0.1.0'),
+      npmManifest('@wvb/node-darwin-arm64', '0.4.0'),
+    ]);
+    expect(pkg.rejectVersion(Version.parse('0.3.0'))).toBe(
+      '@wvb/node-darwin-arm64 is already at 0.4.0'
+    );
+    expect(() => pkg.setVersion(Version.parse('0.3.0'))).toThrow(/cannot set test to 0\.3\.0/);
+    // All-or-nothing: the leading manifest must not keep a version the package refused.
+    expect(pkg.hasChanged).toBe(false);
   });
 });
 

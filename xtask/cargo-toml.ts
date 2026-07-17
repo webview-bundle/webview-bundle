@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import * as TOML from '@ltd/j-toml';
 import taploLib from '@taplo/lib';
-import { camelCase, mapKeys, mapValues } from 'es-toolkit';
+import { camelCase, escapeRegExp, mapKeys, mapValues } from 'es-toolkit';
 import { ROOT_DIR } from './consts.ts';
 import type { Version } from './version.ts';
 
@@ -43,93 +43,127 @@ export function parseCargoToml(raw: string): CargoToml {
   return TOML.parse(raw);
 }
 
-export function editCargoTomlVersion(toml: CargoToml, version: Version, dep?: string): void {
-  const ver = version.prerelease != null ? `=${version.toString()}` : version.toString();
-  if (dep != null) {
-    if (toml.dependencies?.[dep] != null) {
-      if (typeof toml.dependencies[dep] === 'string') {
-        toml.dependencies[dep] = ver;
-      } else if (typeof toml.dependencies[dep]?.version === 'string') {
-        toml.dependencies[dep].version = ver;
-      }
-    }
-    if (toml['dev-dependencies']?.[dep] != null) {
-      if (typeof toml['dev-dependencies'][dep] === 'string') {
-        toml['dev-dependencies'][dep] = ver;
-      } else if (typeof toml['dev-dependencies'][dep]?.version === 'string') {
-        toml['dev-dependencies'][dep].version = ver;
-      }
-    }
-    if (toml.workspace?.dependencies?.[dep] != null) {
-      if (typeof toml.workspace?.dependencies?.[dep] === 'string') {
-        toml.workspace.dependencies[dep] = ver;
-      } else if (typeof toml.workspace.dependencies[dep]?.version === 'string') {
-        toml.workspace.dependencies[dep].version = ver;
-      }
-    }
-  } else {
-    toml.package ??= {};
-    toml.package.version = version.toString();
-  }
+/** The tables a dependency's version is propagated into, paired with their parsed entries. */
+function dependencyTables(toml: CargoToml): Array<{ name: string; entries?: CargoDependencies }> {
+  return [
+    { name: 'dependencies', entries: toml.dependencies },
+    { name: 'dev-dependencies', entries: toml['dev-dependencies'] },
+    { name: 'workspace.dependencies', entries: toml.workspace?.dependencies },
+  ];
 }
 
-export function formatCargoToml(toml: CargoToml): string {
-  let content = TOML.stringify(toml as any) as any as string[];
-  content = content.slice(1);
-  content = content.filter((line, i) => {
-    const prevLine = content[i - 1];
-    return !(prevLine?.startsWith('[') === true && line === '');
-  });
-  const formatted = taplo.format(content.join('\n'), { options: taploConfig.formatting });
-  return preferDoubleQuotes(formatted);
+/** The version a declared dependency pins, or `undefined` for e.g. `{ workspace = true }`. */
+function pinnedVersionOf(value: CargoDependency | undefined): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  return typeof value === 'string' ? value : value.version;
+}
+
+/** Every version the document declares for `dep` — or for `[package]`, when `dep` is absent. */
+function versionsOf(toml: CargoToml, dep?: string): string[] {
+  if (dep == null) {
+    const version = toml.package?.version;
+    return version != null ? [version] : [];
+  }
+  return dependencyTables(toml)
+    .map(table => pinnedVersionOf(table.entries?.[dep]))
+    .filter(declared => declared != null);
 }
 
 /**
- * j-toml renders every string as a single-quoted TOML *literal* string, but this repo's
- * Cargo.toml style (double-quoted *basic* strings) is what `taplo` and the source files use.
- * A blanket `'` → `"` replacement is unsafe: a literal string whose content contains a `"` —
- * e.g. the `[target.'cfg(target_os = "android")'.dependencies]` key — becomes invalid TOML
- * (`unclosed table, expected ]`) once its delimiters flip to double quotes.
- *
- * This walks the document token by token: basic strings are copied verbatim (so apostrophes
- * inside them are never touched), and a literal string is converted to a basic string only when
- * its content has no `"` or `\` that would require escaping. Otherwise it is left as a literal.
+ * Rewrite the entry `key` of table `table` through `edit`, in place. Only the one matching line is
+ * handed to `edit`; every other byte of the document is left alone. Returns whether it was found
+ * *and* rewritten (`edit` returns `null` when the line holds nothing it can set).
  */
-function preferDoubleQuotes(toml: string): string {
-  let out = '';
-  for (let i = 0; i < toml.length; ) {
-    const ch = toml[i];
-    if (ch === '"') {
-      // Basic string: copy through the matching close quote, honoring backslash escapes.
-      out += ch;
-      i++;
-      while (i < toml.length) {
-        const c = toml[i];
-        out += c;
-        i++;
-        if (c === '\\' && i < toml.length) {
-          out += toml[i];
-          i++;
-        } else if (c === '"') {
-          break;
-        }
+function editEntry(
+  lines: string[],
+  table: string,
+  key: string,
+  edit: (line: string) => string | null
+): boolean {
+  // Matches `[table]` and `[[table]]` alike, so an array-of-tables also ends the preceding table.
+  const header = /^\s*\[\[?([^[\]]*)\]\]?\s*$/;
+  const entry = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
+  let current: string | null = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    const matched = header.exec(line);
+    if (matched != null) {
+      current = matched[1]!.trim();
+      continue;
+    }
+    if (current !== table || !entry.test(line)) {
+      continue;
+    }
+    const edited = edit(line);
+    if (edited == null) {
+      return false;
+    }
+    lines[i] = edited;
+    return true;
+  }
+  return false;
+}
+
+/** Replace the value of a `key = "<value>"` line, keeping its spacing and any trailing comment. */
+function replaceStringValue(line: string, value: string): string | null {
+  const matched = /^(\s*[^=]+=\s*)"[^"]*"(.*)$/.exec(line);
+  return matched == null ? null : `${matched[1]}"${value}"${matched[2]}`;
+}
+
+/** Replace a dependency's version, in either the `dep = "1"` or `dep = { version = "1", .. }` form. */
+function replaceDependencyVersion(line: string, value: string): string | null {
+  const inline = /^(\s*[^=]+=\s*\{[^}]*?\bversion\s*=\s*)"[^"]*"(.*)$/.exec(line);
+  if (inline != null) {
+    return `${inline[1]}"${value}"${inline[2]}`;
+  }
+  return replaceStringValue(line, value);
+}
+
+/**
+ * Set the `[package]` version of `raw` — or, with `dep`, the version every dependency table pins
+ * `dep` at — and return the updated document.
+ *
+ * The edit is made on the text, and everything else is handed back byte for byte. Re-emitting a
+ * parsed document instead would silently drop every comment, since the TOML parser does not retain
+ * them: that quietly deleted the reasons behind `strip = "none"` and the `alloc-no-stdlib` pins on
+ * the first release after they were written.
+ */
+export function editCargoTomlVersion(raw: string, version: Version, dep?: string): string {
+  // A prerelease is pinned exactly, so a dependent never resolves across channels.
+  const wanted =
+    dep != null && version.prerelease != null ? `=${version.toString()}` : version.toString();
+  const lines = raw.split('\n');
+
+  if (dep == null) {
+    if (!editEntry(lines, 'package', 'version', line => replaceStringValue(line, wanted))) {
+      throw new Error('cannot find a `version` entry under `[package]`');
+    }
+  } else {
+    for (const table of dependencyTables(parseCargoToml(raw))) {
+      // Absent, or carrying no version of its own (`{ workspace = true }`) — nothing to set.
+      if (pinnedVersionOf(table.entries?.[dep]) == null) {
+        continue;
       }
-    } else if (ch === "'") {
-      // Literal string: content runs to the next single quote on the same line.
-      const end = toml.indexOf("'", i + 1);
-      const newline = toml.indexOf('\n', i + 1);
-      if (end !== -1 && (newline === -1 || end < newline)) {
-        const inner = toml.slice(i + 1, end);
-        out += inner.includes('"') || inner.includes('\\') ? `'${inner}'` : `"${inner}"`;
-        i = end + 1;
-      } else {
-        out += ch;
-        i++;
+      if (!editEntry(lines, table.name, dep, line => replaceDependencyVersion(line, wanted))) {
+        throw new Error(`cannot set the version of \`${dep}\` under \`[${table.name}]\``);
       }
-    } else {
-      out += ch;
-      i++;
     }
   }
-  return out;
+
+  // The edits are textual, so read them back through the parser to be sure each one landed on the
+  // value it was aimed at, rather than on some other string sharing the line.
+  const edited = lines.join('\n');
+  const wrong = versionsOf(parseCargoToml(edited), dep).filter(declared => declared !== wanted);
+  if (wrong.length > 0) {
+    throw new Error(
+      `failed to set \`${dep ?? '[package]'}\` to "${wanted}": got "${wrong.join('", "')}"`
+    );
+  }
+  return edited;
+}
+
+export function formatCargoToml(raw: string): string {
+  return taplo.format(raw, { options: taploConfig.formatting });
 }

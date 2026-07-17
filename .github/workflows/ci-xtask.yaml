@@ -1,0 +1,38 @@
+name: ci-xtask
+on:
+  pull_request:
+concurrency:
+  group: ci-xtask-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+env:
+  LEFTHOOK: 0
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    outputs:
+      xtask: ${{ steps.filter.outputs.xtask }}
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        with:
+          filters: |
+            xtask:
+              - 'xtask/**/*'
+              - '.github/workflows/ci-xtask.yaml'
+              - '.github/actions/**'
+  ci:
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.xtask == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn workspaces focus xtask
+      - run: yarn workspace xtask run typecheck
+      - run: yarn workspace xtask run test

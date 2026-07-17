@@ -16,5 +16,10 @@
     "resolveJsonModule": true,
     "declaration": true,
     "isolatedDeclarations": true
-  }
+  },
+  "references": [
+    {
+      "path": "./tsconfig.xtask-config.json"
+    }
+  ]
 }
