@@ -891,7 +891,7 @@ export declare class Remote {
   /**
    * Lists all available bundles on the server.
    *
-   * @param {string} [channel] - Optional channel filter
+   * @param {RemoteFetchOptions} [options] - Options for fetching
    * @returns {Promise<ListRemoteBundleInfo[]>} List of bundles
    *
    * @example
@@ -909,7 +909,7 @@ export declare class Remote {
    * Fetches metadata without downloading the bundle itself.
    *
    * @param {string} bundleName - Name of the bundle
-   * @param {string} [channel] - Optional channel filter
+   * @param {RemoteFetchOptions} [options] - Options for fetching
    * @returns {Promise<RemoteBundleInfo>} Bundle information
    *
    * @example
@@ -928,7 +928,7 @@ export declare class Remote {
    * Returns bundle info, parsed bundle, and raw data.
    *
    * @param {string} bundleName - Name of the bundle
-   * @param {string} [channel] - Optional channel filter
+   * @param {RemoteFetchOptions} [options] - Options for fetching
    * @returns {Promise<[RemoteBundleInfo, Bundle, Buffer]>} Tuple of info, bundle, and data
    *
    * @example
