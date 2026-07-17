@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "packages/**/*",
-    "xtask"
+    "xtask",
+    "playground/**/*"
   ],
   "type": "module",
   "devDependencies": {

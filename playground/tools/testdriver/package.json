@@ -1,0 +1,62 @@
+{
+  "name": "@wvb-playground/testdriver",
+  "version": "0.0.1",
+  "description": "Platform-agnostic WebviewDriver abstraction plus Playwright/Selenium/Appium implementations for webview E2E testing.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./playwright": {
+      "types": "./dist/playwright.d.mts",
+      "default": "./dist/playwright.mjs"
+    },
+    "./selenium": {
+      "types": "./dist/selenium.d.mts",
+      "default": "./dist/selenium.mjs"
+    },
+    "./appium": {
+      "types": "./dist/appium.d.mts",
+      "default": "./dist/appium.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "README.md",
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "tsdown",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "playwright-core": "^1",
+    "selenium-webdriver": "^4",
+    "webdriverio": "^8.0.0 || ^9.0.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright-core": {
+      "optional": true
+    },
+    "selenium-webdriver": {
+      "optional": true
+    },
+    "webdriverio": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/selenium-webdriver": "4.35.6",
+    "playwright-core": "^1.61.1",
+    "selenium-webdriver": "4.44.0",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "webdriverio": "9.27.2"
+  }
+}
