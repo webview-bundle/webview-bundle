@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Cli } from 'clipanion';
 // biome-ignore lint/correctness/useImportExtensions: import json file
 import pkg from '../package.json' with { type: 'json' };
