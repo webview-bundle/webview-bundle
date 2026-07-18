@@ -51,8 +51,35 @@ async function checkPeerDependencies(context) {
   }
 }
 
+/**
+ * Check playground packages depend on workspaces the way a published consumer would.
+ *
+ * The playground exists to exercise the packages through their public surface, so it pins a
+ * version range instead of the `workspace:` protocol — a range a real consumer could write.
+ * @param {Constraints.Context} context
+ * @returns {Promise<void>}
+ */
+async function checkPlaygroundDependencies(context) {
+  const { Yarn } = context;
+
+  for (const dependency of Yarn.dependencies()) {
+    if (!dependency.workspace.cwd.startsWith('playground/')) {
+      continue;
+    }
+    if (!dependency.range.startsWith('workspace:')) {
+      continue;
+    }
+    dependency.error(
+      `${dependency.ident} must not use the workspace protocol (${dependency.range}) in playground; pin a version range instead`
+    );
+  }
+}
+
 module.exports = defineConfig({
   async constraints(context) {
-    await checkPeerDependencies(context);
+    await Promise.allSettled([
+      checkPeerDependencies(context),
+      checkPlaygroundDependencies(context)
+    ]);
   }
 });

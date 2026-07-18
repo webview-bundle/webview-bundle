@@ -89,7 +89,7 @@ build: build-rs build-napi build-js build-ffi build-deno
 
 # Build NAPI modules
 build-napi:
-    yarn workspaces foreach -Apt run build-napi
+    yarn workspaces foreach -Apt --include='@wvb/*' run build-napi
 
 # Build Rust workspaces
 build-rs:
@@ -97,7 +97,7 @@ build-rs:
 
 # Build JS packages
 build-js:
-    yarn workspaces foreach -Apt run build
+    yarn workspaces foreach -Apt --include='@wvb/*' run build
 
 # Build FFI packages
 build-ffi:

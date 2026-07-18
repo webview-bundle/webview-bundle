@@ -20,7 +20,8 @@
       "!**/*.cjs",
       "!**/*.d.ts",
       "!**/*.d.cts",
-      "!packages/tauri/permissions/**/*"
+      "!packages/tauri/permissions/**/*",
+      "!**/routeTree.gen.ts"
     ]
   },
   "formatter": {
@@ -85,6 +86,16 @@
                 "forceJsExtensions": false
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["playground/**/*.ts", "playground/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useImportExtensions": "off"
           }
         }
       }

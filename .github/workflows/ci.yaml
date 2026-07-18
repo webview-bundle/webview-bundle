@@ -240,6 +240,17 @@ jobs:
       - name: Run deno check
         run: deno task check
         working-directory: packages
+  constraints:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Run yarn constraints
+        run: yarn constraints
   attw:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"

@@ -1,0 +1,59 @@
+{
+  "name": "@wvb-playground/webview-hacker-news",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./testing": {
+      "types": "./dist-testing/index.d.mts",
+      "default": "./dist-testing/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist-testing"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "yarn build-lib",
+    "dev": "vite",
+    "build": "yarn build-client && yarn build-ssr && yarn prerender && yarn build-lib",
+    "build-client": "vite build",
+    "build-ssr": "vite build --ssr src/entry-server.tsx --outDir dist-ssr --emptyOutDir",
+    "build-lib": "tsdown",
+    "prerender": "node scripts/prerender.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wvb-playground/testdriver": "^0.1.0"
+  },
+  "peerDependencies": {
+    "vitest": "^2.0.0 || ^3.0.0 || ^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@radix-ui/react-scroll-area": "^1.2.14",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-router": "1.170.18",
+    "@tanstack/router-plugin": "1.168.20",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tailwindcss": "^4.3.3",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vite": "^8.1.5",
+    "vitest": "catalog:"
+  }
+}

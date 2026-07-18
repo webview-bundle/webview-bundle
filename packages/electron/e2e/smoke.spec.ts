@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { type ElectronApplication, _electron as electron } from '@playwright/test';
-import { createPlaywrightDriver } from '@wvb-playground/testing/playwright';
+import { createPlaywrightDriver } from '@wvb-playground/testdriver/playwright';
 import { testCases } from '@wvb-playground/webview-hacker-news/testing';
 import { afterAll, beforeAll, describe, test } from 'vitest';
 

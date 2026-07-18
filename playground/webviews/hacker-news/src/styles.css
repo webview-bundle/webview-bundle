@@ -1,0 +1,148 @@
+@import 'tailwindcss';
+
+/* Dark mode is driven by a `.dark` class on the app shell (see __root.tsx). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   Design tokens — ported from
+   design/_ds/.../colors_and_type.css (Fumadocs "black" preset + blue cube).
+   Semantic vars flip on `.dark`; Tailwind utilities reference them via
+   `@theme inline` below, so e.g. `bg-bg-1` / `text-fg-2` auto-react to theme.
+   ========================================================================== */
+:root {
+  --fg-1: #0a0a0a;
+  --fg-2: #3f3f46;
+  --fg-3: #71717a;
+  --fg-4: #a1a1aa;
+
+  --bg-1: #ffffff;
+  --bg-2: #fafafa;
+  --bg-3: #f4f4f5;
+
+  --border-1: #e4e4e7;
+  --border-2: #d4d4d8;
+
+  --accent: #1286f5;
+  --accent-hover: #0b6ad6;
+  --accent-fg: #ffffff;
+  --accent-subtle: #eaf5ff;
+
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --downvote: #e0564e;
+
+  color-scheme: light;
+}
+
+.dark {
+  --fg-1: #fafafa;
+  --fg-2: #d4d4d8;
+  --fg-3: #a1a1aa;
+  --fg-4: #52525b;
+
+  --bg-1: #000000;
+  --bg-2: #0a0a0a;
+  --bg-3: #141414;
+
+  --border-1: #1f1f22;
+  --border-2: #2a2a2e;
+
+  --accent: #2e9fff;
+  --accent-hover: #65b8ff;
+  --accent-fg: #0a0a0a;
+  --accent-subtle: rgba(46, 159, 255, 0.08);
+
+  --downvote: #e0564e;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-fg-1: var(--fg-1);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+
+  --color-bg-1: var(--bg-1);
+  --color-bg-2: var(--bg-2);
+  --color-bg-3: var(--bg-3);
+
+  --color-border-1: var(--border-1);
+  --color-border-2: var(--border-2);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-subtle: var(--accent-subtle);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-downvote: var(--downvote);
+
+  --font-sans:
+    'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  /* The app shell owns scrolling (locked to 100dvh). Disabling overscroll at the
+     root stops the whole-page rubber-band / pull-to-refresh in mobile webviews. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg-1);
+    color: var(--fg-1);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-synthesis: style;
+    /* Native-feeling taps: drop the grey flash on touch (focus rings stay). */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Thin, neutral scrollbars to match the technical / terminal aesthetic. */
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-2);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-4);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  input,
+  textarea,
+  button {
+    font-family: inherit;
+  }
+}
+
+/* Scrollable but chromeless: still scrolls (touch/wheel/keys), just no visible
+   scrollbar. Used by the mobile tag strip so it can overflow horizontally
+   without painting a bar across the chips. */
+@utility no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge/IE */
+  &::-webkit-scrollbar {
+    display: none; /* Chromium / Safari / webviews */
+  }
+}

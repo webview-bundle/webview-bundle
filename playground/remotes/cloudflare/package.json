@@ -1,0 +1,14 @@
+{
+  "name": "@wvb-playground/remote-cloudflare",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wvb/remote-cloudflare-provider": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "wrangler": "4.111.0"
+  }
+}
