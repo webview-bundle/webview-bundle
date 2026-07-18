@@ -41,10 +41,7 @@
   },
   "scripts": {
     "prepack": "yarn build",
-    "clean": "rm -rf dist/",
-    "build": "yarn clean && yarn build-js && yarn build-cli",
-    "build-cli": "tsdown -c tsdown.cli.config.ts",
-    "build-js": "tsdown -c tsdown.config.ts",
+    "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
