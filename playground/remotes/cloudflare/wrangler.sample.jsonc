@@ -1,0 +1,21 @@
+{
+  // Put your worker name here
+  "name": "my-cloudflare-wvb-remote",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-06-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "r2_buckets": [
+    {
+      "binding": "r2",
+      // Put your bucket name here
+      "bucket_name": "my-cloudflare-wvb-remote-bucket"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "kv",
+      // Put your kv namespace id here
+      "id": "my-cloudflare-wvb-remote-kv-namespace-id"
+    }
+  ]
+}

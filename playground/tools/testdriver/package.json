@@ -1,6 +1,6 @@
 {
   "name": "@wvb-playground/testdriver",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Platform-agnostic WebviewDriver abstraction plus Playwright/Selenium/Appium implementations for webview E2E testing.",
   "type": "module",
   "license": "MIT",

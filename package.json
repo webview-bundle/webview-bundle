@@ -4,7 +4,10 @@
   "workspaces": [
     "packages/**/*",
     "xtask",
-    "playground/**/*"
+    "playground/native/*",
+    "playground/remotes/*",
+    "playground/tools/*",
+    "playground/webviews/*"
   ],
   "type": "module",
   "devDependencies": {

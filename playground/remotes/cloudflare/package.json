@@ -5,7 +5,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wvb/remote-cloudflare-provider": "0.1.0"
+    "@wvb/remote-cloudflare-provider": "0.1.0-next.fe10f84"
   },
   "devDependencies": {
     "typescript": "catalog:",

@@ -28,7 +28,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wvb-playground/testdriver": "^0.1.0"
+    "@wvb-playground/testdriver": "0.1.0"
   },
   "peerDependencies": {
     "vitest": "^2.0.0 || ^3.0.0 || ^4.0.0"
@@ -48,6 +48,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "@wvb-playground/env": "workspace:^",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "tailwindcss": "^4.3.3",
