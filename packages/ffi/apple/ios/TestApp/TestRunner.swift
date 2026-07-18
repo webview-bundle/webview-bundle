@@ -333,7 +333,7 @@ final class TestRunner: ObservableObject {
         let emptyManifest = #"{"manifestVersion":1,"entries":{}}"#
         try Data(emptyManifest.utf8).write(to: remoteDir.appendingPathComponent("manifest.json"))
 
-        let source = BundleSource(config: BundleSourceConfig(
+        let source = try BundleSource(config: BundleSourceConfig(
             builtinDir: builtinDir.path,
             remoteDir: remoteDir.path,
             builtinManifestFilepath: nil,
@@ -362,7 +362,7 @@ final class TestRunner: ObservableObject {
         let builtinDir = tmpDir.appendingPathComponent("builtin")
         try FileManager.default.createDirectory(at: builtinDir, withIntermediateDirectories: true)
 
-        let source = BundleSource(config: BundleSourceConfig(
+        let source = try BundleSource(config: BundleSourceConfig(
             builtinDir: builtinDir.path,
             remoteDir: remoteDir.path,
             builtinManifestFilepath: nil,
