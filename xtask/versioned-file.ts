@@ -198,6 +198,32 @@ interface PackageManager {
   write(nextVersion: Version): Action[];
 }
 
+const WORKSPACE_DEPENDENCY_TABLES = [
+  'dependencies',
+  'devDependencies',
+  'optionalDependencies',
+  'peerDependencies',
+] as const;
+
+/**
+ * Pin every caret/tilde `workspace:` range to `workspace:*`, which `yarn npm publish` stamps as the
+ * sibling's exact version. Explicit ranges the author wrote (`workspace:*`, `workspace:1.2.3`) are
+ * left untouched. Mutates `json` in place, so callers must pass a copy.
+ */
+function pinWorkspaceDependencies(json: PackageJsonType): void {
+  for (const table of WORKSPACE_DEPENDENCY_TABLES) {
+    const deps = json[table];
+    if (deps == null) {
+      continue;
+    }
+    for (const name of Object.keys(deps)) {
+      if (deps[name] === 'workspace:^' || deps[name] === 'workspace:~') {
+        deps[name] = 'workspace:*';
+      }
+    }
+  }
+}
+
 class PackageJson implements PackageManager {
   private readonly json: PackageJsonType;
   private readonly _path: string;
@@ -246,8 +272,15 @@ class PackageJson implements PackageManager {
   }
 
   write(nextVersion: Version): Action[] {
-    const json = { ...this.json };
+    const json = structuredClone(this.json);
     json.version = nextVersion.toString();
+    // A prerelease has lower semver precedence than its stable release (`0.1.0-next.x` < `0.1.0`),
+    // so an internal caret dependency (`workspace:^` → `^0.1.0-next.x`) resolves *up* to the stable
+    // release instead of the sibling prerelease. Pin the internal `workspace:` deps to the exact
+    // version so a published prerelease installs its siblings as a self-consistent set.
+    if (nextVersion.prerelease != null) {
+      pinWorkspaceDependencies(json);
+    }
 
     const content = `${JSON.stringify(json, null, 2)}\n`;
     return [
