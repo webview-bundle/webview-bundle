@@ -66,12 +66,11 @@ async function checkPlaygroundDependencies(context) {
     if (!dependency.workspace.cwd.startsWith('playground/')) {
       continue;
     }
-    if (!dependency.range.startsWith('workspace:')) {
-      continue;
+    if (dependency.ident.startsWith('@wvb/') && dependency.range.startsWith('workspace:')) {
+      dependency.error(
+        `${dependency.ident} must not use the workspace protocol (${dependency.range}) in playground; pin a version range instead`
+      );
     }
-    dependency.error(
-      `${dependency.ident} must not use the workspace protocol (${dependency.range}) in playground; pin a version range instead`
-    );
   }
 }
 

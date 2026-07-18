@@ -1,0 +1,23 @@
+{
+  "name": "@wvb-playground/native-electron",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.mjs",
+  "scripts": {
+    "build": "vite build && vite build --config vite.preload.config.ts",
+    "start": "electron .",
+    "wvb-builtin": "wvb builtin",
+    "package": "yarn build && node package.ts"
+  },
+  "dependencies": {
+    "@wvb/electron": "0.1.0-next.fe10f84"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.4.4",
+    "@types/node": "catalog:",
+    "@wvb/cli": "0.1.0-next.fe10f84",
+    "electron": "^42.2.0",
+    "typescript": "catalog:",
+    "vite": "^8.1.5"
+  }
+}

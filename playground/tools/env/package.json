@@ -1,0 +1,13 @@
+{
+  "name": "@wvb-playground/env",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "es-toolkit": "^1.43.0",
+    "zod": "^4.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}
