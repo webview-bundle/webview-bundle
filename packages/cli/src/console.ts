@@ -3,16 +3,33 @@ import CI from 'ci-info';
 import { Option } from 'clipanion';
 import kleur from 'kleur';
 import supportsColor from 'supports-color';
-import { isEnum } from 'typanion';
 
 export const ColorOption = Option.String('--color', 'auto', {
-  validator: isEnum(['off', 'on', 'auto'] as const),
-  description: 'Set the color mode for output. [Default: "auto"]',
+  description: 'Set the color mode for output. ["off", "on", "auto"] [Default: "auto"]',
   env: 'COLOR',
 });
 
+type ColorMode = 'off' | 'on' | 'auto';
+
+function normalizeColor(val: string): ColorMode {
+  switch (val.trim().toLowerCase()) {
+    case '0':
+    case 'off':
+    case 'false':
+    case 'no':
+      return 'off';
+    case '1':
+    case 'on':
+    case 'true':
+    case 'yes':
+      return 'on';
+    default:
+      return 'auto';
+  }
+}
+
 export function configureColor(val: typeof ColorOption) {
-  switch (val) {
+  switch (normalizeColor(val)) {
     case 'off':
       kleur.enabled = false;
       break;
