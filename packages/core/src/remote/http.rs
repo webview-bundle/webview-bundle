@@ -17,7 +17,6 @@ pub struct HttpOptions {
   pub pool_max_idle_per_host: Option<usize>,
   pub referer: Option<bool>,
   pub tcp_nodelay: Option<bool>,
-  pub hickory_dns: Option<bool>,
 }
 
 impl HttpOptions {
@@ -67,11 +66,6 @@ impl HttpOptions {
 
   pub fn tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
     self.tcp_nodelay = Some(tcp_nodelay);
-    self
-  }
-
-  pub fn hickory_dns(mut self, hickory_dns: bool) -> Self {
-    self.hickory_dns = Some(hickory_dns);
     self
   }
 

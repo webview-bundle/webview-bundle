@@ -33,8 +33,6 @@ pub struct HttpOptions {
   pub referer: Option<bool>,
   #[uniffi(default = None)]
   pub tcp_nodelay: Option<bool>,
-  #[uniffi(default = None)]
-  pub hickory_dns: Option<bool>,
 }
 
 impl TryFrom<HttpOptions> for remote::HttpOptions {
@@ -68,9 +66,6 @@ impl TryFrom<HttpOptions> for remote::HttpOptions {
     }
     if let Some(tcp_nodelay) = value.tcp_nodelay {
       options = options.tcp_nodelay(tcp_nodelay);
-    }
-    if let Some(hickory_dns) = value.hickory_dns {
-      options = options.hickory_dns(hickory_dns);
     }
     Ok(options)
   }
