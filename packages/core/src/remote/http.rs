@@ -96,6 +96,9 @@ impl HttpOptions {
     if let Some(tcp_nodelay) = self.tcp_nodelay {
       http = http.tcp_nodelay(tcp_nodelay);
     }
+    if let Some(hickory_dns) = self.hickory_dns {
+      http = http.hickory_dns(hickory_dns);
+    }
     http
   }
 }
