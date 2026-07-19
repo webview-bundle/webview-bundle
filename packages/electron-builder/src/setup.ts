@@ -47,18 +47,7 @@ export function webviewBundleAfterPack(
       configFile: configFile === true ? undefined : configFile,
     });
 
-    if (resolved.builtin == null) {
-      if (throwWhenBuiltinIsEmpty) {
-        throw new Error(
-          'No "builtin" config was resolved. Add a `builtin` block to your webview-bundle config ' +
-            '(or pass it inline to the integration), or set `throwWhenBuiltinIsEmpty: false` to ' +
-            'build without builtin bundles.'
-        );
-      }
-      return;
-    }
-
-    const { target, outDir, include, exclude, clean } = resolved.builtin;
+    const { target, outDir, include, exclude, clean } = resolved.builtin ?? {};
 
     // Don't mutate the resolved config: `resolved.builtin` may share its reference with the inline
     // options, and electron-builder invokes `afterPack` once per (platform, arch). Build a fresh

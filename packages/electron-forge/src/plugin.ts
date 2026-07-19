@@ -58,18 +58,7 @@ export class WebviewBundlePlugin extends PluginBase<WebviewBundlePluginConfig> {
       configFile: configFile === true ? undefined : configFile,
     });
 
-    if (resolved.builtin == null) {
-      if (throwWhenBuiltinIsEmpty) {
-        throw new Error(
-          'No "builtin" config was resolved. Add a `builtin` block to your webview-bundle config ' +
-            '(or pass it inline to WebviewBundlePlugin), or set `throwWhenBuiltinIsEmpty: false` to ' +
-            'build without builtin bundles.'
-        );
-      }
-      return;
-    }
-
-    const { target, outDir, include, exclude, clean } = resolved.builtin;
+    const { target, outDir, include, exclude, clean } = resolved.builtin ?? {};
 
     // Don't mutate the resolved config: `resolved.builtin` may share its reference with `this.config`,
     // and forge invokes `packageAfterCopy` once per (platform, arch). Build a fresh target instead.
