@@ -1,14 +1,9 @@
+import type { HostnameSegment, HttpMethod, PathResolver } from './bindings.ts';
 import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, type HttpResponse, readResponse } from './ffi.ts';
 import type { BundleSource } from './source.ts';
 
-/** HTTP method accepted by a protocol handler (case-insensitive on the wire). */
-export type HttpMethod = 'get' | 'head' | 'options' | 'post' | 'put' | 'patch' | 'delete';
-
-/**
- * Which hostname segment is used as the bundle name. A number picks the nth segment (0-based).
- */
-export type HostnameSegment = 'first' | 'full' | 'stripSuffix';
+export type { HostnameSegment, HttpMethod, PathResolver };
 
 /** How the bundle name is resolved from the request uri. */
 export type BundleResolverOptions =
@@ -24,15 +19,6 @@ export type BundleResolverOptions =
       /** Path segment index, 0-based over non-empty segments (default: `0`). */
       segmentIndex?: number;
     };
-
-/**
- * How the file path in the bundle is resolved from the request uri.
- *
- * - `exact`: use the uri path as-is (only percent-decoded).
- * - `directoryIndex`: `/` → `/index.html` and `/about` → `/about/index.html`.
- * - `htmlExtension`: `/` → `/index.html` and `/about` → `/about.html`.
- */
-export type PathResolver = 'exact' | 'directoryIndex' | 'htmlExtension';
 
 /**
  * How a {@link BundleProtocol} resolves the request uri.

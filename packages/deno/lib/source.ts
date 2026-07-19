@@ -1,24 +1,26 @@
+import type {
+  BundleManifestMetadata,
+  BundleSourceType,
+  BundleSourceVerifyMode,
+  BundleSourceVersion,
+  ListBundleItem,
+} from './bindings.ts';
+import { Bundle, BundleDescriptor, LoadedDescriptor } from './bundle.ts';
 import { WebviewBundleError } from './error.ts';
-import { cstr, getLib, readResult } from './ffi.ts';
+import { cstr, getLib, readHandle, readResult } from './ffi.ts';
 import {
   type IntegrityPolicy,
   type SignatureVerifierOptions,
   serializeSignatureVerifier,
 } from './updater.ts';
 
-/**
- * Which bundles a load-time verification applies to.
- *
- * A bundle is verified once per version, when it is first read, so serving it does not re-hash
- * it on every request.
- *
- * - `'onlyRemote'` (default) — verify downloaded bundles only. Builtin bundles carry the
- *   metadata being verified only if the app was packed with it, so this is the setting that
- *   works without changing how builtin bundles are built.
- * - `'all'` — also verify builtin bundles, which requires the builtin manifest to carry the
- *   metadata being verified.
- */
-export type BundleSourceVerifyMode = 'all' | 'onlyRemote';
+export type {
+  BundleManifestMetadata,
+  BundleSourceType,
+  BundleSourceVerifyMode,
+  BundleSourceVersion,
+  ListBundleItem,
+};
 
 /**
  * How bundles are checked against the integrity recorded for them in the manifest when they are
@@ -165,28 +167,6 @@ function serializeConfig(config: BundleSourceConfig): string {
   });
 }
 
-export type BundleSourceType = 'builtin' | 'remote';
-
-export interface BundleManifestMetadata {
-  etag?: string;
-  integrity?: string;
-  signature?: string;
-  lastModified?: string;
-}
-
-export interface BundleSourceVersion {
-  type: BundleSourceType;
-  version: string;
-}
-
-export interface ListBundleItem {
-  type: BundleSourceType;
-  name: string;
-  version: string;
-  current: boolean;
-  metadata: BundleManifestMetadata;
-}
-
 export class BundleSource {
   #ptr: Deno.PointerValue;
 
@@ -324,6 +304,81 @@ export class BundleSource {
     const lib = getLib();
     const ptr = await lib.symbols.wvb_source_prune_remote_bundles(this.pointer, cstr(bundleName));
     return JSON.parse(readResult(lib, ptr).json) as string[];
+  }
+
+  /** Fetches and fully loads the current version of a bundle into memory. */
+  async fetchBundle(bundleName: string): Promise<Bundle> {
+    const lib = getLib();
+    const ptr = await lib.symbols.wvb_source_fetch_bundle(this.pointer, cstr(bundleName));
+    return new Bundle(readHandle(lib, ptr));
+  }
+
+  /** Fetches and fully loads a specific builtin bundle version into memory. */
+  async fetchBuiltinBundle(bundleName: string, version: string): Promise<Bundle> {
+    const lib = getLib();
+    const ptr = await lib.symbols.wvb_source_fetch_builtin_bundle(
+      this.pointer,
+      cstr(bundleName),
+      cstr(version)
+    );
+    return new Bundle(readHandle(lib, ptr));
+  }
+
+  /** Fetches and fully loads a specific remote bundle version into memory. */
+  async fetchRemoteBundle(bundleName: string, version: string): Promise<Bundle> {
+    const lib = getLib();
+    const ptr = await lib.symbols.wvb_source_fetch_remote_bundle(
+      this.pointer,
+      cstr(bundleName),
+      cstr(version)
+    );
+    return new Bundle(readHandle(lib, ptr));
+  }
+
+  /**
+   * Fetches the descriptor (header + index, no data) for the current version. Read entry data
+   * lazily via {@link BundleDescriptor.getData}, passing a filepath (e.g. from
+   * {@link BundleSource.resolveFilepath}).
+   */
+  async fetchDescriptor(bundleName: string): Promise<BundleDescriptor> {
+    const lib = getLib();
+    const ptr = await lib.symbols.wvb_source_fetch_descriptor(this.pointer, cstr(bundleName));
+    return new BundleDescriptor(readHandle(lib, ptr));
+  }
+
+  /**
+   * Loads (and caches) the descriptor for the current version. The returned
+   * {@link LoadedDescriptor} remembers its filepath + read options and keeps working across
+   * active-version swaps; {@link BundleSource.unloadDescriptor} drops the cache entry.
+   */
+  async loadDescriptor(bundleName: string): Promise<LoadedDescriptor> {
+    const lib = getLib();
+    const ptr = await lib.symbols.wvb_source_load_descriptor(this.pointer, cstr(bundleName));
+    return new LoadedDescriptor(readHandle(lib, ptr));
+  }
+
+  /**
+   * Persists the raw bytes of a `.wvb` file to the remote directory and records `metadata` in the
+   * manifest. Prefer this over re-serializing a parsed {@link Bundle} when the bytes are already at
+   * hand (e.g. a {@link Remote} download): storing them verbatim keeps the integrity string valid on
+   * later loads. The version is staged, not activated — call {@link BundleSource.updateRemoteVersion}.
+   */
+  async writeRemoteBundleData(
+    bundleName: string,
+    version: string,
+    data: Uint8Array<ArrayBuffer>,
+    metadata: BundleManifestMetadata = {}
+  ): Promise<void> {
+    const lib = getLib();
+    const ptr = await lib.symbols.wvb_source_write_remote_bundle_data(
+      this.pointer,
+      cstr(bundleName),
+      cstr(version),
+      data,
+      BigInt(data.byteLength),
+      cstr(JSON.stringify(metadata))
+    );
+    readResult(lib, ptr);
   }
 
   free(): void {

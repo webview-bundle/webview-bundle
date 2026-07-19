@@ -13,8 +13,9 @@ export interface WebviewBundleUpdaterConfig extends UpdaterOptions {
 
 export interface WebviewBundleConfig {
   /**
-   * Deno-specific: the native cdylib path (e.g. a `deno desktop --include`d dir resolved from the
-   * app's `import.meta.url`). Omit if you already loaded it via `loadLib`/`loadLibViaPlug`.
+   * Deno-specific: the native cdylib path — e.g. the `.wvb/lib` directory you installed it into with
+   * `deno run -A jsr:@wvb/deno/install`, or a `deno desktop --include`d dir resolved from the app's
+   * `import.meta.url`. Omit if you already loaded it via `loadLib`/`loadFromGitHub`.
    */
   lib?: string | URL;
   source?: SourceOptions;

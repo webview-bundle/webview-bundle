@@ -1,4 +1,20 @@
 export {
+  type BuildOptions,
+  Bundle,
+  BundleBuilder,
+  BundleDescriptor,
+  type BundleFormatVersion,
+  type BundleHeader,
+  type BundleIndex,
+  contentTypeForPath,
+  type IndexEntry,
+  LoadedDescriptor,
+  readBundle,
+  readBundleFromBytes,
+  writeBundle,
+  writeBundleToBytes,
+} from './bundle.ts';
+export {
   type ErrorCode,
   isWebviewBundleError,
   WebviewBundleError,
@@ -7,8 +23,8 @@ export {
   type HttpResponse,
   type LoadLibViaPlugOptions,
   libFileName,
+  loadFromGitHub,
   loadLib,
-  loadLibViaPlug,
 } from './ffi.ts';
 export {
   computeIntegrity,
