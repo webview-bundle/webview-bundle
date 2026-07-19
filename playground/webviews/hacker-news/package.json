@@ -1,6 +1,6 @@
 {
   "name": "@wvb-playground/webview-hacker-news",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "exports": {
@@ -25,18 +25,16 @@
     "build-lib": "tsdown",
     "prerender": "node scripts/prerender.mjs",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "wvb-pack": "wvb pack",
+    "wvb-upload": "yarn build && wvb upload --deploy=false",
+    "wvb-deploy": "wvb deploy"
   },
   "dependencies": {
     "@wvb-playground/testdriver": "0.1.0"
   },
   "peerDependencies": {
     "vitest": "^2.0.0 || ^3.0.0 || ^4.0.0"
-  },
-  "peerDependenciesMeta": {
-    "vitest": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.2.8",
@@ -49,6 +47,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "@wvb-playground/env": "workspace:^",
+    "@wvb/cli": "0.1.0-next.fe10f84",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "tailwindcss": "^4.3.3",

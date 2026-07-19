@@ -1,0 +1,13 @@
+{
+  "manifestVersion": 1,
+  "entries": {
+    "testbed": {
+      "versions": {
+        "0.2.0": {
+          "integrity": "sha256:jdi4x7cstlNgnReMU7NS1OE5EYmiLF87GYBSYh9tqxE="
+        }
+      },
+      "currentVersion": "0.2.0"
+    }
+  }
+}

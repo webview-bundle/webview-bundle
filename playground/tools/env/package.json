@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./runtime.d.ts": "./runtime.d.ts"
+  },
   "dependencies": {
     "es-toolkit": "^1.43.0",
     "zod": "^4.0.5"

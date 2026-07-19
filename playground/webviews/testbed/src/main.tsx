@@ -1,10 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { version } from '../package.json' with { type: 'json' };
-
-function App() {
-  return <h1 data-testid="version">{version}</h1>;
-}
+import { App } from './App';
+import './styles.css';
 
 const root = createRoot(document.getElementById('root')!);
 root.render(

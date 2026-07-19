@@ -1,12 +1,37 @@
 {
   "name": "@wvb-playground/webview-testbed",
-  "version": "0.0.0",
+  "version": "0.3.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./testing": {
+      "types": "./dist-testing/index.d.mts",
+      "default": "./dist-testing/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist-testing"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "pack": "wvb pack",
-    "upload": "yarn build && wvb upload --deploy=false",
-    "deploy": "wvb deploy"
+    "build-lib": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "wvb-pack": "wvb pack",
+    "wvb-upload": "yarn build && wvb upload --deploy=false",
+    "wvb-deploy": "wvb deploy",
+    "prepack": "yarn build-lib"
+  },
+  "dependencies": {
+    "@wvb-playground/testdriver": "workspace:^",
+    "@wvb/bridge": "0.1.0-next.fe10f84"
+  },
+  "peerDependencies": {
+    "vitest": "^2.0.0 || ^3.0.0 || ^4.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
@@ -16,7 +41,9 @@
     "@wvb/cli": "0.1.0-next.fe10f84",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vite": "^8.1.5"
+    "vite": "^8.1.5",
+    "vitest": "catalog:"
   }
 }

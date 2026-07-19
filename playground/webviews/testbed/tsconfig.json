@@ -4,5 +4,6 @@
     "jsx": "react-jsx",
     "noEmit": true,
     "declaration": false
-  }
+  },
+  "include": ["src", "testing"]
 }

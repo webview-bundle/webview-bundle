@@ -42,3 +42,9 @@ export function loadEnv(configFile?: string): Env {
 
   return EnvSchema.parse(raw);
 }
+
+export function defineRuntime(env: Env): Record<string, string> {
+  return {
+    __WVB_PLAYGROUND_REMOTE_ENDPOINT__: JSON.stringify(env.remote.endpoint),
+  };
+}

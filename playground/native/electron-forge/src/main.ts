@@ -5,7 +5,7 @@ import { app, BrowserWindow } from 'electron';
 const wvb = webviewBundle({
   source: app.isPackaged
     ? undefined
-    : { builtinDir: path.join(import.meta.dirname, '..', '.wvb', 'builtin', 'bundles') },
+    : { builtinDir: path.join(__dirname, '..', '..', '.wvb', 'builtin', 'bundles') },
   protocols: [bundleProtocol('app')],
   updater: {
     remote: {
@@ -22,10 +22,10 @@ async function bootstrap() {
     height: 600,
     webPreferences: {
       contextIsolation: true,
-      preload: path.join(import.meta.dirname, 'preload.cjs'),
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
-  await win.loadURL('app://test.wvb');
+  await win.loadURL('app://testbed.wvb');
 }
 
 void bootstrap();

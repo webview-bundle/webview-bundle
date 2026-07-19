@@ -1,5 +1,5 @@
 import type { WebviewDriver } from '@wvb-playground/testdriver';
-import { assert, assertContains, assertEqual, assertGreaterThan } from './assert';
+import { expect } from 'vitest';
 import { community, sel } from './selectors';
 
 /**
@@ -26,7 +26,7 @@ async function score(driver: WebviewDriver): Promise<number> {
 export interface TestCase {
   /** Stable, human-readable name (used as the vitest test title). */
   name: string;
-  /** Runs the scenario; throws (e.g. an AssertionError) on failure. */
+  /** Runs the scenario; a failed `expect` throws and fails the test. */
   run(driver: WebviewDriver): Promise<void>;
 }
 
@@ -42,12 +42,10 @@ export const testCases: TestCase[] = [
       await driver.goto('/');
       await driver.waitForVisible(sel.feed);
       await driver.waitForVisible(sel.postRow);
-      assertEqual(
-        await driver.count(sel.postRow),
-        EXPECTED.totalPosts,
-        'number of posts on the feed'
+      expect(await driver.count(sel.postRow), 'number of posts on the feed').toBe(
+        EXPECTED.totalPosts
       );
-      assertContains((await driver.text(sel.resultCount)).toLowerCase(), 'posts', 'result label');
+      expect((await driver.text(sel.resultCount)).toLowerCase(), 'result label').toContain('posts');
     },
   },
   {
@@ -56,13 +54,11 @@ export const testCases: TestCase[] = [
       await driver.goto('/');
       await driver.waitForVisible(sel.feed);
       await driver.click(sel.sortTop);
-      assertContains(await driver.location(), 'sort=top', 'sort reflected in the URL');
+      expect(await driver.location(), 'sort reflected in the URL').toContain('sort=top');
       await driver.waitForVisible(sel.postRow);
-      assertEqual(await score(driver), EXPECTED.topPost.score, 'highest score is first');
-      assertContains(
-        await driver.text(sel.postLink),
-        EXPECTED.topPost.titleIncludes,
-        'highest-scored post is first'
+      expect(await score(driver), 'highest score is first').toBe(EXPECTED.topPost.score);
+      expect(await driver.text(sel.postLink), 'highest-scored post is first').toContain(
+        EXPECTED.topPost.titleIncludes
       );
     },
   },
@@ -74,9 +70,11 @@ export const testCases: TestCase[] = [
       const title = await driver.text(sel.postLink);
       await driver.click(sel.postLink);
       await driver.waitForVisible(sel.postDetail);
-      assert((await driver.location()).startsWith('/post/'), 'navigated to a /post/ URL');
-      assertEqual(await driver.text(sel.postDetailTitle), title, 'detail shows the clicked post');
-      assertGreaterThan(await driver.count(sel.comment), 0, 'post has comments');
+      expect((await driver.location()).startsWith('/post/'), 'navigated to a /post/ URL').toBe(
+        true
+      );
+      expect(await driver.text(sel.postDetailTitle), 'detail shows the clicked post').toBe(title);
+      expect(await driver.count(sel.comment), 'post has comments').toBeGreaterThan(0);
     },
   },
   {
@@ -86,9 +84,9 @@ export const testCases: TestCase[] = [
       await driver.waitForVisible(sel.postRow);
       const before = await score(driver);
       await driver.click(sel.upvote);
-      assertEqual(await score(driver), before + 1, 'score after upvoting');
+      expect(await score(driver), 'score after upvoting').toBe(before + 1);
       await driver.click(sel.upvote);
-      assertEqual(await score(driver), before, 'score after toggling the upvote off');
+      expect(await score(driver), 'score after toggling the upvote off').toBe(before);
     },
   },
   {
@@ -100,12 +98,12 @@ export const testCases: TestCase[] = [
       const before = await driver.count(sel.comment);
       await driver.click(sel.commentToggle);
       const collapsed = await driver.count(sel.comment);
-      assert(
-        collapsed < before,
+      expect(
+        collapsed,
         `collapsing should hide replies (before=${before}, after=${collapsed})`
-      );
+      ).toBeLessThan(before);
       await driver.click(sel.commentToggle);
-      assertEqual(await driver.count(sel.comment), before, 'expanding restores the replies');
+      expect(await driver.count(sel.comment), 'expanding restores the replies').toBe(before);
     },
   },
   {
@@ -115,12 +113,11 @@ export const testCases: TestCase[] = [
       await driver.waitForVisible(sel.postRow);
       await driver.click(sel.authorLink);
       await driver.waitForVisible(sel.profile);
-      assert((await driver.location()).startsWith('/u/'), 'navigated to a /u/ URL');
-      assertGreaterThan(
+      expect((await driver.location()).startsWith('/u/'), 'navigated to a /u/ URL').toBe(true);
+      expect(
         (await driver.text(sel.profileUsername)).length,
-        0,
         'profile shows a username'
-      );
+      ).toBeGreaterThan(0);
     },
   },
   {
@@ -128,20 +125,17 @@ export const testCases: TestCase[] = [
     run: async driver => {
       await driver.goto('/');
       await driver.waitForVisible(sel.postRow);
-      assertEqual(await driver.count(sel.postRow), EXPECTED.totalPosts, 'unfiltered post count');
+      expect(await driver.count(sel.postRow), 'unfiltered post count').toBe(EXPECTED.totalPosts);
       await driver.click(community(EXPECTED.community.tag));
       await driver.waitForVisible(sel.feed);
-      assertContains(
-        await driver.location(),
-        `tag=${EXPECTED.community.tag}`,
-        'tag reflected in the URL'
+      expect(await driver.location(), 'tag reflected in the URL').toContain(
+        `tag=${EXPECTED.community.tag}`
       );
-      assertEqual(await driver.count(sel.postRow), EXPECTED.community.posts, 'filtered post count');
-      assertContains(
+      expect(await driver.count(sel.postRow), 'filtered post count').toBe(EXPECTED.community.posts);
+      expect(
         (await driver.text(sel.resultCount)).toLowerCase(),
-        EXPECTED.community.tag,
         'result label names the community'
-      );
+      ).toContain(EXPECTED.community.tag);
     },
   },
   {
@@ -149,16 +143,12 @@ export const testCases: TestCase[] = [
     run: async driver => {
       await driver.goto('/');
       await driver.waitForVisible(sel.appShell);
-      assertEqual(
-        await driver.getAttribute(sel.appShell, 'data-theme'),
-        'light',
-        'starts in light theme'
+      expect(await driver.getAttribute(sel.appShell, 'data-theme'), 'starts in light theme').toBe(
+        'light'
       );
       await driver.click(sel.themeToggle);
-      assertEqual(
-        await driver.getAttribute(sel.appShell, 'data-theme'),
-        'dark',
-        'switches to dark theme'
+      expect(await driver.getAttribute(sel.appShell, 'data-theme'), 'switches to dark theme').toBe(
+        'dark'
       );
     },
   },
@@ -169,7 +159,7 @@ export const testCases: TestCase[] = [
       await driver.waitForVisible(sel.postDetail);
       await driver.click(sel.back);
       await driver.waitForVisible(sel.feed);
-      assertEqual(await driver.location(), '/', 'back returns to the feed');
+      expect(await driver.location(), 'back returns to the feed').toBe('/');
     },
   },
   {
@@ -182,19 +172,15 @@ export const testCases: TestCase[] = [
       // A post detail loaded directly (not via in-app navigation).
       await driver.goto(EXPECTED.deepLink.post.path);
       await driver.waitForVisible(sel.postDetail);
-      assertContains(
-        await driver.text(sel.postDetailTitle),
-        EXPECTED.deepLink.post.titleIncludes,
-        'deep-linked post renders'
+      expect(await driver.text(sel.postDetailTitle), 'deep-linked post renders').toContain(
+        EXPECTED.deepLink.post.titleIncludes
       );
 
       // A profile loaded directly.
       await driver.goto(EXPECTED.deepLink.profile.path);
       await driver.waitForVisible(sel.profile);
-      assertContains(
-        await driver.text(sel.profileUsername),
-        EXPECTED.deepLink.profile.username,
-        'deep-linked profile renders'
+      expect(await driver.text(sel.profileUsername), 'deep-linked profile renders').toContain(
+        EXPECTED.deepLink.profile.username
       );
     },
   },

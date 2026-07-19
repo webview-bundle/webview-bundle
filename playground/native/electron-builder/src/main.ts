@@ -25,7 +25,7 @@ async function bootstrap() {
       preload: path.join(import.meta.dirname, 'preload.cjs'),
     },
   });
-  await win.loadURL('app://test.wvb');
+  await win.loadURL('app://testbed.wvb');
 }
 
 void bootstrap();
