@@ -34,6 +34,7 @@
     "vitest": "^2.0.0 || ^3.0.0 || ^4.0.0"
   },
   "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

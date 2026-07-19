@@ -1,5 +1,5 @@
 import { BridgeError, invoke, platform } from '@wvb/bridge';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { version } from '../package.json' with { type: 'json' };
 import {
   METHOD_SPECS,
@@ -20,6 +20,8 @@ type CallState =
   | { status: 'error'; error: BridgeError };
 
 const NAMESPACES: readonly Namespace[] = ['source', 'remote', 'updater'];
+const THEMES = ['auto', 'light', 'dark'] as const;
+type ThemeMode = (typeof THEMES)[number];
 
 /** Sensible starting values so a method can be run without typing. */
 function defaultFor(param: MethodParam): string {
@@ -46,20 +48,68 @@ function formatError(error: BridgeError): string {
   return error.code != null ? `[${error.code}] ${error.message}` : error.message;
 }
 
-/** The terminal output of a call: the value on success, the error on failure. */
-function Output({ status, testId }: { status: CallState; testId: string }) {
+function countIn(namespace: Namespace): number {
+  return METHOD_SPECS.filter(spec => spec.namespace === namespace).length;
+}
+
+/** A `namespace.method()` signature, coloured like source. */
+function Signature({ namespace, method }: { namespace?: string; method: string }) {
+  return (
+    <code className="sig">
+      {namespace != null ? (
+        <>
+          <span className="sig__ns">{namespace}</span>
+          <span className="sig__dot">.</span>
+        </>
+      ) : null}
+      <span className="sig__fn">{method}</span>
+      <span className="sig__paren">()</span>
+    </code>
+  );
+}
+
+/** The response of a call: the value on success, the error on failure. */
+function Response({ status, testId }: { status: CallState; testId: string }) {
   if (status.status !== 'ok' && status.status !== 'error') {
     return null;
   }
   const isError = status.status === 'error';
   return (
-    <pre
-      className={isError ? 'output output--error' : 'output'}
-      data-testid={testId}
-      data-status={status.status}
-    >
-      {status.status === 'ok' ? formatResult('value', status.result) : formatError(status.error)}
-    </pre>
+    <div className={isError ? 'resp resp--err' : 'resp resp--ok'}>
+      <div className="resp__bar">
+        <span className="resp__tag">{status.status}</span>
+        <span className="resp__kind">{isError ? 'BridgeError' : 'result'}</span>
+      </div>
+      <pre className="resp__body" data-testid={testId} data-status={status.status}>
+        {status.status === 'ok' ? formatResult('value', status.result) : formatError(status.error)}
+      </pre>
+    </div>
+  );
+}
+
+function StatusChip({ status, testId }: { status: CallState['status']; testId: string }) {
+  return (
+    <span className="chip" data-testid={testId} data-status={status}>
+      <span className="chip__dot" aria-hidden="true" />
+      {status}
+    </span>
+  );
+}
+
+function RunButton({
+  testId,
+  onRun,
+  pending,
+}: {
+  testId: string;
+  onRun: () => void;
+  pending: boolean;
+}) {
+  return (
+    <button type="button" className="run" data-testid={testId} onClick={onRun} disabled={pending}>
+      <span className="run__glyph" aria-hidden="true" />
+      Run
+    </button>
   );
 }
 
@@ -80,45 +130,39 @@ function MethodCard({ spec }: { spec: SpecEntry }) {
   }
 
   return (
-    <div className="card" data-testid={tid.method(spec.id)}>
-      <div className="card__head">
-        <code className="card__id">{spec.id}</code>
-        <button
-          type="button"
-          className="card__run"
-          data-testid={tid.run(spec.id)}
-          onClick={run}
-          disabled={state.status === 'pending'}
-        >
-          Run
-        </button>
+    <div className="cell" data-testid={tid.method(spec.id)}>
+      <div className="cell__head">
+        <Signature namespace={spec.namespace} method={spec.method} />
+        <RunButton testId={tid.run(spec.id)} onRun={run} pending={state.status === 'pending'} />
       </div>
-      <p className="card__summary">{spec.summary}</p>
+      <p className="cell__doc">{spec.summary}</p>
       {spec.params.length > 0 ? (
-        <div className="card__params">
+        <div className="args">
           {spec.params.map((param: MethodParam) => (
-            <label key={param.name} className="field">
-              <span className="field__name">
+            <label key={param.name} className="arg">
+              <span className="arg__key">
                 {param.name}
-                {param.optional ? <span className="field__opt">?</span> : null}
+                {param.optional ? <i className="arg__opt">?</i> : null}
               </span>
               <input
-                className="field__input"
+                className="arg__input"
                 data-testid={tid.param(spec.id, param.name)}
                 value={inputs[param.name] ?? ''}
-                placeholder={param.optional ? 'optional' : ''}
+                placeholder={param.optional ? 'optional' : 'required'}
+                spellCheck={false}
+                autoComplete="off"
                 onChange={e => setInputs(prev => ({ ...prev, [param.name]: e.target.value }))}
               />
             </label>
           ))}
         </div>
-      ) : null}
-      <div className="card__foot">
-        <span className="status" data-testid={tid.status(spec.id)} data-status={state.status}>
-          {state.status}
-        </span>
+      ) : (
+        <div className="args args--empty">no arguments</div>
+      )}
+      <div className="cell__foot">
+        <StatusChip status={state.status} testId={tid.status(spec.id)} />
       </div>
-      <Output status={state} testId={tid.result(spec.id)} />
+      <Response status={state} testId={tid.result(spec.id)} />
     </div>
   );
 }
@@ -152,83 +196,107 @@ function RawInvokeCard() {
   }
 
   return (
-    <div className="card" data-testid="method-invoke">
-      <div className="card__head">
-        <code className="card__id">invoke</code>
-        <button
-          type="button"
-          className="card__run"
-          data-testid={TESTID.invokeRun}
-          onClick={run}
-          disabled={state.status === 'pending'}
-        >
-          Run
-        </button>
+    <div className="cell cell--wide" data-testid="method-invoke">
+      <div className="cell__head">
+        <Signature method="invoke" />
+        <RunButton testId={TESTID.invokeRun} onRun={run} pending={state.status === 'pending'} />
       </div>
-      <p className="card__summary">
+      <p className="cell__doc">
         Call any command by name — the escape hatch every namespace wraps.
       </p>
-      <div className="card__params">
-        <label className="field">
-          <span className="field__name">name</span>
+      <div className="args">
+        <label className="arg">
+          <span className="arg__key">name</span>
           <input
-            className="field__input"
+            className="arg__input"
             data-testid={TESTID.invokeName}
             value={name}
+            spellCheck={false}
+            autoComplete="off"
             onChange={e => setName(e.target.value)}
           />
         </label>
-        <label className="field">
-          <span className="field__name">
-            params <span className="field__opt">json</span>
+        <label className="arg arg--stack">
+          <span className="arg__key">
+            params <i className="arg__opt">json</i>
           </span>
           <textarea
-            className="field__input field__input--area"
+            className="arg__input arg__input--area"
             data-testid={TESTID.invokeParams}
             value={paramsText}
             placeholder='{ "bundleName": "testbed" }'
             rows={2}
+            spellCheck={false}
             onChange={e => setParamsText(e.target.value)}
           />
         </label>
       </div>
-      <div className="card__foot">
-        <span className="status" data-testid={TESTID.invokeStatus} data-status={state.status}>
-          {state.status}
-        </span>
+      <div className="cell__foot">
+        <StatusChip status={state.status} testId={TESTID.invokeStatus} />
       </div>
-      <Output status={state} testId={TESTID.invokeResult} />
+      <Response status={state} testId={TESTID.invokeResult} />
     </div>
   );
 }
 
+function useTheme(): [ThemeMode, () => void] {
+  const [theme, setTheme] = useState<ThemeMode>('auto');
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'auto') {
+      root.removeAttribute('data-theme');
+    } else {
+      root.setAttribute('data-theme', theme);
+    }
+  }, [theme]);
+  const cycle = () => setTheme(t => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length] ?? 'auto');
+  return [theme, cycle];
+}
+
 export function App() {
   const detected = platform.type ?? 'none';
-  const showNoHost = platform.type == null;
+  const connected = platform.type != null;
+  const [theme, cycleTheme] = useTheme();
 
   return (
     <div className="app" data-testid={TESTID.appShell} data-platform={detected}>
-      <header className="app__header">
-        <div className="app__title">
-          <h1>Bridge Testbed</h1>
-          <span className="app__version">v{version}</span>
+      <header className="bar">
+        <div className="bar__brand">
+          <span className="bar__logo">wvb</span>
+          <span className="bar__name">bridge testbed</span>
+          <span className="bar__ver">v{version}</span>
         </div>
-        <div className="app__meta">
-          <span className="pill">
-            platform: <b data-testid={TESTID.platformType}>{detected}</b>
+        <div className="bar__tools">
+          <span className="conn" data-on={connected}>
+            <span className="conn__dot" aria-hidden="true" />
+            <span className="conn__label">platform</span>
+            <b className="conn__val" data-testid={TESTID.platformType}>
+              {detected}
+            </b>
           </span>
+          <button type="button" className="ghost" onClick={cycleTheme} title="Toggle color theme">
+            theme:{theme}
+          </button>
         </div>
       </header>
-      {showNoHost ? (
-        <p className="banner">
-          No native webview-bundle host detected — bridge calls will fail here. Open the testbed
-          inside a native host (Electron, Tauri, …) to exercise the methods.
-        </p>
+
+      {!connected ? (
+        <div className="notice">
+          <span className="notice__badge">offline</span>
+          <span className="notice__text">
+            No native webview-bundle host detected — every call returns a <code>BridgeError</code>.
+            Load the testbed inside Electron or Tauri to talk to the real bridge.
+          </span>
+        </div>
       ) : null}
-      <main className="app__main">
+
+      <main className="body">
         {NAMESPACES.map(ns => (
-          <section key={ns} className="ns">
-            <h2 className="ns__title">{ns}</h2>
+          <section key={ns} className="group">
+            <div className="group__head">
+              <span className="group__label">{ns}</span>
+              <span className="group__count">{countIn(ns)}</span>
+            </div>
             <div className="grid">
               {METHOD_SPECS.filter(spec => spec.namespace === ns).map(spec => (
                 <MethodCard key={spec.id} spec={spec} />
@@ -236,10 +304,11 @@ export function App() {
             </div>
           </section>
         ))}
-        <section className="ns">
-          <h2 className="ns__title">
-            invoke <span className="ns__sub">low-level</span>
-          </h2>
+        <section className="group">
+          <div className="group__head">
+            <span className="group__label">invoke</span>
+            <span className="group__count group__count--tag">raw</span>
+          </div>
           <div className="grid">
             <RawInvokeCard />
           </div>

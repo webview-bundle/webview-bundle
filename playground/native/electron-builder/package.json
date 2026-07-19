@@ -10,15 +10,13 @@
     "package": "yarn build && electron-builder --config electron-builder.config.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@wvb/electron": "0.1.0-next.fe10f84"
-  },
   "devDependencies": {
     "@types/node": "catalog:",
     "@wvb-playground/env": "workspace:^",
     "@wvb/cli": "0.1.0-next.fe10f84",
+    "@wvb/electron": "0.1.0-next.fe10f84",
     "@wvb/electron-builder": "0.0.0-next.fe10f84",
-    "electron": "^42.2.0",
+    "electron": "42.2.0",
     "electron-builder": "^25.1.8",
     "typescript": "catalog:",
     "vite": "^8.1.5"
