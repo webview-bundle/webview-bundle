@@ -7,6 +7,7 @@ patchBinding(binding as unknown as Record<string, unknown>);
 
 export * from '../binding.cjs';
 export { isWebviewBundleError, WebviewBundleError } from './error.js';
+export { getNativeBindingPath, NATIVE_BINDING_PATH_ENV } from './native.js';
 
 export const readBundle: typeof binding.readBundle = wrapFunction(binding.readBundle);
 export const readBundleFromBuffer: typeof binding.readBundleFromBuffer = wrapFunction(

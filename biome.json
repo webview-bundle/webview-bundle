@@ -73,6 +73,7 @@
       "includes": [
         "xtask.config.ts",
         "xtask/**/*.ts",
+        "packages/electron/scripts/**/*.ts",
         "packages/ffi/cli/**/*.ts",
         "packages/deno/**/*.ts",
         "packages/deno-desktop/**/*.ts"

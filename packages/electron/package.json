@@ -19,11 +19,15 @@
   },
   "files": [
     "dist",
+    "native",
     "README.md",
     "CHANGELOG.md"
   ],
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/native.mjs",
+    "./dist/native.cjs"
+  ],
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "exports": {
@@ -39,7 +43,8 @@
   },
   "scripts": {
     "prepack": "yarn build",
-    "build": "tsdown",
+    "build": "tsdown && node scripts/copy-native.ts",
+    "copy-native": "node scripts/copy-native.ts",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
