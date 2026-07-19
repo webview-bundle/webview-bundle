@@ -106,8 +106,8 @@ jobs:
       DEBUG: "napi:*"
       MACOSX_DEPLOYMENT_TARGET: "10.13"
       CARGO_INCREMENTAL: "1"
-      electron_config_cache: ${{ runner.temp }}/.electron-cache
-      ELECTRON_CACHE: ${{ runner.temp }}/.electron-cache
+      electron_config_cache: ${{ github.workspace }}/.electron-cache
+      ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
       # Fix for ring crate cross-compilation on aarch64
       # See: https://github.com/briansmith/ring/issues/1789
       CFLAGS_aarch64_unknown_linux_gnu: ${{ matrix.settings.target == 'aarch64-unknown-linux-gnu' && '-D__ARM_ARCH=8' || '' }}
@@ -150,7 +150,7 @@ jobs:
         if: ${{ !matrix.settings.build_only }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/.electron-cache
+          path: ${{ github.workspace }}/.electron-cache
           key: electron-${{ runner.os }}-${{ matrix.settings.target }}-${{ hashFiles('yarn.lock') }}
           restore-keys: |
             electron-${{ runner.os }}-${{ matrix.settings.target }}-
