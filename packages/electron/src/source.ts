@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { BundleSource, type BundleSourceConfig } from '@wvb/node';
+import type { BundleSource, BundleSourceConfig } from '@wvb/node';
 import { app } from 'electron';
+import { wvbNode } from './native.js';
 
 export interface SourceOptions extends Omit<BundleSourceConfig, 'builtinDir' | 'remoteDir'> {
   builtinDir?: string;
@@ -13,7 +14,7 @@ export function bundleSource(options: SourceOptions = {}): BundleSource {
     remoteDir = defaultRemoteDir(),
     ...otherOptions
   } = options;
-  return new BundleSource({
+  return new wvbNode.BundleSource({
     builtinDir,
     remoteDir,
     ...otherOptions,

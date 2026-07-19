@@ -1504,7 +1504,6 @@ export interface HttpOptions {
   poolMaxIdlePerHost?: number
   referer?: boolean
   tcpNodelay?: boolean
-  hickoryDns?: boolean
 }
 
 export interface HttpResponse {

@@ -1,5 +1,6 @@
-import { type BundleSource, type Remote, Updater, type UpdaterOptions } from '@wvb/node';
+import type { BundleSource, Remote, Updater, UpdaterOptions } from '@wvb/node';
 import { registerIpc } from './ipc.js';
+import { wvbNode } from './native.js';
 import { type Protocol, registerProtocol } from './protocol.js';
 import { type RemoteOptions, remote } from './remote.js';
 import { bundleSource, type SourceOptions } from './source.js';
@@ -30,7 +31,7 @@ export class WebviewBundle {
       const { remote: remoteConfig, ...updaterOptions } = config.updater;
       const { endpoint, ...remoteOptions } = remoteConfig;
       this._remote = remote(endpoint, remoteOptions);
-      this._updater = new Updater(this._source, this._remote, updaterOptions);
+      this._updater = new wvbNode.Updater(this._source, this._remote, updaterOptions);
     }
     this._whenProtocolRegistered = new Promise<void>((resolve, reject) => {
       Promise.all(config.protocols.map(p => registerProtocol(p, this._source)))
