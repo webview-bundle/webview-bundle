@@ -671,9 +671,6 @@ fn parse_http_options(raw: &str) -> Option<HttpOptions> {
   if let Some(x) = value.get("tcpNodelay").and_then(|x| x.as_bool()) {
     options = options.tcp_nodelay(x);
   }
-  if let Some(x) = value.get("hickoryDns").and_then(|x| x.as_bool()) {
-    options = options.hickory_dns(x);
-  }
   Some(options)
 }
 

@@ -14,7 +14,6 @@ pub struct HttpOptions {
   pub pool_max_idle_per_host: Option<u32>,
   pub referer: Option<bool>,
   pub tcp_nodelay: Option<bool>,
-  pub hickory_dns: Option<bool>,
 }
 
 impl TryFrom<HttpOptions> for wvb::remote::HttpOptions {
@@ -53,9 +52,6 @@ impl TryFrom<HttpOptions> for wvb::remote::HttpOptions {
     }
     if let Some(tcp_nodelay) = value.tcp_nodelay {
       options = options.tcp_nodelay(tcp_nodelay);
-    }
-    if let Some(hickory_dns) = value.hickory_dns {
-      options = options.hickory_dns(hickory_dns);
     }
     Ok(options)
   }

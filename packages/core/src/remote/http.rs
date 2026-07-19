@@ -17,7 +17,6 @@ pub struct HttpOptions {
   pub pool_max_idle_per_host: Option<usize>,
   pub referer: Option<bool>,
   pub tcp_nodelay: Option<bool>,
-  pub hickory_dns: Option<bool>,
 }
 
 impl HttpOptions {
@@ -70,11 +69,6 @@ impl HttpOptions {
     self
   }
 
-  pub fn hickory_dns(mut self, hickory_dns: bool) -> Self {
-    self.hickory_dns = Some(hickory_dns);
-    self
-  }
-
   pub(crate) fn apply(&self, mut http: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     if let Some(default_headers) = self.default_headers.as_ref() {
       http = http.default_headers(default_headers.clone());
@@ -95,9 +89,6 @@ impl HttpOptions {
     }
     if let Some(tcp_nodelay) = self.tcp_nodelay {
       http = http.tcp_nodelay(tcp_nodelay);
-    }
-    if let Some(hickory_dns) = self.hickory_dns {
-      http = http.hickory_dns(hickory_dns);
     }
     http
   }

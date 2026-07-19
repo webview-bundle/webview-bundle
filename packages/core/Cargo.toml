@@ -78,7 +78,6 @@ remote = [
   "_serde",
   "reqwest/rustls-tls",
   "reqwest/json",
-  "reqwest/hickory-dns",
   "reqwest/stream",
   "dep:urlencoding",
   "dep:futures-util",
