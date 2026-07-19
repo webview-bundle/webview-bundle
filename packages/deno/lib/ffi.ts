@@ -118,6 +118,87 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
+  // Bundle read/write (free fns). File I/O runs on the tokio runtime → nonblocking.
+  wvb_read_bundle: { parameters: ['buffer'], result: 'pointer', nonblocking: true },
+  wvb_read_bundle_from_bytes: { parameters: ['buffer', 'usize'], result: 'pointer' },
+  wvb_write_bundle: { parameters: ['pointer', 'buffer'], result: 'pointer', nonblocking: true },
+  wvb_write_bundle_to_bytes: { parameters: ['pointer'], result: 'pointer' },
+  // Bundle handle (data already in memory → blocking).
+  wvb_bundle_get_data: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_bundle_get_data_checksum: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_bundle_header: { parameters: ['pointer'], result: 'pointer' },
+  wvb_bundle_index: { parameters: ['pointer'], result: 'pointer' },
+  wvb_bundle_free: { parameters: ['pointer'], result: 'void' },
+  // BundleBuilder
+  wvb_bundle_builder_new: { parameters: [], result: 'pointer' },
+  wvb_bundle_builder_insert_entry: {
+    parameters: ['pointer', 'buffer', 'buffer', 'usize', 'buffer', 'buffer'],
+    result: 'pointer',
+  },
+  wvb_bundle_builder_remove_entry: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_bundle_builder_contains_entry: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_bundle_builder_entry_paths: { parameters: ['pointer'], result: 'pointer' },
+  wvb_bundle_builder_build: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_bundle_builder_free: { parameters: ['pointer'], result: 'void' },
+  // BundleSource: fetch / load / write (disk I/O → nonblocking).
+  wvb_source_fetch_bundle: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_fetch_builtin_bundle: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_fetch_remote_bundle: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_fetch_descriptor: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_load_descriptor: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_write_remote_bundle_data: {
+    parameters: ['pointer', 'buffer', 'buffer', 'buffer', 'usize', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  // BundleDescriptor (lazy reads reopen the file → nonblocking)
+  wvb_descriptor_get_data: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_descriptor_get_data_checksum: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_descriptor_header: { parameters: ['pointer'], result: 'pointer' },
+  wvb_descriptor_index: { parameters: ['pointer'], result: 'pointer' },
+  wvb_descriptor_free: { parameters: ['pointer'], result: 'void' },
+  // LoadedDescriptor
+  wvb_loaded_descriptor_get_data: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_loaded_descriptor_get_data_checksum: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_loaded_descriptor_header: { parameters: ['pointer'], result: 'pointer' },
+  wvb_loaded_descriptor_index: { parameters: ['pointer'], result: 'pointer' },
+  wvb_loaded_descriptor_free: { parameters: ['pointer'], result: 'void' },
   // Integrity (→ WvbResult). Pure hashing over bytes already in memory → blocking.
   wvb_compute_integrity: { parameters: ['buffer', 'buffer', 'usize'], result: 'pointer' },
   wvb_parse_integrity: { parameters: ['buffer'], result: 'pointer' },
@@ -182,28 +263,32 @@ export interface LoadLibViaPlugOptions {
 }
 
 /**
- * Download the platform cdylib from a release via `@denosaurs/plug`.
+ * Download the platform cdylib from a release from github release.
  * For `deno run` / library use where the dylib isn't bundled.
  *
  * Requires `--allow-net --allow-read --allow-write --allow-env --allow-ffi`.
  */
 // deno-lint-ignore require-await
-export async function loadLibViaPlug(options: LoadLibViaPlugOptions = {}): Promise<WvbLib> {
+export async function loadFromGitHub(options: LoadLibViaPlugOptions = {}): Promise<WvbLib> {
   if (lib != null) {
     return lib;
   }
-  loadingPromise ??= loadViaPlug(options).catch(e => {
+  loadingPromise ??= loadFromGitHubInner(options).catch(e => {
     loadingPromise = null;
     throw e;
   });
   return loadingPromise;
 }
 
-async function loadViaPlug(options: LoadLibViaPlugOptions): Promise<WvbLib> {
+async function loadFromGitHubInner(options: LoadLibViaPlugOptions): Promise<WvbLib> {
   const target = Deno.build.target;
   const base = `${(options.url ?? `${releaseBaseUrl(options.version ?? VERSION)}/`).replace(/\/+$/, '')}/`;
   const { download } = await import('@denosaurs/plug');
-  const path = await download({ name: 'wvb_deno', url: base, suffixes: releaseAssetSuffixes() });
+  const path = await download({
+    name: 'wvb_deno',
+    url: base,
+    suffixes: releaseAssetSuffixes(),
+  });
   if (options.integrity !== false) {
     const checksum = await fetchChecksum(base, releaseAssetName(target));
     const actual = await sha256Hex(await Deno.readFile(path));
@@ -296,6 +381,23 @@ export function readResult(l: WvbLib, resultPtr: Deno.PointerValue): WvbResultDa
   } finally {
     l.symbols.wvb_result_free(resultPtr);
   }
+}
+
+/**
+ * Read a result that carries a native handle: on success the JSON is the handle's address as a
+ * decimal string (a pointer can exceed a JS-safe integer), rebuilt here into a `Deno.PointerValue`.
+ * A failed result throws via {@link readResult}, so the reason survives — unlike a bare null return.
+ */
+export function readHandle(
+  l: WvbLib,
+  resultPtr: Deno.PointerValue
+): NonNullable<Deno.PointerValue> {
+  const { json } = readResult(l, resultPtr);
+  const handle = Deno.UnsafePointer.create(BigInt(JSON.parse(json) as string));
+  if (handle === null) {
+    throw new WebviewBundleError('null_handle', 'wvb: native returned a null handle');
+  }
+  return handle;
 }
 
 /**

@@ -60,7 +60,7 @@ format-js:
 
 # Format TOML files via taplo
 format-toml:
-    yarn taplo format
+    yarn taplo format $(git ls-files '**/Cargo.toml' 'Cargo.toml' '**/uniffi*.toml' '.cargo/*.toml')
 
 # Lint all files
 lint: lint-rs lint-js
