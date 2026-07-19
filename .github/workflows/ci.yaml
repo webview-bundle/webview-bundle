@@ -106,6 +106,8 @@ jobs:
       DEBUG: "napi:*"
       MACOSX_DEPLOYMENT_TARGET: "10.13"
       CARGO_INCREMENTAL: "1"
+      electron_config_cache: ${{ github.workspace }}/.electron-cache
+      ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
       # Fix for ring crate cross-compilation on aarch64
       # See: https://github.com/briansmith/ring/issues/1789
       CFLAGS_aarch64_unknown_linux_gnu: ${{ matrix.settings.target == 'aarch64-unknown-linux-gnu' && '-D__ARM_ARCH=8' || '' }}
@@ -144,6 +146,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           tool: cargo-zigbuild
+      - name: Cache Electron binaries
+        if: ${{ !matrix.settings.build_only }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.electron-cache
+          key: electron-${{ runner.os }}-${{ matrix.settings.target }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            electron-${{ runner.os }}-${{ matrix.settings.target }}-
       - run: yarn install --immutable
       - name: Run build
         run: ${{ matrix.settings.build }}
@@ -161,6 +171,19 @@ jobs:
         run: deno task test
         working-directory: packages
         shell: bash
+      - name: Ensure Electron binary is installed
+        if: ${{ !matrix.settings.build_only }}
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if node node_modules/electron/install.js; then
+              exit 0
+            fi
+            echo "::warning::Electron binary download failed (attempt ${attempt}/3), retrying in 15s"
+            sleep 15
+          done
+          echo "::error::Failed to install Electron binary after 3 attempts"
+          exit 1
       - name: Install tauri-driver
         if: ${{ !matrix.settings.build_only && matrix.settings.host == 'ubuntu-latest' }}
         run: cargo install tauri-driver --locked
