@@ -1,7 +1,7 @@
+import type { IntegrityAlgorithm } from './bindings.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
 
-/** Hash algorithm for a bundle integrity digest. */
-export type IntegrityAlgorithm = 'sha256' | 'sha384' | 'sha512';
+export type { IntegrityAlgorithm };
 
 /**
  * A digest over some bytes, serialized as `<algorithm>:<base64>` (e.g. `"sha256:n4bQ..."`).

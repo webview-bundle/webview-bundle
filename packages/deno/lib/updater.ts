@@ -1,19 +1,16 @@
 import { encodeBase64 } from '@std/encoding/base64';
+import type {
+  BundleUpdateInfo,
+  IntegrityPolicy,
+  SignatureAlgorithm,
+  VerifyingKeyFormat,
+} from './bindings.ts';
 import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
 import type { ListRemoteBundleInfo, Remote, RemoteBundleInfo } from './remote.ts';
 import type { BundleSource } from './source.ts';
 
-export type IntegrityPolicy = 'strict' | 'optional' | 'off';
-
-export type SignatureAlgorithm =
-  | 'ecdsaSecp256R1'
-  | 'ecdsaSecp384R1'
-  | 'ed25519'
-  | 'rsaPkcs1V15'
-  | 'rsaPss';
-
-export type VerifyingKeyFormat = 'spkiDer' | 'spkiPem' | 'pkcs1Der' | 'pkcs1Pem' | 'sec1' | 'raw';
+export type { BundleUpdateInfo, IntegrityPolicy, SignatureAlgorithm, VerifyingKeyFormat };
 
 export interface SignatureVerifyingKeyOptions {
   format: VerifyingKeyFormat;
@@ -64,17 +61,6 @@ function serializeOptions(options: UpdaterOptions): string {
     ...rest,
     signatureVerifier: serializeSignatureVerifier(signatureVerifier),
   });
-}
-
-export interface BundleUpdateInfo {
-  name: string;
-  version: string;
-  localVersion?: string;
-  isAvailable: boolean;
-  etag?: string;
-  integrity?: string;
-  signature?: string;
-  lastModified?: string;
 }
 
 export class Updater {

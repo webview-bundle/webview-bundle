@@ -6,7 +6,7 @@ export class WebviewBundleError extends Error {
   override readonly name = 'WebviewBundleError';
   readonly code: ErrorCode;
 
-  constructor(code: ErrorCode, message: string, options?: ErrorOptions) {
+  constructor(code: ErrorCode, message?: string, options?: ErrorOptions) {
     super(message, options);
     this.code = code;
   }
@@ -25,19 +25,19 @@ export function isWebviewBundleError(value: unknown): value is WebviewBundleErro
  * Rebuild the error from the `{ code, message }` payload the native layer writes into a failed
  * `WvbResult`. Codes come from `src/error.rs`; anything else degrades to `unknown`.
  */
-export function errorFromNativePayload(payload: string): WebviewBundleError {
+export function errorFromNativePayload(message: string): WebviewBundleError {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(payload);
+    parsed = JSON.parse(message);
   } catch {
-    return new WebviewBundleError('unknown', payload || 'wvb: operation failed');
+    return new WebviewBundleError('unknown', message || undefined);
   }
   if (parsed == null || typeof parsed !== 'object') {
-    return new WebviewBundleError('unknown', payload || 'wvb: operation failed');
+    return new WebviewBundleError('unknown', message || undefined);
   }
-  const { code, message } = parsed as { code?: string; message?: string };
+  const { code, message: parsedMessage } = parsed as { code?: string; message?: string };
   return new WebviewBundleError(
     (code ?? 'unknown') as ErrorCode,
-    typeof message === 'string' && message.length > 0 ? message : 'wvb: operation failed'
+    typeof parsedMessage === 'string' && parsedMessage.length > 0 ? parsedMessage : undefined
   );
 }

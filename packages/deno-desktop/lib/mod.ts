@@ -1,4 +1,4 @@
-export { type HttpResponse, loadLib, loadLibViaPlug, type PathResolver } from '@wvb/deno';
+export { type HttpResponse, loadFromGitHub, loadLib, type PathResolver } from '@wvb/deno';
 export { type BridgeErrorData, registerBindings } from './bindings.ts';
 export type { RemoteOptions } from './remote.ts';
 export { remote } from './remote.ts';
