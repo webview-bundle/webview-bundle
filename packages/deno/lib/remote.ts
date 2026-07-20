@@ -1,5 +1,8 @@
+import type { ListRemoteBundleInfo, RemoteBundleInfo } from './bindings.ts';
 import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
+
+export type { ListRemoteBundleInfo, RemoteBundleInfo };
 
 export interface HttpOptions {
   /** Headers sent with every request. */
@@ -17,20 +20,6 @@ export interface HttpOptions {
 
 export interface RemoteOptions {
   http?: HttpOptions;
-}
-
-export interface ListRemoteBundleInfo {
-  name: string;
-  version: string;
-}
-
-export interface RemoteBundleInfo {
-  name: string;
-  version: string;
-  etag?: string;
-  integrity?: string;
-  signature?: string;
-  lastModified?: string;
 }
 
 export interface RemoteDownload {

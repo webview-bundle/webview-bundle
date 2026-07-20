@@ -2,6 +2,7 @@ import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { decodeBase64 } from '@std/encoding/base64';
 import { fromFileUrl } from '@std/path';
 import {
+  BundleBuilder,
   BundleProtocol,
   type BundleProtocolOptions,
   BundleSource,
@@ -16,8 +17,12 @@ import {
   ProxyProtocol,
   parseIntegrity,
   Remote,
+  readBundle,
+  readBundleFromBytes,
   Updater,
   WebviewBundleError,
+  writeBundle,
+  writeBundleToBytes,
 } from './mod.ts';
 
 // Resolve the locally-built cdylib and the committed builtin fixture (bundle "app" v1.0.0).
@@ -422,4 +427,97 @@ Deno.test('parseIntegrity rejects a malformed string with the shared error code'
   const error = assertThrows(() => parseIntegrity('not-an-integrity'));
   assert(error instanceof WebviewBundleError);
   assertEquals(error.code, 'core.invalid_integrity');
+});
+
+Deno.test('BundleBuilder builds a bundle and round-trips through bytes', () => {
+  using builder = new BundleBuilder();
+  const html = new TextEncoder().encode('<html>hi</html>');
+  const js = new TextEncoder().encode('console.log(1)');
+  // insertEntry returns false when newly added, true when it replaced an existing entry.
+  assertEquals(builder.insertEntry('/index.html', html), false);
+  assertEquals(builder.insertEntry('/app.js', js), false);
+  assertEquals(builder.insertEntry('/index.html', html), true);
+  assert(builder.containsEntry('/index.html'));
+  assertEquals(builder.entryPaths().toSorted(), ['/app.js', '/index.html']);
+  assertEquals(builder.removeEntry('/app.js'), true);
+  assert(!builder.containsEntry('/app.js'));
+
+  using bundle = builder.build();
+  assertEquals(bundle.getData('/index.html'), html);
+  assertEquals(bundle.getData('/missing'), null);
+  assertEquals(bundle.getDataChecksum('/missing'), null);
+  assert(typeof bundle.getDataChecksum('/index.html') === 'number');
+
+  const header = bundle.header();
+  assertEquals(header.version, 'v1');
+  const index = bundle.index();
+  assertEquals(Object.keys(index), ['/index.html']);
+  assertEquals(index['/index.html'].contentType, 'text/html');
+  assertEquals(index['/index.html'].contentLength, html.byteLength);
+
+  // Serialize → reparse: the round-tripped bundle serves the same bytes.
+  const bytes = writeBundleToBytes(bundle);
+  using reparsed = readBundleFromBytes(bytes);
+  assertEquals(reparsed.getData('/index.html'), html);
+});
+
+Deno.test('writeBundle and readBundle round-trip through a file', async () => {
+  using builder = new BundleBuilder();
+  const css = new TextEncoder().encode('body { color: red }');
+  builder.insertEntry('/style.css', css);
+  using bundle = builder.build();
+
+  const dir = await Deno.makeTempDir({ prefix: 'wvb-deno-bundle-' });
+  try {
+    const file = `${dir}/out.wvb`;
+    const written = await writeBundle(bundle, file);
+    assert(written > 0, 'writeBundle reports the bytes written');
+    using read = await readBundle(file);
+    assertEquals(read.getData('/style.css'), css);
+    assertEquals(read.index()['/style.css'].contentType, 'text/css');
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('BundleSource fetches the builtin bundle and reads it via descriptors', async () => {
+  using source = testSource();
+  using bundle = await source.fetchBundle('app');
+  const paths = Object.keys(bundle.index());
+  assert(paths.length > 0, 'the builtin app bundle has entries');
+  const path = paths[0];
+  const data = bundle.getData(path);
+  assert(data != null, 'the entry has data');
+
+  // fetchDescriptor: metadata only; entry reads reopen the file at `filepath`.
+  const filepath = await source.resolveFilepath('app');
+  using descriptor = await source.fetchDescriptor('app');
+  assertEquals(Object.keys(descriptor.index()).toSorted(), paths.toSorted());
+  assertEquals(await descriptor.getData(filepath, path), data);
+  assertEquals(await descriptor.getData(filepath, '/nope'), null);
+
+  // loadDescriptor: remembers its own filepath, so getData takes only a path.
+  using loaded = await source.loadDescriptor('app');
+  assertEquals(await loaded.getData(path), data);
+  assertEquals(loaded.header().version, 'v1');
+  // The descriptor is cached now, so unload reports it removed one.
+  assertEquals(source.unloadDescriptor('app'), true);
+});
+
+Deno.test('writeRemoteBundleData stages a downloaded bundle for activation', async () => {
+  using source = testSource();
+  using builder = new BundleBuilder();
+  const html = new TextEncoder().encode('<h1>v2</h1>');
+  builder.insertEntry('/index.html', html);
+  using bundle = builder.build();
+  const bytes = writeBundleToBytes(bundle);
+
+  await source.writeRemoteBundleData('app', '2.0.0', bytes);
+  // Staged, not activated: the current version is still the builtin.
+  assertEquals(await source.loadVersion('app'), { type: 'builtin', version: '1.0.0' });
+  await source.updateRemoteVersion('app', '2.0.0');
+  assertEquals(await source.loadVersion('app'), { type: 'remote', version: '2.0.0' });
+
+  using fetched = await source.fetchRemoteBundle('app', '2.0.0');
+  assertEquals(fetched.getData('/index.html'), html);
 });

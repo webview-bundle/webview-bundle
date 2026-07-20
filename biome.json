@@ -21,7 +21,8 @@
       "!**/*.d.ts",
       "!**/*.d.cts",
       "!packages/tauri/permissions/**/*",
-      "!**/routeTree.gen.ts"
+      "!**/routeTree.gen.ts",
+      "!packages/deno/lib/bindings.ts"
     ]
   },
   "formatter": {

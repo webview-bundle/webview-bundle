@@ -6,8 +6,9 @@
   },
   "imports": {
     "@denosaurs/plug": "jsr:@denosaurs/plug@^1",
-    "@std/assert": "jsr:@std/assert@^1.0.0",
-    "@std/encoding": "jsr:@std/encoding@^1.0.0",
-    "@std/path": "jsr:@std/path@^1.0.0"
+    "@std/assert": "jsr:@std/assert@^1.0.19",
+    "@std/encoding": "jsr:@std/encoding@^1.0.11",
+    "@std/path": "jsr:@std/path@^1.1.6",
+    "@std/async": "jsr:@std/async@^1.5.0"
   }
 }
