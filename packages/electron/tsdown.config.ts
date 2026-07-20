@@ -8,7 +8,6 @@ const config: UserConfig = defineConfig({
   dts: true,
   clean: true,
   shims: true,
-  external: [/^@wvb\/node(\/|$)/],
 });
 
 export { config as default };

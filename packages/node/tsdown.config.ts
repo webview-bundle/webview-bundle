@@ -1,7 +1,7 @@
 import { defineConfig, type UserConfig } from 'tsdown';
 
 const config: UserConfig = defineConfig({
-  entry: ['./lib/index.ts', './lib/binding.ts'],
+  entry: ['./lib/index.ts', './lib/binding/index.ts'],
   outDir: './dist',
   clean: true,
   format: ['esm', 'cjs'],

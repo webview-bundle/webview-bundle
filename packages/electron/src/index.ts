@@ -1,13 +1,11 @@
 import './native.js';
 
-export type {
-  BundleResolverOptions,
-  HostnameSegment,
-  PathResolver,
-} from '@wvb/node';
 export { isWebviewBundleError, WebviewBundleError } from '@wvb/node/binding';
 export type {
   BundleProtocolConfig,
+  BundleResolverOptions,
+  HostnameSegment,
+  PathResolver,
   Protocol,
   ProtocolHandler,
   ProtocolOptions,

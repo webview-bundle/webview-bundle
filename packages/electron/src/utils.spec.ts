@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import type { ProtocolRequest, UploadData } from 'electron';
 import { describe, expect, it } from 'vitest';
-import { uploadDataBody } from '../src/utils.js';
+import { uploadDataBody } from './utils.js';
 
 function request(method: string, uploadData?: Partial<UploadData>[]): ProtocolRequest {
   return {

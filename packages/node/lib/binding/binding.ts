@@ -1,11 +1,8 @@
 import { statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { buildApi, type WvbNodeBinding } from './api.js';
+import { buildApi, type WvbNodeBinding } from '../api.js';
 import { resolveNativeBindingFilename } from './binding-target.js';
-
-export type { WvbNodeBinding } from './api.js';
-export { isWebviewBundleError, WebviewBundleError } from './error.js';
 
 let cached: WvbNodeBinding | undefined;
 

@@ -11,6 +11,12 @@ import { app, protocol as electronProtocol } from 'electron';
 import { wvbNode } from './native.js';
 import { makeError, uploadDataBody } from './utils.js';
 
+export type {
+  BundleResolverOptions,
+  HostnameSegment,
+  PathResolver,
+} from '@wvb/node';
+
 export interface ProtocolHandler {
   handle(req: Request): Promise<Response>;
 }
@@ -24,7 +30,7 @@ export interface ProtocolOptions {
    *
    * @example
    * ```typescript
-   * import { isWebviewBundleError } from '@wvb/node';
+   * import { isWebviewBundleError } from '@wvb/electron';
    *
    * errorResponse: e =>
    *   isWebviewBundleError(e) && e.code === 'core.checksum_mismatch'

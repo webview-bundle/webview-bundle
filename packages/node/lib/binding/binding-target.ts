@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 // biome-ignore lint/correctness/useImportExtensions: JSON module import
-import packageJson from '../package.json' with { type: 'json' };
+import packageJson from '../../package.json' with { type: 'json' };
 
 const BINARY_NAME = packageJson.napi.binaryName;
 

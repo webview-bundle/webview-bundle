@@ -314,7 +314,6 @@ jobs:
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # Fail the publish if @wvb/electron cannot bundle every desktop native binary.
           WVB_BUNDLE_NATIVE_STRICT: "1"
 
   prerelease:
@@ -352,5 +351,4 @@ jobs:
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # Fail the publish if @wvb/electron cannot bundle every desktop native binary.
           WVB_BUNDLE_NATIVE_STRICT: "1"

@@ -23,7 +23,7 @@ export class WebviewBundle {
   private readonly _source: BundleSource;
   private readonly _remote: Remote | null = null;
   private readonly _updater: Updater | null = null;
-  private readonly _whenProtocolRegistered: Promise<void>;
+  private readonly _ready: Promise<void>;
 
   constructor(private readonly config: WebviewBundleConfig) {
     this._source = bundleSource(config.source);
@@ -33,7 +33,7 @@ export class WebviewBundle {
       this._remote = remote(endpoint, remoteOptions);
       this._updater = new wvbNode.Updater(this._source, this._remote, updaterOptions);
     }
-    this._whenProtocolRegistered = new Promise<void>((resolve, reject) => {
+    this._ready = new Promise<void>((resolve, reject) => {
       Promise.all(config.protocols.map(p => registerProtocol(p, this._source)))
         .then(() => resolve())
         .catch(e => reject(e));
@@ -56,8 +56,8 @@ export class WebviewBundle {
     return this._updater;
   }
 
-  whenProtocolRegistered(): Promise<void> {
-    return this._whenProtocolRegistered;
+  ready(): Promise<void> {
+    return this._ready;
   }
 }
 
