@@ -681,7 +681,9 @@ fn is_windows_reserved_name(value: &str) -> bool {
 }
 
 fn map_read_error(e: std::io::Error) -> crate::Error {
-  if e.kind() == std::io::ErrorKind::NotFound {
+  if e.kind() == std::io::ErrorKind::NotFound
+    || (cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied)
+  {
     return crate::Error::BundleNotFound;
   }
   crate::Error::from(e)
@@ -745,6 +747,27 @@ mod tests {
     ] {
       assert!(!is_valid_path_component(bad), "{bad:?} should be invalid");
     }
+  }
+
+  #[test]
+  fn map_read_error_treats_missing_file_as_bundle_not_found() {
+    let e = std::io::Error::from(std::io::ErrorKind::NotFound);
+    assert!(matches!(map_read_error(e), crate::Error::BundleNotFound));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn map_read_error_treats_delete_pending_as_bundle_not_found() {
+    let e = std::io::Error::from_raw_os_error(5);
+    assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(matches!(map_read_error(e), crate::Error::BundleNotFound));
+  }
+
+  #[cfg(not(windows))]
+  #[test]
+  fn map_read_error_keeps_permission_denied_as_io() {
+    let e = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    assert!(matches!(map_read_error(e), crate::Error::Io(_)));
   }
 
   #[test]
