@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { planFiles, type RenderContext, SUBSTITUTABLE } from './render.js';
-import { collectPackages, loadManifest, type Template, templatesDir } from './templates.js';
+import { loadManifest, type Template, templatesDir } from './templates.js';
 import { REGISTRIES } from './versions.js';
 
 const dir = templatesDir();
@@ -109,26 +109,6 @@ describe('templates.json', () => {
         expect(stat?.isDirectory(), `template "${id}" references missing layer "${layer}"`).toBe(
           true
         );
-      }
-    }
-  });
-
-  // A template that references an unreleasable-by-default package (mobile FFI, JSR prereleases) must
-  // not advertise itself as stable, since it will be gated.
-  it('never marks a template stable when it references a package published only at 0.0.0', async () => {
-    const preRelease = new Set([
-      'webview-bundle-ios',
-      'webview-bundle-android',
-      '@wvb/deno-desktop',
-      '@wvb/deno',
-    ]);
-    for (const [id, template] of Object.entries(manifest)) {
-      const pkgs = await collectPackages(dir, template.layers);
-      if (pkgs.some(p => preRelease.has(p))) {
-        expect(
-          template.status,
-          `template "${id}" references an unreleased package but claims stable`
-        ).not.toBe('stable');
       }
     }
   });

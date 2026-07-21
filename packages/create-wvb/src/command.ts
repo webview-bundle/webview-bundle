@@ -31,15 +31,9 @@ import {
   type TemplateManifest,
   type TemplateStatus,
   templatesDir,
-  unreleasedPackages,
 } from './templates.js';
 import * as ui from './ui.js';
 import { resolveVersions, type VersionMap } from './versions.js';
-
-interface Gating {
-  readonly versions: VersionMap;
-  readonly template: Map<string, readonly string[]>;
-}
 
 const STATUS_LABEL: Record<TemplateStatus, string> = {
   stable: '',
@@ -47,10 +41,7 @@ const STATUS_LABEL: Record<TemplateStatus, string> = {
   experimental: 'experimental',
 };
 
-function decorate(name: string, status: TemplateStatus, gated: readonly string[]): string {
-  if (gated.length > 0) {
-    return `${name} ${ui.c.warn(`(unreleased: ${gated.join(', ')})`)}`;
-  }
+function decorate(name: string, status: TemplateStatus): string {
   const label = STATUS_LABEL[status];
   return label === '' ? name : `${name} ${ui.c.warn(`(${label})`)}`;
 }
@@ -155,10 +146,8 @@ export class CreateCommand extends Command {
 
     await this.ensureTargetIsUsable(target, directory);
 
-    const gating = await this.resolveGating(dir, manifest);
-    const versions = gating.versions;
-
-    const [, template] = await this.resolveTemplate(manifest, gating);
+    const template = await this.resolveTemplate(manifest);
+    const versions = await this.resolveTemplateVersions(dir, template);
 
     const pm = this.pm ?? detectPackageManager();
     if (this.offline && !supportsOffline(pm)) {
@@ -275,55 +264,33 @@ export class CreateCommand extends Command {
     }
   }
 
-  /**
-   * Resolves the latest published version of every package the templates reference, then records
-   * which templates are blocked because a package has not been released yet.
-   */
-  private async resolveGating(dir: string, manifest: TemplateManifest): Promise<Gating> {
-    const template = new Map<string, readonly string[]>();
-    const union = new Set<string>();
-
-    for (const [id, spec] of Object.entries(manifest)) {
-      const base = await collectPackages(dir, spec.layers);
-      template.set(id, base);
-      for (const pkg of base) {
-        union.add(pkg);
-      }
-    }
-
-    if (union.size > 0 && this.versionsFile == null && process.env.WVB_TEMPLATE_VERSIONS == null) {
+  /** Resolves the published version of every `@wvb/*` package the chosen template references. */
+  private async resolveTemplateVersions(dir: string, template: Template): Promise<VersionMap> {
+    const packages = await collectPackages(dir, template.layers);
+    if (
+      packages.length > 0 &&
+      this.versionsFile == null &&
+      process.env.WVB_TEMPLATE_VERSIONS == null
+    ) {
       ui.info('Resolving the latest versions…');
     }
-    const versions = await resolveVersions([...union], this.versionsFile);
-    return { versions, template };
+    return resolveVersions(packages, this.versionsFile);
   }
 
-  private async resolveTemplate(
-    manifest: TemplateManifest,
-    gating: Gating
-  ): Promise<[string, Template]> {
+  private async resolveTemplate(manifest: TemplateManifest): Promise<Template> {
     const ids = Object.keys(manifest);
-    const gatedFor = (id: string) =>
-      unreleasedPackages(gating.template.get(id) ?? [], gating.versions);
 
     if (this.template != null) {
       const template = manifest[this.template];
       if (template == null) {
         throw new Error(`Unknown template "${this.template}". Available: ${ids.join(', ')}`);
       }
-      const gated = gatedFor(this.template);
-      if (gated.length > 0) {
-        throw new Error(
-          `Template "${this.template}" needs ${gated.join(', ')}, which ${gated.length > 1 ? 'have' : 'has'} not been published yet.`
-        );
-      }
-      return [this.template, template];
+      return template;
     }
 
     if (!this.interactive) {
-      const fallback = ids.find(id => gatedFor(id).length === 0);
-      if (this.yes && fallback != null) {
-        return [fallback, manifest[fallback] as Template];
+      if (this.yes) {
+        return manifest[ids[0] as string] as Template;
       }
       throw new Error(
         `--template is required when running non-interactively. Available: ${ids.join(', ')}`
@@ -334,16 +301,14 @@ export class CreateCommand extends Command {
       'Template',
       ids.map(key => {
         const template = manifest[key] as Template;
-        const gated = gatedFor(key);
         return {
-          name: decorate(template.name, template.status, gated),
+          name: decorate(template.name, template.status),
           value: key,
           description: `  ${template.description}`,
-          disabled: gated.length > 0 ? `(needs a published ${gated.join(', ')})` : false,
         };
       })
     );
-    return [id, manifest[id] as Template];
+    return manifest[id] as Template;
   }
 
   private printNextSteps(

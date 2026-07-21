@@ -37,11 +37,6 @@ export const REGISTRIES: Record<string, RegistryEntry> = {
 const USER_AGENT = 'create-wvb (+https://github.com/webview-bundle/webview-bundle)';
 const TIMEOUT_MS = 8000;
 
-/** A version that means "never really released" — treated as unavailable for gating. */
-export function isUnreleased(version: string | undefined): boolean {
-  return version == null || version === '0.0.0' || version.startsWith('0.0.0-');
-}
-
 /**
  * A caret range on a prerelease resolves *upward* into the stable that supersedes it, so prereleases
  * pin exact; only stable versions get a caret. Non-semver values (a `file:`/`npm:` override) pass

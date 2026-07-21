@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatVersion, isUnreleased, REGISTRIES, resolveVersions, toRange } from './versions.js';
+import { formatVersion, REGISTRIES, resolveVersions, toRange } from './versions.js';
 
 describe('toRange', () => {
   it('carets a stable version', () => {
@@ -30,15 +30,6 @@ describe('formatVersion', () => {
     expect(formatVersion('wvb-tauri', '0.1.0')).toBe('0.1.0');
     expect(formatVersion('webview-bundle-android', '0.1.0')).toBe('0.1.0');
     expect(formatVersion('webview-bundle-ios', '0.1.0')).toBe('0.1.0');
-  });
-});
-
-describe('isUnreleased', () => {
-  it('treats missing and 0.0.0 placeholders as unreleased', () => {
-    expect(isUnreleased(undefined)).toBe(true);
-    expect(isUnreleased('0.0.0')).toBe(true);
-    expect(isUnreleased('0.0.0-next.abc')).toBe(true);
-    expect(isUnreleased('0.1.0')).toBe(false);
   });
 });
 

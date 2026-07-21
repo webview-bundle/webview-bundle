@@ -22,11 +22,7 @@ const instance = wvb({
   protocols: [
     devServerUrl != null
       ? proxyProtocol('app', { hosts: { [`${BUNDLE_NAME}.wvb`]: devServerUrl } })
-      : // `stripSuffix` (not the default `first` segment) so a bundle name containing a dot
-        // still resolves whole: host `a.b.wvb` -> bundle `a.b`, where `first` would give `a`.
-        bundleProtocol('app', {
-          bundleResolver: { type: 'hostname', segment: 'stripSuffix', allowWvbSuffixOnly: true },
-        }),
+      : bundleProtocol('app'),
   ],
 });
 

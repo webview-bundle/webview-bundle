@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isUnreleased, type VersionMap } from './versions.js';
 
 export type TemplateStatus = 'stable' | 'caveat' | 'experimental';
 
@@ -17,7 +16,7 @@ export interface Template {
 
 export type TemplateManifest = Record<string, Template>;
 
-const VERSION_TOKEN = /\{\{\s*wvbVersion\s*:\s*([^}]+?)\s*\}\}/g;
+const VERSION_TOKEN = /{{\s*wvbVersion\s*:\s*([^}]+?)\s*}}/g;
 
 export function templatesDir(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates');
@@ -58,14 +57,6 @@ export async function collectPackages(
     }
   }
   return [...found];
-}
-
-/** The referenced packages whose latest published version is missing or a 0.0.0 placeholder. */
-export function unreleasedPackages(
-  packages: readonly string[],
-  versions: VersionMap
-): readonly string[] {
-  return packages.filter(pkg => isUnreleased(versions[pkg]));
 }
 
 export function collectCaveats(template: Template): readonly string[] {
