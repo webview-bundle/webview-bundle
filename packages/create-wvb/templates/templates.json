@@ -1,0 +1,24 @@
+{
+  "electron-builder": {
+    "name": "Electron + electron-builder",
+    "description": "Electron host serving a packed .wvb over app://, packaged into installers with electron-builder.",
+    "hint": "app:// · electron-builder",
+    "status": "caveat",
+    "layers": ["_shared", "electron-builder"],
+    "nextSteps": ["{{pmRun}} dev"],
+    "caveats": [
+      "Builtin bundles are installed during electron-builder's afterPack, so they appear only in packaged builds (the `dist` script), not when you run the app in development. Use the `bundles` script (or `start`) to stage them locally."
+    ]
+  },
+  "electron-forge": {
+    "name": "Electron + Electron Forge",
+    "description": "Electron host serving a packed .wvb over app://, packaged with Electron Forge.",
+    "hint": "app:// · Electron Forge",
+    "status": "caveat",
+    "layers": ["_shared", "electron-forge"],
+    "nextSteps": ["{{pmRun}} dev"],
+    "caveats": [
+      "The Forge plugin installs builtin bundles only when you run `package` or `make`. Running the app in development does not — run the `bundles` script (or `start`) to stage them into `bundles/` yourself."
+    ]
+  }
+}
