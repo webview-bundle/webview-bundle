@@ -70,7 +70,9 @@ function resolveTargetSuffix(): string | undefined {
     case 'linux':
       if (process.arch === 'x64') return isLinuxMusl() ? 'linux-x64-musl' : 'linux-x64-gnu';
       if (process.arch === 'arm64') return isLinuxMusl() ? 'linux-arm64-musl' : 'linux-arm64-gnu';
-      if (process.arch === 'arm') return 'linux-arm-gnueabihf';
+      // No musl armv7 binary is shipped, so report "no prebuilt" rather than a glibc one that
+      // cannot load on musl.
+      if (process.arch === 'arm') return isLinuxMusl() ? undefined : 'linux-arm-gnueabihf';
       return undefined;
     case 'android':
       if (process.arch === 'arm64') return 'android-arm64';

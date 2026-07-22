@@ -1,9 +1,8 @@
 import path from 'node:path';
 import { NapiCli } from '@napi-rs/cli';
 import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
 
-const args = await yargs(hideBin(process.argv.slice(2)))
+const args = await yargs(process.argv)
   .option('target', {
     alias: 't',
     type: 'string',

@@ -59,6 +59,11 @@ export class WebviewBundle {
   ready(): Promise<void> {
     return this._ready;
   }
+
+  /** @deprecated Renamed to {@link ready}. Kept as an alias for backwards compatibility. */
+  whenProtocolRegistered(): Promise<void> {
+    return this._ready;
+  }
 }
 
 export function webviewBundle(config: WebviewBundleConfig): WebviewBundle {
