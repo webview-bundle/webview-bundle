@@ -210,9 +210,12 @@ impl LoadedDescriptor {
   /// }
   /// ```
   #[napi]
-  pub async fn get_data(&self, path: String) -> crate::Result<Option<Buffer>> {
-    let data = self.inner.get_data(&path).await?;
-    Ok(data.map(|x| x.into()))
+  pub async fn get_data(&self, path: String) -> crate::Outcome<Option<Buffer>> {
+    crate::Outcome::from_future(async move {
+      let data = self.inner.get_data(&path).await?;
+      Ok(data.map(|x| x.into()))
+    })
+    .await
   }
 
   /// Reads the checksum of file data for `path`, loading it lazily from disk.
@@ -220,9 +223,12 @@ impl LoadedDescriptor {
   /// @param {string} path - File path in the bundle
   /// @returns {Promise<number | null>} xxHash-32 checksum or null if not found
   #[napi]
-  pub async fn get_data_checksum(&self, path: String) -> crate::Result<Option<u32>> {
-    let checksum = self.inner.get_data_checksum(&path).await?;
-    Ok(checksum)
+  pub async fn get_data_checksum(&self, path: String) -> crate::Outcome<Option<u32>> {
+    crate::Outcome::from_future(async move {
+      let checksum = self.inner.get_data_checksum(&path).await?;
+      Ok(checksum)
+    })
+    .await
   }
 }
 
@@ -428,7 +434,7 @@ impl BundleSource {
   /// });
   /// ```
   #[napi(constructor)]
-  pub fn new(mut config: BundleSourceConfig) -> crate::Result<BundleSource> {
+  pub fn new(mut config: BundleSourceConfig) -> BundleSource {
     let options = source_options(&mut config);
     let mut builder = source::BundleSource::builder()
       .builtin_dir(config.builtin_dir)
@@ -441,9 +447,9 @@ impl BundleSource {
       builder = builder.remote_manifest_filepath(remote_manifest);
     }
     let source = builder.build();
-    Ok(BundleSource {
+    BundleSource {
       inner: Arc::new(source),
-    })
+    }
   }
 
   /// Lists all available bundles from both sources.
@@ -461,15 +467,18 @@ impl BundleSource {
   /// }
   /// ```
   #[napi]
-  pub async fn list_bundles(&self) -> crate::Result<Vec<ListBundleItem>> {
-    let items = self
-      .inner
-      .list_bundles()
-      .await?
-      .into_iter()
-      .map(ListBundleItem::from)
-      .collect::<Vec<_>>();
-    Ok(items)
+  pub async fn list_bundles(&self) -> crate::Outcome<Vec<ListBundleItem>> {
+    crate::Outcome::from_future(async move {
+      let items = self
+        .inner
+        .list_bundles()
+        .await?
+        .into_iter()
+        .map(ListBundleItem::from)
+        .collect::<Vec<_>>();
+      Ok(items)
+    })
+    .await
   }
 
   /// Loads the current version for a bundle.
@@ -490,9 +499,12 @@ impl BundleSource {
   pub async fn load_version(
     &self,
     bundle_name: String,
-  ) -> crate::Result<Option<BundleSourceVersion>> {
-    let version = self.inner.load_version(&bundle_name).await?;
-    Ok(version.map(Into::into))
+  ) -> crate::Outcome<Option<BundleSourceVersion>> {
+    crate::Outcome::from_future(async move {
+      let version = self.inner.load_version(&bundle_name).await?;
+      Ok(version.map(Into::into))
+    })
+    .await
   }
 
   /// Updates the current version for a remote bundle.
@@ -511,12 +523,15 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<()> {
-    self
-      .inner
-      .update_remote_version(&bundle_name, &version)
-      .await?;
-    Ok(())
+  ) -> crate::Outcome<()> {
+    crate::Outcome::from_future(async move {
+      self
+        .inner
+        .update_remote_version(&bundle_name, &version)
+        .await?;
+      Ok(())
+    })
+    .await
   }
 
   /// Gets the file path for a bundle.
@@ -533,9 +548,12 @@ impl BundleSource {
   /// console.log(`Bundle at: ${path}`);
   /// ```
   #[napi]
-  pub async fn resolve_filepath(&self, bundle_name: String) -> crate::Result<String> {
-    let filepath = self.inner.resolve_filepath(&bundle_name).await?;
-    Ok(filepath.to_string_lossy().to_string())
+  pub async fn resolve_filepath(&self, bundle_name: String) -> crate::Outcome<String> {
+    crate::Outcome::from_future(async move {
+      let filepath = self.inner.resolve_filepath(&bundle_name).await?;
+      Ok(filepath.to_string_lossy().to_string())
+    })
+    .await
   }
 
   /// Get the file path for a builtin bundle.
@@ -548,11 +566,13 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<String> {
-    let filepath = self
-      .inner
-      .get_builtin_bundle_filepath(&bundle_name, &version)?;
-    Ok(filepath.to_string_lossy().to_string())
+  ) -> crate::Outcome<String> {
+    crate::Outcome::from_fn(|| {
+      let filepath = self
+        .inner
+        .get_builtin_bundle_filepath(&bundle_name, &version)?;
+      Ok(filepath.to_string_lossy().to_string())
+    })
   }
 
   /// Get the file path for a remote bundle.
@@ -565,11 +585,13 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<String> {
-    let filepath = self
-      .inner
-      .get_remote_bundle_filepath(&bundle_name, &version)?;
-    Ok(filepath.to_string_lossy().to_string())
+  ) -> crate::Outcome<String> {
+    crate::Outcome::from_fn(|| {
+      let filepath = self
+        .inner
+        .get_remote_bundle_filepath(&bundle_name, &version)?;
+      Ok(filepath.to_string_lossy().to_string())
+    })
   }
 
   /// Fetches a bundle.
@@ -583,9 +605,12 @@ impl BundleSource {
   /// const html = bundle.getData('/index.html');
   /// ```
   #[napi]
-  pub async fn fetch_bundle(&self, bundle_name: String) -> crate::Result<Bundle> {
-    let inner = self.inner.fetch_bundle(&bundle_name).await?;
-    Ok(Bundle { inner })
+  pub async fn fetch_bundle(&self, bundle_name: String) -> crate::Outcome<Bundle> {
+    crate::Outcome::from_future(async move {
+      let inner = self.inner.fetch_bundle(&bundle_name).await?;
+      Ok(Bundle { inner })
+    })
+    .await
   }
 
   /// Fetches a builtin bundle.
@@ -598,12 +623,15 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<Bundle> {
-    let inner = self
-      .inner
-      .fetch_builtin_bundle(&bundle_name, &version)
-      .await?;
-    Ok(Bundle { inner })
+  ) -> crate::Outcome<Bundle> {
+    crate::Outcome::from_future(async move {
+      let inner = self
+        .inner
+        .fetch_builtin_bundle(&bundle_name, &version)
+        .await?;
+      Ok(Bundle { inner })
+    })
+    .await
   }
 
   /// Fetches a remote bundle.
@@ -616,12 +644,15 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<Bundle> {
-    let inner = self
-      .inner
-      .fetch_remote_bundle(&bundle_name, &version)
-      .await?;
-    Ok(Bundle { inner })
+  ) -> crate::Outcome<Bundle> {
+    crate::Outcome::from_future(async move {
+      let inner = self
+        .inner
+        .fetch_remote_bundle(&bundle_name, &version)
+        .await?;
+      Ok(Bundle { inner })
+    })
+    .await
   }
 
   /// Fetches only the bundle descriptor.
@@ -636,11 +667,14 @@ impl BundleSource {
   /// console.log(`Files: ${Object.keys(index.entries()).length}`);
   /// ```
   #[napi]
-  pub async fn fetch_descriptor(&self, bundle_name: String) -> crate::Result<BundleDescriptor> {
-    let inner = self.inner.fetch_descriptor(&bundle_name).await?;
-    Ok(BundleDescriptor {
-      inner: BundleDescriptorInner::Owned(inner),
+  pub async fn fetch_descriptor(&self, bundle_name: String) -> crate::Outcome<BundleDescriptor> {
+    crate::Outcome::from_future(async move {
+      let inner = self.inner.fetch_descriptor(&bundle_name).await?;
+      Ok(BundleDescriptor {
+        inner: BundleDescriptorInner::Owned(inner),
+      })
     })
+    .await
   }
 
   /// Load builtin bundle metadata.
@@ -653,13 +687,16 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<Option<BundleManifestMetadata>> {
-    let metadata = self
-      .inner
-      .load_builtin_metadata(&bundle_name, &version)
-      .await?
-      .map(BundleManifestMetadata::from);
-    Ok(metadata)
+  ) -> crate::Outcome<Option<BundleManifestMetadata>> {
+    crate::Outcome::from_future(async move {
+      let metadata = self
+        .inner
+        .load_builtin_metadata(&bundle_name, &version)
+        .await?
+        .map(BundleManifestMetadata::from);
+      Ok(metadata)
+    })
+    .await
   }
 
   /// Load remote bundle metadata.
@@ -672,13 +709,16 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<Option<BundleManifestMetadata>> {
-    let metadata = self
-      .inner
-      .load_remote_metadata(&bundle_name, &version)
-      .await?
-      .map(BundleManifestMetadata::from);
-    Ok(metadata)
+  ) -> crate::Outcome<Option<BundleManifestMetadata>> {
+    crate::Outcome::from_future(async move {
+      let metadata = self
+        .inner
+        .load_remote_metadata(&bundle_name, &version)
+        .await?
+        .map(BundleManifestMetadata::from);
+      Ok(metadata)
+    })
+    .await
   }
 
   /// Writes a bundle to the remote directory.
@@ -705,12 +745,15 @@ impl BundleSource {
     version: String,
     bundle: &Bundle,
     metadata: BundleManifestMetadata,
-  ) -> crate::Result<()> {
-    self
-      .inner
-      .write_remote_bundle(&bundle_name, &version, &bundle.inner, metadata.into())
-      .await?;
-    Ok(())
+  ) -> crate::Outcome<()> {
+    crate::Outcome::from_future(async move {
+      self
+        .inner
+        .write_remote_bundle(&bundle_name, &version, &bundle.inner, metadata.into())
+        .await?;
+      Ok(())
+    })
+    .await
   }
 
   /// Loads (and caches) the descriptor for the current version of a bundle.
@@ -730,9 +773,12 @@ impl BundleSource {
   /// const html = await loaded.getData('/index.html');
   /// ```
   #[napi]
-  pub async fn load_descriptor(&self, bundle_name: String) -> crate::Result<LoadedDescriptor> {
-    let inner = self.inner.load_descriptor(&bundle_name).await?;
-    Ok(LoadedDescriptor { inner })
+  pub async fn load_descriptor(&self, bundle_name: String) -> crate::Outcome<LoadedDescriptor> {
+    crate::Outcome::from_future(async move {
+      let inner = self.inner.load_descriptor(&bundle_name).await?;
+      Ok(LoadedDescriptor { inner })
+    })
+    .await
   }
 
   /// Drops the cached descriptor for a bundle, if present.
@@ -760,12 +806,15 @@ impl BundleSource {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<bool> {
-    let removed = self
-      .inner
-      .remove_remote_bundle(&bundle_name, &version)
-      .await?;
-    Ok(removed)
+  ) -> crate::Outcome<bool> {
+    crate::Outcome::from_future(async move {
+      let removed = self
+        .inner
+        .remove_remote_bundle(&bundle_name, &version)
+        .await?;
+      Ok(removed)
+    })
+    .await
   }
 
   /// Returns the remote versions that pruning retains (the current and previous versions).
@@ -773,9 +822,12 @@ impl BundleSource {
   /// @param {string} bundleName - Name of the bundle
   /// @returns {Promise<string[]>} Retained version strings
   #[napi]
-  pub async fn remote_retained_versions(&self, bundle_name: String) -> crate::Result<Vec<String>> {
-    let versions = self.inner.remote_retained_versions(&bundle_name).await?;
-    Ok(versions)
+  pub async fn remote_retained_versions(&self, bundle_name: String) -> crate::Outcome<Vec<String>> {
+    crate::Outcome::from_future(async move {
+      let versions = self.inner.remote_retained_versions(&bundle_name).await?;
+      Ok(versions)
+    })
+    .await
   }
 
   /// Removes every staged remote version except the retained set (current and previous).
@@ -783,8 +835,11 @@ impl BundleSource {
   /// @param {string} bundleName - Name of the bundle
   /// @returns {Promise<string[]>} Versions that were removed
   #[napi]
-  pub async fn prune_remote_bundles(&self, bundle_name: String) -> crate::Result<Vec<String>> {
-    let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
-    Ok(removed)
+  pub async fn prune_remote_bundles(&self, bundle_name: String) -> crate::Outcome<Vec<String>> {
+    crate::Outcome::from_future(async move {
+      let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
+      Ok(removed)
+    })
+    .await
   }
 }

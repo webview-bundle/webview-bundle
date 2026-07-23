@@ -1,14 +1,17 @@
+/** biome-ignore-all lint/correctness/useImportExtensions: allow .cjs */
 import { statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { buildApi, type WvbNodeBinding } from '../api.js';
+import type * as binding from '../../binding.cjs';
 import { resolveNativeBindingFilename } from './binding-target.js';
+
+/** Everything the native binding exports — the same surface as `import * as wvbNode from '@wvb/node'`. */
+export type WvbNodeBinding = typeof binding;
 
 let cached: WvbNodeBinding | undefined;
 
 /**
- * Load `@wvb/node`'s native binding and return its wrapped runtime API — the same surface as
- * `import * as wvbNode from '@wvb/node'`.
+ * Load `@wvb/node`'s native binding.
  *
  * `dirOrFile` is either:
  * - a **directory**: `loadBinding` picks the `<binaryName>.<target>.node` file inside it that matches
@@ -22,19 +25,13 @@ let cached: WvbNodeBinding | undefined;
  * const wvbNode = loadBinding(nodeBindingsDir);
  * const source = new wvbNode.BundleSource({ builtinDir, remoteDir });
  * ```
- *
- * Use this to load a binary you ship yourself instead of relying on `@wvb/node`'s per-arch optional
- * dependencies (which Electron and other packagers routinely fail to unpack).
- *
- * The native binding is a process-wide singleton: the first `loadBinding` call decides which binary
- * loads, and later calls return that same instance.
  */
 export function loadBinding(dirOrFile: string): WvbNodeBinding {
   if (cached != null) {
     return cached;
   }
   const nodeRequire = createRequire(import.meta.url);
-  cached = buildApi(nodeRequire(resolveBindingFile(dirOrFile)));
+  cached = nodeRequire(resolveBindingFile(dirOrFile)) as WvbNodeBinding;
   return cached;
 }
 

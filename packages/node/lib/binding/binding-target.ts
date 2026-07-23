@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 // biome-ignore lint/correctness/useImportExtensions: JSON module import
-import packageJson from '../../package.json' with { type: 'json' };
+import { napi } from '../../package.json' with { type: 'json' };
 
-const BINARY_NAME = packageJson.napi.binaryName;
+const BINARY_NAME = napi.binaryName;
 
 function isLinuxMusl(): boolean {
   const fromFilesystem = isMuslFromFilesystem();
@@ -56,29 +56,68 @@ export function resolveNativeBindingFilename(): string | undefined {
   return suffix != null ? `${BINARY_NAME}.${suffix}.node` : undefined;
 }
 
-function resolveTargetSuffix(): string | undefined {
-  switch (process.platform) {
-    case 'darwin':
-      if (process.arch === 'x64') return 'darwin-x64';
-      if (process.arch === 'arm64') return 'darwin-arm64';
-      return undefined;
-    case 'win32':
-      if (process.arch === 'x64') return 'win32-x64-msvc';
-      if (process.arch === 'ia32') return 'win32-ia32-msvc';
-      if (process.arch === 'arm64') return 'win32-arm64-msvc';
-      return undefined;
-    case 'linux':
-      if (process.arch === 'x64') return isLinuxMusl() ? 'linux-x64-musl' : 'linux-x64-gnu';
-      if (process.arch === 'arm64') return isLinuxMusl() ? 'linux-arm64-musl' : 'linux-arm64-gnu';
-      // No musl armv7 binary is shipped, so report "no prebuilt" rather than a glibc one that
-      // cannot load on musl.
-      if (process.arch === 'arm') return isLinuxMusl() ? undefined : 'linux-arm-gnueabihf';
-      return undefined;
-    case 'android':
-      if (process.arch === 'arm64') return 'android-arm64';
-      if (process.arch === 'arm') return 'android-arm-eabi';
-      return undefined;
-    default:
-      return undefined;
+const RUST_ARCH_TO_NODE: Record<string, NodeJS.Architecture> = {
+  x86_64: 'x64',
+  aarch64: 'arm64',
+  i686: 'ia32',
+  armv7: 'arm',
+};
+
+interface NapiTarget {
+  platform: NodeJS.Platform;
+  arch: NodeJS.Architecture;
+  musl: boolean;
+  /** napi's `<platform>-<arch>[-<abi>]` `.node` filename suffix, e.g. `linux-x64-gnu`. */
+  suffix: string;
+}
+
+// Parse a Rust target triple from `napi.targets` into the Node platform/arch/libc it runs on and the
+// suffix napi names its `.node` after. Returns null for a triple this loader cannot map.
+function parseNapiTarget(triple: string): NapiTarget | null {
+  const arch = RUST_ARCH_TO_NODE[triple.split('-')[0] ?? ''];
+  if (arch == null) {
+    return null;
   }
+  if (triple.includes('apple-darwin')) {
+    return { platform: 'darwin', arch, musl: false, suffix: `darwin-${arch}` };
+  }
+  if (triple.includes('windows')) {
+    return { platform: 'win32', arch, musl: false, suffix: `win32-${arch}-msvc` };
+  }
+  // Check `android` before `linux`: android triples (e.g. `aarch64-linux-android`) also contain
+  // `linux`.
+  if (triple.includes('android')) {
+    return {
+      platform: 'android',
+      arch,
+      musl: false,
+      suffix: arch === 'arm' ? 'android-arm-eabi' : `android-${arch}`,
+    };
+  }
+  if (triple.includes('linux')) {
+    const abi = triple.split('-').at(-1) ?? '';
+    return {
+      platform: 'linux',
+      arch,
+      musl: triple.includes('musl'),
+      suffix: `linux-${arch}-${abi}`,
+    };
+  }
+  return null;
+}
+
+function resolveTargetSuffix(): string | undefined {
+  const musl = process.platform === 'linux' && isLinuxMusl();
+  for (const triple of napi.targets) {
+    const target = parseNapiTarget(triple);
+    if (
+      target != null &&
+      target.platform === process.platform &&
+      target.arch === process.arch &&
+      target.musl === musl
+    ) {
+      return target.suffix;
+    }
+  }
+  return undefined;
 }

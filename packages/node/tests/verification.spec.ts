@@ -12,11 +12,11 @@ import {
   BundleBuilder,
   BundleSource,
   computeIntegrity,
-  type ErrorCode,
   isWebviewBundleError,
   parseIntegrity,
   Remote,
   Updater,
+  type WebviewBundleErrorCode,
   writeBundleIntoBuffer,
 } from '../dist/index.js';
 
@@ -244,7 +244,7 @@ describe('integrity + signature verification (producer -> core)', () => {
     // integrity is rejected on load.
     const error = await source.loadDescriptor('app').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
-    expect(error.code).toBe<ErrorCode>('core.integrity_verify_failed');
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.integrity_verify_failed');
 
     const off = new BundleSource({ builtinDir, remoteDir, integrity: { policy: 'off' } });
     const loaded = await off.loadDescriptor('app');
@@ -274,7 +274,7 @@ describe('integrity + signature verification (producer -> core)', () => {
     });
     const error = await strict.loadDescriptor('app').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
-    expect(error.code).toBe<ErrorCode>('core.integrity_verify_failed');
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.integrity_verify_failed');
 
     // The default 'onlyRemote' mode leaves builtin bundles alone, so the same bundle loads.
     const source = new BundleSource({ builtinDir, remoteDir });

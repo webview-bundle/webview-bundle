@@ -26,7 +26,7 @@ export interface ProtocolOptions {
   privileges?: Privileges;
   /**
    * Builds the response when the handler throws (default: `500` with the error message). The error
-   * is a `WebviewBundleError` when it comes from the bundle itself, so it can be routed by code.
+   * carries a `WebviewBundleErrorCode` when it comes from the bundle itself, so it can be routed by code.
    *
    * @example
    * ```typescript
