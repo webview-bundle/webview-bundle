@@ -1,5 +1,6 @@
-import { type BundleSource, type Remote, Updater, type UpdaterOptions } from '@wvb/node';
+import type { BundleSource, Remote, Updater, UpdaterOptions } from '@wvb/node';
 import { registerIpc } from './ipc.js';
+import { wvbNode } from './native.js';
 import { type Protocol, registerProtocol } from './protocol.js';
 import { type RemoteOptions, remote } from './remote.js';
 import { bundleSource, type SourceOptions } from './source.js';
@@ -22,7 +23,7 @@ export class WebviewBundle {
   private readonly _source: BundleSource;
   private readonly _remote: Remote | null = null;
   private readonly _updater: Updater | null = null;
-  private readonly _whenProtocolRegistered: Promise<void>;
+  private readonly _ready: Promise<void>;
 
   constructor(private readonly config: WebviewBundleConfig) {
     this._source = bundleSource(config.source);
@@ -30,9 +31,9 @@ export class WebviewBundle {
       const { remote: remoteConfig, ...updaterOptions } = config.updater;
       const { endpoint, ...remoteOptions } = remoteConfig;
       this._remote = remote(endpoint, remoteOptions);
-      this._updater = new Updater(this._source, this._remote, updaterOptions);
+      this._updater = new wvbNode.Updater(this._source, this._remote, updaterOptions);
     }
-    this._whenProtocolRegistered = new Promise<void>((resolve, reject) => {
+    this._ready = new Promise<void>((resolve, reject) => {
       Promise.all(config.protocols.map(p => registerProtocol(p, this._source)))
         .then(() => resolve())
         .catch(e => reject(e));
@@ -55,8 +56,13 @@ export class WebviewBundle {
     return this._updater;
   }
 
+  ready(): Promise<void> {
+    return this._ready;
+  }
+
+  /** @deprecated Renamed to {@link ready}. Kept as an alias for backwards compatibility. */
   whenProtocolRegistered(): Promise<void> {
-    return this._whenProtocolRegistered;
+    return this._ready;
   }
 }
 

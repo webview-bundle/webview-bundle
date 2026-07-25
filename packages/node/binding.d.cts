@@ -1419,48 +1419,6 @@ export interface DataReadOptions {
   checksum?: ChecksumReadOptions
 }
 
-/** The stable code every error thrown by this binding carries (`WebviewBundleError.code`). */
-export type ErrorCode =  'core.io'|
-'core.compress'|
-'core.decompress'|
-'core.encode'|
-'core.decode'|
-'core.http'|
-'core.invalid_magic_num'|
-'core.invalid_version'|
-'core.invalid_header_checksum'|
-'core.invalid_index_checksum'|
-'core.checksum_mismatch'|
-'core.bundle_not_found'|
-'core.bundle_entry_not_exists'|
-'core.bundle_cannot_be_removed'|
-'core.invalid_filepath'|
-'core.serde_json'|
-'core.cannot_resolve_proxy_server'|
-'core.reqwest'|
-'core.invalid_remote_url'|
-'core.invalid_remote_bundle'|
-'core.remote_bundle_not_found'|
-'core.remote_forbidden'|
-'core.remote_http'|
-'core.invalid_remote_config'|
-'core.invalid_integrity'|
-'core.integrity_required'|
-'core.integrity_verify_failed'|
-'core.invalid_signature'|
-'core.invalid_signing_key'|
-'core.signature_sign_failed'|
-'core.invalid_verifying_key'|
-'core.signature_not_exists'|
-'core.signature_verify_failed'|
-'core.generic'|
-'invalid_header_name'|
-'invalid_header_value'|
-'invalid_signature_options'|
-/** r" A binding-side validation failure with no more specific code| e.g. an unknown option key. */
-'unknown'|
-'napi';
-
 /**
  * How a bundle's header is read.
  *
@@ -1504,7 +1462,6 @@ export interface HttpOptions {
   poolMaxIdlePerHost?: number
   referer?: boolean
   tcpNodelay?: boolean
-  hickoryDns?: boolean
 }
 
 export interface HttpResponse {
@@ -1916,6 +1873,46 @@ export type VerifyingKeyFormat = /** SubjectPublicKeyInfo DER format (binary) */
 'raw';
 
 export type Version =  'v1';
+
+/** The stable `code` every error thrown by this binding carries. */
+export type WebviewBundleErrorCode =  'core.io'|
+'core.compress'|
+'core.decompress'|
+'core.encode'|
+'core.decode'|
+'core.http'|
+'core.invalid_magic_num'|
+'core.invalid_version'|
+'core.invalid_header_checksum'|
+'core.invalid_index_checksum'|
+'core.checksum_mismatch'|
+'core.bundle_not_found'|
+'core.bundle_entry_not_exists'|
+'core.bundle_cannot_be_removed'|
+'core.invalid_filepath'|
+'core.serde_json'|
+'core.cannot_resolve_proxy_server'|
+'core.reqwest'|
+'core.invalid_remote_url'|
+'core.invalid_remote_bundle'|
+'core.remote_bundle_not_found'|
+'core.remote_forbidden'|
+'core.remote_http'|
+'core.invalid_remote_config'|
+'core.invalid_integrity'|
+'core.integrity_required'|
+'core.integrity_verify_failed'|
+'core.invalid_signature'|
+'core.invalid_signing_key'|
+'core.signature_sign_failed'|
+'core.invalid_verifying_key'|
+'core.signature_not_exists'|
+'core.signature_verify_failed'|
+'core.generic'|
+'invalid_header_name'|
+'invalid_header_value'|
+'invalid_signature_options'|
+'napi';
 
 /**
  * Writes a bundle to a file asynchronously.

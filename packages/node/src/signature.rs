@@ -165,35 +165,41 @@ impl FromNapiValue for SignatureVerifier {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> napi::Result<Self> {
     unsafe {
       let value = NapiVerifier::from_napi_value(env, napi_val)?;
-      let unsupported_key_format = napi::Error::from(crate::Error::invalid_signature_options(
-        "unsupported key format",
-      ));
+      let js_err = |e: crate::Error| crate::error::js_error(env, e);
+      let unsupported_key_format = || {
+        js_err(crate::Error::invalid_signature_options(
+          "unsupported key format",
+        ))
+      };
       let value = match value {
         Either::A(inner) => match &inner.algorithm {
           SignatureAlgorithm::EcdsaSecp256r1 => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Sec1 => Ok(
                 signature::EcdsaSecp256r1Verifier::from_sec1_bytes(&into_buffer_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
                 signature::EcdsaSecp256r1Verifier::from_public_key_der(&into_buffer_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
                 signature::EcdsaSecp256r1Verifier::from_public_key_pem(&into_string_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
-              _ => Err(unsupported_key_format),
+              _ => Err(unsupported_key_format()),
             }?;
             signature::SignatureVerify::EcdsaSecp256r1(Arc::new(verifier))
           }
@@ -201,114 +207,137 @@ impl FromNapiValue for SignatureVerifier {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Sec1 => Ok(
                 signature::EcdsaSecp384r1Verifier::from_sec1_bytes(&into_buffer_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
                 signature::EcdsaSecp384r1Verifier::from_public_key_der(&into_buffer_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
                 signature::EcdsaSecp384r1Verifier::from_public_key_pem(&into_string_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
-              _ => Err(unsupported_key_format),
+              _ => Err(unsupported_key_format()),
             }?;
             signature::SignatureVerify::EcdsaSecp384r1(Arc::new(verifier))
           }
           SignatureAlgorithm::Ed25519 => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::SpkiDer => Ok(
-                signature::Ed25519Verifier::from_public_key_der(&into_buffer_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::Ed25519Verifier::from_public_key_der(&into_buffer_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
-                signature::Ed25519Verifier::from_public_key_pem(&into_string_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::Ed25519Verifier::from_public_key_pem(&into_string_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::Raw => {
-                let data = into_buffer_data(inner.key.data)?;
+                let data = into_buffer_data(env, inner.key.data)?;
                 let bytes = data
                   .get(..32)
                   .and_then(|s| s.try_into().ok())
                   .ok_or_else(|| {
-                    napi::Error::from(crate::Error::invalid_signature_options(
+                    js_err(crate::Error::invalid_signature_options(
                       "Expect 32 bytes for key pair",
                     ))
                   })?;
                 Ok(
                   signature::Ed25519Verifier::from_public_key_bytes(bytes)
                     .map_err(crate::Error::from)
-                    .map_err(napi::Error::from)?,
+                    .map_err(js_err)?,
                 )
               }
-              _ => Err(unsupported_key_format),
+              _ => Err(unsupported_key_format()),
             }?;
             signature::SignatureVerify::Ed25519(Arc::new(verifier))
           }
           SignatureAlgorithm::RsaPkcs1V1_5 => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Pkcs1Der => Ok(
-                signature::RsaPkcs1V15Verifier::from_pkcs1_der(&into_buffer_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::RsaPkcs1V15Verifier::from_pkcs1_der(&into_buffer_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::Pkcs1Pem => Ok(
-                signature::RsaPkcs1V15Verifier::from_pkcs1_pem(&into_string_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::RsaPkcs1V15Verifier::from_pkcs1_pem(&into_string_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
                 signature::RsaPkcs1V15Verifier::from_public_key_der(&into_buffer_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
                 signature::RsaPkcs1V15Verifier::from_public_key_pem(&into_string_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                .map_err(js_err)?,
               ),
-              _ => Err(unsupported_key_format),
+              _ => Err(unsupported_key_format()),
             }?;
             signature::SignatureVerify::RsaPkcs1V15(Arc::new(verifier))
           }
           SignatureAlgorithm::RsaPss => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Pkcs1Der => Ok(
-                signature::RsaPssVerifier::from_pkcs1_der(&into_buffer_data(inner.key.data)?)
+                signature::RsaPssVerifier::from_pkcs1_der(&into_buffer_data(env, inner.key.data)?)
                   .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                  .map_err(js_err)?,
               ),
               VerifyingKeyFormat::Pkcs1Pem => Ok(
-                signature::RsaPssVerifier::from_pkcs1_pem(&into_string_data(inner.key.data)?)
+                signature::RsaPssVerifier::from_pkcs1_pem(&into_string_data(env, inner.key.data)?)
                   .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                  .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
-                signature::RsaPssVerifier::from_public_key_der(&into_buffer_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::RsaPssVerifier::from_public_key_der(&into_buffer_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(js_err)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
-                signature::RsaPssVerifier::from_public_key_pem(&into_string_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::RsaPssVerifier::from_public_key_pem(&into_string_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(js_err)?,
               ),
-              _ => Err(unsupported_key_format),
+              _ => Err(unsupported_key_format()),
             }?;
             signature::SignatureVerify::RsaPss(Arc::new(verifier))
           }
@@ -336,22 +365,22 @@ impl FromNapiValue for SignatureVerifier {
 // A key whose data type doesn't match its declared format is an invalid verifier option, so it
 // surfaces the same `invalid_signature_options` code as every other verifier-construction failure
 // (rather than the generic `napi` code an untagged `napi::Error` would yield).
-fn into_string_data(d: Either<String, Buffer>) -> napi::Result<String> {
+fn into_string_data(env: sys::napi_env, d: Either<String, Buffer>) -> napi::Result<String> {
   match d {
     Either::A(s) => Ok(s),
-    Either::B(_) => Err(
-      crate::Error::invalid_signature_options("verifying key must be a string for this format")
-        .into(),
-    ),
+    Either::B(_) => Err(crate::error::js_error(
+      env,
+      crate::Error::invalid_signature_options("verifying key must be a string for this format"),
+    )),
   }
 }
 
-fn into_buffer_data(d: Either<String, Buffer>) -> napi::Result<Buffer> {
+fn into_buffer_data(env: sys::napi_env, d: Either<String, Buffer>) -> napi::Result<Buffer> {
   match d {
-    Either::A(_) => Err(
-      crate::Error::invalid_signature_options("verifying key must be a Buffer for this format")
-        .into(),
-    ),
+    Either::A(_) => Err(crate::error::js_error(
+      env,
+      crate::Error::invalid_signature_options("verifying key must be a Buffer for this format"),
+    )),
     Either::B(b) => Ok(b),
   }
 }

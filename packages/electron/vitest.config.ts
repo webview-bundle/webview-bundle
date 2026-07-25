@@ -2,7 +2,7 @@ import { defineProject, type UserWorkspaceConfig } from 'vitest/config';
 
 const config: UserWorkspaceConfig = defineProject({
   test: {
-    include: ['tests/**/*.{spec,test}.ts'],
+    include: ['src/**/*.spec.ts'],
     clearMocks: true,
     environment: 'node',
   },

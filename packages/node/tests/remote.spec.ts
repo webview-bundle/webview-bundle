@@ -3,7 +3,12 @@ import { type ServerType, serve } from '@hono/node-server';
 import getPort from 'get-port';
 import { Hono } from 'hono';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BundleBuilder, Remote, WebviewBundleError, writeBundleIntoBuffer } from '../dist/index.js';
+import {
+  BundleBuilder,
+  isWebviewBundleError,
+  Remote,
+  writeBundleIntoBuffer,
+} from '../dist/index.js';
 
 let port: number;
 let server: ServerType;
@@ -120,11 +125,11 @@ describe('remote', () => {
     );
   });
 
-  it('reject with WebviewBundleError', async () => {
+  it('rejects with a coded error whose message carries no code prefix', async () => {
     const remote = new Remote(`http://localhost:${port}`);
     const error = await remote.download('not_found').catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(WebviewBundleError);
-    expect((error as WebviewBundleError).message).not.toMatch(/^\[/);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect((error as Error).message).not.toMatch(/^\[/);
   });
 
   it('an invalid endpoint rejects from the constructor', () => {

@@ -22,10 +22,7 @@
     "binding.cjs",
     "binding.d.cts",
     "README.md",
-    "CHANGELOG.md",
-    "*.node",
-    "!artifacts/**/*",
-    "!npm/**/*"
+    "CHANGELOG.md"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -35,12 +32,16 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./binding": {
+      "import": "./dist/binding/index.js",
+      "require": "./dist/binding/index.cjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
     "artifacts": "node scripts/artifacts.ts",
     "build": "tsdown",
-    "build-napi": "napi build --platform --release --js=binding.cjs --dts=binding.d.cts --no-const-enum --no-dts-cache",
+    "build-napi": "node scripts/build-napi.ts",
     "prepack": "yarn build",
     "typecheck": "tsc --noEmit"
   },
@@ -48,12 +49,14 @@
     "@hono/node-server": "^1.19.13",
     "@napi-rs/cli": "3.1.5",
     "@types/node": "catalog:",
+    "@types/yargs": "^17.0.35",
     "get-port": "^7.1.0",
     "hono": "^4.12.25",
     "tinyglobby": "^0.2.14",
     "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "yargs": "^18.0.0"
   },
   "optionalDependencies": {
     "@wvb/node-android-arm-eabi": "workspace:^",

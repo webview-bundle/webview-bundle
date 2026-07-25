@@ -19,11 +19,15 @@
   },
   "files": [
     "dist",
+    "node-bindings",
     "README.md",
     "CHANGELOG.md"
   ],
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/native.mjs",
+    "./dist/native.cjs"
+  ],
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "exports": {
@@ -39,20 +43,19 @@
   },
   "scripts": {
     "prepack": "yarn build",
-    "build": "tsdown",
+    "build": "tsdown && node scripts/install-node-bindings.ts",
+    "install-node-bindings": "node scripts/install-node-bindings.ts",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "electron": ">= 15"
-  },
-  "dependencies": {
-    "@wvb/node": "workspace:^"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
     "@types/node": "catalog:",
     "@wvb-playground/testdriver": "0.0.1",
     "@wvb-playground/webview-hacker-news": "0.0.0",
+    "@wvb/node": "workspace:^",
     "electron": "^42.2.0",
     "playwright-core": "1.61.1",
     "tsdown": "catalog:",

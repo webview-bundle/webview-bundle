@@ -6462,6 +6462,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/yargs-parser@npm:*":
+  version: 21.0.3
+  resolution: "@types/yargs-parser@npm:21.0.3"
+  checksum: 10c0/e71c3bd9d0b73ca82e10bee2064c384ab70f61034bbfb78e74f5206283fc16a6d85267b606b5c22cb2a3338373586786fed595b2009825d6a9115afba36560a0
+  languageName: node
+  linkType: hard
+
+"@types/yargs@npm:^17.0.35":
+  version: 17.0.35
+  resolution: "@types/yargs@npm:17.0.35"
+  dependencies:
+    "@types/yargs-parser": "npm:*"
+  checksum: 10c0/609557826a6b85e73ccf587923f6429850d6dc70e420b455bab4601b670bfadf684b09ae288bccedab042c48ba65f1666133cf375814204b544009f57d6eef63
+  languageName: node
+  linkType: hard
+
 "@types/yauzl@npm:^2.9.1":
   version: 2.10.3
   resolution: "@types/yauzl@npm:2.10.3"
@@ -7354,6 +7370,7 @@ __metadata:
     "@hono/node-server": "npm:^1.19.13"
     "@napi-rs/cli": "npm:3.1.5"
     "@types/node": "catalog:"
+    "@types/yargs": "npm:^17.0.35"
     "@wvb/node-android-arm-eabi": "workspace:^"
     "@wvb/node-android-arm64": "workspace:^"
     "@wvb/node-darwin-arm64": "workspace:^"
@@ -7372,6 +7389,7 @@ __metadata:
     tsdown: "catalog:"
     typescript: "catalog:"
     vitest: "catalog:"
+    yargs: "npm:^18.0.0"
   dependenciesMeta:
     "@wvb/node-android-arm-eabi":
       optional: true
@@ -16909,7 +16927,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"yargs@npm:18.0.0":
+"yargs@npm:18.0.0, yargs@npm:^18.0.0":
   version: 18.0.0
   resolution: "yargs@npm:18.0.0"
   dependencies:

@@ -21,9 +21,9 @@ import {
   BundleProtocol,
   type BundleResolverOptions,
   BundleSource,
-  type ErrorCode,
   isWebviewBundleError,
   ProxyProtocol,
+  type WebviewBundleErrorCode,
 } from '../dist/index.js';
 
 describe('bundle protocol', () => {
@@ -183,7 +183,7 @@ describe('bundle protocol', () => {
     const protocol = new BundleProtocol(source);
     const error = await protocol.handle('get', 'wvb://app.wvb/index.html').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
-    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.checksum_mismatch');
 
     // Only the corrupted entry fails; the rest of the bundle is still served.
     expect(await protocol.handle('get', 'wvb://app.wvb/about.html')).toMatchObject({ status: 200 });
@@ -203,7 +203,7 @@ describe('bundle protocol', () => {
     const source = await makeSource({ dataReadOptions: { checksum: { seed: 42 } } });
     const protocol = new BundleProtocol(source);
     const error = await protocol.handle('get', 'wvb://app.wvb/index.html').catch(e => e);
-    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.checksum_mismatch');
   });
 });
 
@@ -254,8 +254,8 @@ describe('proxy protocol', () => {
     const error = await protocol.handle('get', 'wvb://other.wvb/index.html').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
     // The code is typed: a core error code that does not exist fails to typecheck.
-    assertType<ErrorCode>(error.code);
-    expect(error.code).toBe<ErrorCode>('core.cannot_resolve_proxy_server');
+    assertType<WebviewBundleErrorCode>(error.code);
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.cannot_resolve_proxy_server');
     expect(error.message).toMatch(/cannot resolve proxy server/);
   });
 
