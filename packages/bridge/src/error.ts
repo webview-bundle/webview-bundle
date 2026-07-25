@@ -6,21 +6,6 @@ export interface BridgeErrorData {
   message: string;
 }
 
-export const BridgeErrorCode = {
-  /** `params` was missing or had the wrong shape/type. */
-  InvalidParams: 'invalid_params',
-  /** A `remote.*` command was invoked but no remote is configured. */
-  RemoteNotInitialized: 'remote_not_initialized',
-  /** An `updater.*` command was invoked but no updater is configured. */
-  UpdaterNotInitialized: 'updater_not_initialized',
-  /** No handler is registered for the requested command name. */
-  HandlerNotFound: 'handler_not_found',
-  /** The handler returned a value that is not JSON-encodable. */
-  UnencodableResult: 'unencodable_result',
-} as const;
-
-export type BridgeErrorCode = (typeof BridgeErrorCode)[keyof typeof BridgeErrorCode];
-
 /**
  * Error thrown by `@wvb/bridge` when an `invoke()` command rejects, regardless of
  * platform.
@@ -29,7 +14,7 @@ export class BridgeError extends Error {
   override readonly name = 'BridgeError';
   readonly code?: string;
 
-  static of(code: BridgeErrorCode | string, message = ''): BridgeError {
+  static of(code: string, message = ''): BridgeError {
     return new BridgeError({ code, message });
   }
 

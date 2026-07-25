@@ -182,27 +182,30 @@ impl Remote {
   /// });
   /// ```
   #[napi(constructor)]
-  pub fn new(endpoint: String, options: Option<RemoteOptions>) -> crate::Result<Remote> {
-    let mut builder = remote::Remote::builder().endpoint(endpoint);
-    if let Some(options) = options {
-      if let Some(http) = options.http {
-        builder = builder.http(remote::HttpOptions::try_from(http)?);
-      }
-      if let Some(on_download) = options.on_download {
-        builder = builder.on_download(move |downloaded_bytes, total_bytes, endpoint| {
-          let on_download_fn = Arc::clone(&on_download);
-          let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
-            downloaded_bytes: downloaded_bytes as u32,
-            total_bytes: total_bytes.map(|t| t as u32),
-            endpoint,
+  pub fn new(env: Env, endpoint: String, options: Option<RemoteOptions>) -> napi::Result<Remote> {
+    crate::Outcome::from_fn(|| {
+      let mut builder = remote::Remote::builder().endpoint(endpoint);
+      if let Some(options) = options {
+        if let Some(http) = options.http {
+          builder = builder.http(remote::HttpOptions::try_from(http)?);
+        }
+        if let Some(on_download) = options.on_download {
+          builder = builder.on_download(move |downloaded_bytes, total_bytes, endpoint| {
+            let on_download_fn = Arc::clone(&on_download);
+            let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
+              downloaded_bytes: downloaded_bytes as u32,
+              total_bytes: total_bytes.map(|t| t as u32),
+              endpoint,
+            });
           });
-        });
+        }
       }
-    }
-    let inner = builder.build()?;
-    Ok(Remote {
-      inner: Arc::new(inner),
+      let inner = builder.build()?;
+      Ok(Remote {
+        inner: Arc::new(inner),
+      })
     })
+    .into_napi(env)
   }
 
   /// Lists all available bundles on the server.
@@ -221,15 +224,18 @@ impl Remote {
   pub async fn list_bundles(
     &self,
     options: Option<RemoteFetchOptions>,
-  ) -> crate::Result<Vec<ListRemoteBundleInfo>> {
-    let bundles = self
-      .inner
-      .list_bundles(options.map(Into::into))
-      .await?
-      .into_iter()
-      .map(ListRemoteBundleInfo::from)
-      .collect::<Vec<_>>();
-    Ok(bundles)
+  ) -> crate::Outcome<Vec<ListRemoteBundleInfo>> {
+    crate::Outcome::from_future(async move {
+      let bundles = self
+        .inner
+        .list_bundles(options.map(Into::into))
+        .await?
+        .into_iter()
+        .map(ListRemoteBundleInfo::from)
+        .collect::<Vec<_>>();
+      Ok(bundles)
+    })
+    .await
   }
 
   /// Gets bundle metadata for the current version.
@@ -253,12 +259,15 @@ impl Remote {
     &self,
     bundle_name: String,
     options: Option<RemoteFetchOptions>,
-  ) -> crate::Result<RemoteBundleInfo> {
-    let info = self
-      .inner
-      .get_current_info(&bundle_name, options.map(Into::into))
-      .await?;
-    Ok(info.into())
+  ) -> crate::Outcome<RemoteBundleInfo> {
+    crate::Outcome::from_future(async move {
+      let info = self
+        .inner
+        .get_current_info(&bundle_name, options.map(Into::into))
+        .await?;
+      Ok(info.into())
+    })
+    .await
   }
 
   /// Downloads the current version of a bundle.
@@ -283,9 +292,12 @@ impl Remote {
     &self,
     bundle_name: String,
     channel: Option<String>,
-  ) -> crate::Result<(RemoteBundleInfo, Bundle, Buffer)> {
-    let (info, inner, data) = self.inner.download(&bundle_name, channel.as_ref()).await?;
-    Ok((info.into(), Bundle { inner }, data.into()))
+  ) -> crate::Outcome<(RemoteBundleInfo, Bundle, Buffer)> {
+    crate::Outcome::from_future(async move {
+      let (info, inner, data) = self.inner.download(&bundle_name, channel.as_ref()).await?;
+      Ok((info.into(), Bundle { inner }, data.into()))
+    })
+    .await
   }
 
   /// Downloads a specific version of a bundle.
@@ -304,8 +316,11 @@ impl Remote {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<(RemoteBundleInfo, Bundle, Buffer)> {
-    let (info, inner, data) = self.inner.download_version(&bundle_name, &version).await?;
-    Ok((info.into(), Bundle { inner }, data.into()))
+  ) -> crate::Outcome<(RemoteBundleInfo, Bundle, Buffer)> {
+    crate::Outcome::from_future(async move {
+      let (info, inner, data) = self.inner.download_version(&bundle_name, &version).await?;
+      Ok((info.into(), Bundle { inner }, data.into()))
+    })
+    .await
   }
 }

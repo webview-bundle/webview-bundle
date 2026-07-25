@@ -219,19 +219,23 @@ impl BundleProtocol {
     uri: String,
     headers: Option<HashMap<String, String>>,
     body: Option<Buffer>,
-  ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers, body)?;
-    let inner = self.inner.clone();
-    let resp = AsyncBlockBuilder::new(async move {
-      inner
-        .handle(req)
-        .await
-        .map(HttpResponse::from)
-        .map_err(crate::Error::Core)
-        .map_err(|e| e.into())
+  ) -> crate::Outcome<AsyncBlock<crate::Outcome<HttpResponse>>> {
+    crate::Outcome::from_fn(|| {
+      let req = request(method, uri, headers, body)?;
+      let inner = self.inner.clone();
+      // Resolve with an `Outcome` so a failure keeps its code; a napi rejection would flatten it.
+      let resp = AsyncBlockBuilder::new(async move {
+        Ok(crate::Outcome(
+          inner
+            .handle(req)
+            .await
+            .map(HttpResponse::from)
+            .map_err(crate::Error::Core),
+        ))
+      })
+      .build(&env)?;
+      Ok(resp)
     })
-    .build(&env)?;
-    Ok(resp)
   }
 }
 
@@ -345,18 +349,22 @@ impl ProxyProtocol {
     uri: String,
     headers: Option<HashMap<String, String>>,
     body: Option<Buffer>,
-  ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers, body)?;
-    let inner = self.inner.clone();
-    let resp = AsyncBlockBuilder::new(async move {
-      inner
-        .handle(req)
-        .await
-        .map(HttpResponse::from)
-        .map_err(crate::Error::Core)
-        .map_err(|e| e.into())
+  ) -> crate::Outcome<AsyncBlock<crate::Outcome<HttpResponse>>> {
+    crate::Outcome::from_fn(|| {
+      let req = request(method, uri, headers, body)?;
+      let inner = self.inner.clone();
+      // Resolve with an `Outcome` so a failure keeps its code; a napi rejection would flatten it.
+      let resp = AsyncBlockBuilder::new(async move {
+        Ok(crate::Outcome(
+          inner
+            .handle(req)
+            .await
+            .map(HttpResponse::from)
+            .map_err(crate::Error::Core),
+        ))
+      })
+      .build(&env)?;
+      Ok(resp)
     })
-    .build(&env)?;
-    Ok(resp)
   }
 }

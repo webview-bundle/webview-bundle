@@ -82,9 +82,11 @@ pub fn compute_integrity(algorithm: IntegrityAlgorithm, data: Buffer) -> Integri
 /// const isValid = parseIntegrity(advertised).validate(data);
 /// ```
 #[napi]
-pub fn parse_integrity(integrity: String) -> crate::Result<Integrity> {
-  Ok(Integrity {
-    inner: integrity::Integrity::from_str(&integrity)?,
+pub fn parse_integrity(integrity: String) -> crate::Outcome<Integrity> {
+  crate::Outcome::from_fn(|| {
+    Ok(Integrity {
+      inner: integrity::Integrity::from_str(&integrity)?,
+    })
   })
 }
 

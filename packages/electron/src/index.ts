@@ -1,10 +1,15 @@
+import './native.js';
+
 export type {
+  WebviewBundleError,
+  WebviewBundleErrorCode,
+} from '@wvb/node/binding';
+export { isWebviewBundleError } from '@wvb/node/binding';
+export type {
+  BundleProtocolConfig,
   BundleResolverOptions,
   HostnameSegment,
   PathResolver,
-} from '@wvb/node';
-export type {
-  BundleProtocolConfig,
   Protocol,
   ProtocolHandler,
   ProtocolOptions,

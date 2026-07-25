@@ -213,16 +213,12 @@ impl Updater {
   /// });
   /// ```
   #[napi(constructor)]
-  pub fn new(
-    source: &BundleSource,
-    remote: &Remote,
-    options: Option<UpdaterOptions>,
-  ) -> crate::Result<Updater> {
+  pub fn new(source: &BundleSource, remote: &Remote, options: Option<UpdaterOptions>) -> Updater {
     let source = source.inner.clone();
     let remote = remote.inner.clone();
-    Ok(Updater {
+    Updater {
       inner: updater::Updater::new(source, remote, options.map(Into::into)),
-    })
+    }
   }
 
   /// Lists all available bundles on the remote server.
@@ -237,15 +233,18 @@ impl Updater {
   /// }
   /// ```
   #[napi]
-  pub async fn list_remotes(&self) -> crate::Result<Vec<ListRemoteBundleInfo>> {
-    let remotes = self
-      .inner
-      .list_remotes()
-      .await?
-      .into_iter()
-      .map(ListRemoteBundleInfo::from)
-      .collect::<Vec<_>>();
-    Ok(remotes)
+  pub async fn list_remotes(&self) -> crate::Outcome<Vec<ListRemoteBundleInfo>> {
+    crate::Outcome::from_future(async move {
+      let remotes = self
+        .inner
+        .list_remotes()
+        .await?
+        .into_iter()
+        .map(ListRemoteBundleInfo::from)
+        .collect::<Vec<_>>();
+      Ok(remotes)
+    })
+    .await
   }
 
   /// Checks if an update is available for a specific bundle.
@@ -265,9 +264,12 @@ impl Updater {
   /// }
   /// ```
   #[napi]
-  pub async fn get_update(&self, bundle_name: String) -> crate::Result<BundleUpdateInfo> {
-    let update = self.inner.get_update(&bundle_name).await?;
-    Ok(BundleUpdateInfo::from(update))
+  pub async fn get_update(&self, bundle_name: String) -> crate::Outcome<BundleUpdateInfo> {
+    crate::Outcome::from_future(async move {
+      let update = self.inner.get_update(&bundle_name).await?;
+      Ok(BundleUpdateInfo::from(update))
+    })
+    .await
   }
 
   /// Downloads a bundle update from remote server.
@@ -297,9 +299,12 @@ impl Updater {
     &self,
     bundle_name: String,
     version: Option<String>,
-  ) -> crate::Result<RemoteBundleInfo> {
-    let info = self.inner.download(bundle_name, version).await?;
-    Ok(info.into())
+  ) -> crate::Outcome<RemoteBundleInfo> {
+    crate::Outcome::from_future(async move {
+      let info = self.inner.download(bundle_name, version).await?;
+      Ok(info.into())
+    })
+    .await
   }
 
   /// Activates a previously downloaded bundle version.
@@ -323,8 +328,11 @@ impl Updater {
   /// await updater.install('app', '1.2.0');
   /// ```
   #[napi]
-  pub async fn install(&self, bundle_name: String, version: String) -> crate::Result<()> {
-    self.inner.install(bundle_name, version).await?;
-    Ok(())
+  pub async fn install(&self, bundle_name: String, version: String) -> crate::Outcome<()> {
+    crate::Outcome::from_future(async move {
+      self.inner.install(bundle_name, version).await?;
+      Ok(())
+    })
+    .await
   }
 }

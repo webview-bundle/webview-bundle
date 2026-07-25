@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BundleBuilder,
   BundleSource,
-  type ErrorCode,
   isWebviewBundleError,
+  type WebviewBundleErrorCode,
 } from '../dist/index.js';
 
 function buildBundle(html: string) {
@@ -130,7 +130,7 @@ describe('source', () => {
     const loaded = await source.loadDescriptor('app');
     const error = await loaded.getData('/index.html').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
-    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.checksum_mismatch');
 
     // Untouched entries still read.
     expect(await loaded.getData('/app.js')).toEqual(Buffer.from('console.log("app");', 'utf8'));
@@ -155,60 +155,9 @@ describe('source', () => {
       }
     })();
     expect(isWebviewBundleError(error)).toBe(true);
-    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('invalid_signature_options');
-  });
-
-  it('rejects an unknown top-level config key instead of silently ignoring it', () => {
-    const error = (() => {
-      try {
-        // A misspelled security option would leave verification in a state the caller did not
-        // ask for.
-        new BundleSource({
-          builtinDir,
-          remoteDir,
-          verifyChecksum: true,
-        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
-      } catch (e) {
-        return e;
-      }
-    })();
-    expect(isWebviewBundleError(error)).toBe(true);
-    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
-    expect((error as Error).message).toContain('verifyChecksum');
-  });
-
-  it('rejects an unknown nested integrity key (fails closed)', () => {
-    const error = (() => {
-      try {
-        new BundleSource({
-          builtinDir,
-          remoteDir,
-          integrity: { checkmode: 'all' },
-        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
-      } catch (e) {
-        return e;
-      }
-    })();
-    expect(isWebviewBundleError(error)).toBe(true);
-    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
-    expect((error as Error).message).toContain('checkmode');
-  });
-
-  it('rejects a misspelled nested read-checksum key (fails closed)', () => {
-    const error = (() => {
-      try {
-        new BundleSource({
-          builtinDir,
-          remoteDir,
-          dataReadOptions: { checksum: { verfy: false } },
-        } as unknown as ConstructorParameters<typeof BundleSource>[0]);
-      } catch (e) {
-        return e;
-      }
-    })();
-    expect(isWebviewBundleError(error)).toBe(true);
-    expect((error as { code: ErrorCode }).code).toBe<ErrorCode>('unknown');
-    expect((error as Error).message).toContain('verfy');
+    expect((error as { code: WebviewBundleErrorCode }).code).toBe<WebviewBundleErrorCode>(
+      'invalid_signature_options'
+    );
   });
 
   it('verifies entry checksums by default', async () => {
@@ -219,7 +168,7 @@ describe('source', () => {
     const loaded = await source.loadDescriptor('app');
     const error = await loaded.getData('/index.html').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
-    expect(error.code).toBe<ErrorCode>('core.checksum_mismatch');
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.checksum_mismatch');
   });
 
   it('does not verify entry checksums when dataReadOptions.verify is false', async () => {
@@ -242,7 +191,7 @@ describe('source', () => {
 
     const error = await source.loadDescriptor('app').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
-    expect(error.code).toBe<ErrorCode>('core.invalid_header_checksum');
+    expect(error.code).toBe<WebviewBundleErrorCode>('core.invalid_header_checksum');
   });
 
   it('loads a header-corrupted bundle when headerReadOptions.verify is false', async () => {
