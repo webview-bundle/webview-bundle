@@ -1,5 +1,5 @@
 import { Command, Option } from 'clipanion';
-import { cascade, isBoolean, isInExclusiveRange, isInteger, isNumber } from 'typanion';
+import { cascade, isBoolean, isEnum, isInExclusiveRange, isInteger, isNumber } from 'typanion';
 import { serve } from '../api/serve.js';
 import { resolveConfig, resolveOutFile } from '../config.js';
 import { isColorEnabled } from '../console.js';
@@ -36,6 +36,12 @@ export class ServeCommand extends BaseCommand {
     validator: isBoolean(),
     description: 'Disable middleware log output.',
   });
+  readonly pathResolver = Option.String('--path-resolver', {
+    description:
+      'How the request path is resolved to an entry path of the bundle. ' +
+      '["exact", "directoryIndex", "htmlExtension"] [Default: "directoryIndex"]',
+    validator: isEnum(['exact', 'directoryIndex', 'htmlExtension'] as const),
+  });
   readonly configFile = Option.String('--config,-C', {
     description: 'Path to the config file.',
   });
@@ -58,11 +64,13 @@ export class ServeCommand extends BaseCommand {
     }
     const silent = this.silent ?? config.serve?.silent ?? false;
     const port = this.port ?? config.serve?.port ?? 4312;
+    const pathResolver = this.pathResolver ?? config.serve?.pathResolver ?? 'directoryIndex';
     const instance = await serve({
       file,
       hostname: this.hostname,
       port,
       silent,
+      pathResolver,
       cwd: config.root,
       logger: this.logger,
       colorEnabled: isColorEnabled(),

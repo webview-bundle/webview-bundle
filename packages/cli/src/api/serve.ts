@@ -1,5 +1,5 @@
 import type { ServerType } from '@hono/node-server';
-import { readBundle } from '@wvb/node';
+import { type PathResolver, readBundle } from '@wvb/node';
 import { c, isColorEnabled } from '../console.js';
 import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import type { Logger } from '../log.js';
@@ -10,6 +10,7 @@ export interface ServeParams {
   hostname?: string;
   port?: number;
   silent?: boolean;
+  pathResolver?: PathResolver;
   cwd?: string;
   logger?: Logger;
   colorEnabled?: boolean;
@@ -28,6 +29,7 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
     file,
     hostname,
     port = 4312,
+    pathResolver = 'directoryIndex',
     cwd = process.cwd(),
     silent = false,
     logger,
@@ -55,7 +57,7 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
     );
   }
   app.get('*', async c => {
-    const p = resolvePath(c.req.path);
+    const p = resolvePath(c.req.path, pathResolver);
     if (!bundle.descriptor().index().containsPath(p)) {
       return c.notFound();
     }
@@ -93,13 +95,37 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
   return instance;
 }
 
-function resolvePath(path: string): string {
-  if (path.endsWith('/')) {
-    return `${path}index.html`;
+function resolvePath(path: string, resolver: PathResolver): string {
+  const decoded = decodePath(path);
+  switch (resolver) {
+    case 'exact':
+      return decoded;
+    case 'directoryIndex': {
+      const p = decoded === '' ? '/' : decoded;
+      if (p.endsWith('/')) {
+        return `${p}index.html`;
+      }
+      return isExtensionless(p) ? `${p}/index.html` : p;
+    }
+    case 'htmlExtension': {
+      if (decoded === '' || decoded === '/') {
+        return '/index.html';
+      }
+      const p = decoded.endsWith('/') ? decoded.slice(0, -1) : decoded;
+      return isExtensionless(p) ? `${p}.html` : p;
+    }
   }
-  const ext = path.split('.').pop();
-  if (ext == null && !path.includes('.')) {
-    return `${path}/index.html`;
+}
+
+function decodePath(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
   }
-  return path;
+}
+
+function isExtensionless(path: string): boolean {
+  const lastSegment = path.slice(path.lastIndexOf('/') + 1);
+  return lastSegment.length > 0 && !lastSegment.includes('.');
 }
