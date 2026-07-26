@@ -1,5 +1,5 @@
 import type { ServerType } from '@hono/node-server';
-import { c, isColorEnabled } from '../../console.js';
+import { c } from '../../console.js';
 import type { Logger } from '../../log.js';
 
 export interface LocalRemoteParams {
@@ -18,15 +18,7 @@ export interface LocalRemoteInstance {
 }
 
 export async function localRemote(params: LocalRemoteParams): Promise<LocalRemoteInstance> {
-  const {
-    baseDir,
-    hostname,
-    port = 4313,
-    silent = false,
-    allowOtherVersions,
-    logger,
-    colorEnabled = isColorEnabled(),
-  } = params;
+  const { baseDir, hostname, port = 4313, allowOtherVersions, logger } = params;
 
   const { wvbRemote } = await import('@wvb/remote-local-provider');
   const { serve } = await import('@hono/node-server');
@@ -35,14 +27,6 @@ export async function localRemote(params: LocalRemoteParams): Promise<LocalRemot
     baseDir,
     allowOtherVersions,
   });
-  if (!silent) {
-    const { logMiddleware } = await import('../../utils/hono-logger.js');
-    app.use(
-      logMiddleware(str => {
-        logger?.info(str);
-      }, colorEnabled)
-    );
-  }
   const server = serve(
     {
       fetch: app.fetch,

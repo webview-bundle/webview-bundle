@@ -7,7 +7,7 @@ import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import type { Logger } from '../log.js';
 import { ApiError } from './error.js';
 
-export interface ExtractParams {
+export interface UnpackParams {
   file: string;
   outDir?: string;
   cwd?: string;
@@ -19,7 +19,7 @@ export interface ExtractParams {
 /**
  * Extract Webview Bundle files.
  */
-export async function extract(params: ExtractParams): Promise<Bundle> {
+export async function unpack(params: UnpackParams): Promise<Bundle> {
   const {
     file,
     outDir: outDirInput,
@@ -74,7 +74,7 @@ export async function extract(params: ExtractParams): Promise<Bundle> {
     await fs.mkdir(path.dirname(filepath), { recursive: true });
     await fs.writeFile(filepath, bundle.getData(p)!);
   }
-  logger?.info(`Extract completed: ${c.bold(c.success(displayOutDir))}`);
+  logger?.info(`Unpack completed: ${c.bold(c.success(displayOutDir))}`);
   return bundle;
 }
 

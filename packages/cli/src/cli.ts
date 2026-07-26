@@ -5,12 +5,12 @@ import pkg from '../package.json' with { type: 'json' };
 import { BuiltinCommand } from './commands/builtin.js';
 import { DeployCommand } from './commands/deploy.js';
 import { DownloadCommand } from './commands/download.js';
-import { ExtractCommand } from './commands/extract.js';
 import { PackCommand } from './commands/pack.js';
 import { RemoteCurrentCommand } from './commands/remote/current.js';
 import { RemoteListCommand } from './commands/remote/list.js';
 import { RemoteLocalCommand } from './commands/remote/local.js';
 import { ServeCommand } from './commands/serve.js';
+import { UnpackCommand } from './commands/unpack.js';
 import { UploadCommand } from './commands/upload.js';
 
 const [, , ...args] = process.argv;
@@ -22,7 +22,7 @@ const cli = new Cli({
 });
 
 cli.register(PackCommand);
-cli.register(ExtractCommand);
+cli.register(UnpackCommand);
 cli.register(ServeCommand);
 cli.register(UploadCommand);
 cli.register(DeployCommand);
