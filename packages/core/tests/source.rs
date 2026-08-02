@@ -42,7 +42,7 @@ async fn manifest_persists_across_reload() {
       .remote_dir(remote_dir)
       .build(),
   );
-  let version = reloaded.load_version("app").await.unwrap().unwrap();
+  let version = reloaded.get_version("app").await.unwrap().unwrap();
   assert_eq!(
     version.version, "2.0.0",
     "downloaded version must survive a source reload"
@@ -236,7 +236,7 @@ async fn corrupt_manifest_errors() {
     .remote_dir(&remote_dir)
     .build();
 
-  let result = source.load_version("app").await;
+  let result = source.get_version("app").await;
   assert!(
     result.is_err(),
     "corrupted manifest must return an error, not silently produce None"
@@ -378,7 +378,7 @@ async fn orphan_bundle_not_visible() {
     .remote_dir(temp.dir().join("remote"))
     .build();
 
-  let version = source.load_version("app").await.unwrap();
+  let version = source.get_version("app").await.unwrap();
   assert!(
     version.is_none(),
     "a .wvb file without a manifest entry must not be visible to load_version"

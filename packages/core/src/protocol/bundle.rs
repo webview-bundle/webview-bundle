@@ -202,7 +202,7 @@ impl BundleProtocol {
     }
 
     let mut resp = Response::builder();
-    let descriptor = self.source.load_descriptor(bundle_name).await?;
+    let descriptor = self.source.load(bundle_name).await?;
 
     if let Some(entry) = descriptor.index().get_entry(path) {
       let resp_headers = resp.headers_mut().unwrap();

@@ -125,11 +125,10 @@ pub enum Error {
     version: String,
   },
   #[cfg(feature = "source")]
-  #[error("bundle cannot be removed (bundle_name: {bundle_name}, version: {version}): {reason}")]
+  #[error("bundle cannot be removed (bundle_name: {bundle_name}, version: {version})")]
   BundleCannotBeRemoved {
     bundle_name: String,
     version: String,
-    reason: String,
   },
   #[cfg(feature = "source")]
   #[error("invalid filepath: {0:?}")]
@@ -271,12 +270,10 @@ impl Error {
   pub(crate) fn bundle_cannot_be_removed(
     bundle_name: impl Into<String>,
     version: impl Into<String>,
-    reason: impl Into<String>,
   ) -> Self {
     Self::BundleCannotBeRemoved {
       bundle_name: bundle_name.into(),
       version: version.into(),
-      reason: reason.into(),
     }
   }
 

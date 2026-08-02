@@ -327,7 +327,7 @@ impl BundleSource {
   /// [`LoadedDescriptor`] handles keep working; the next [`load_descriptor`]
   /// reloads from disk. Returns `true` if a cached descriptor was removed.
   pub fn unload_descriptor(&self, bundle_name: String) -> bool {
-    self.inner.unload_descriptor(&bundle_name)
+    self.inner.unload(&bundle_name)
   }
 }
 
@@ -348,7 +348,7 @@ impl BundleSource {
     &self,
     bundle_name: String,
   ) -> Result<Option<BundleSourceVersion>, crate::Error> {
-    let version = self.inner.load_version(&bundle_name).await?;
+    let version = self.inner.get_version(&bundle_name).await?;
     Ok(version.map(Into::into))
   }
 
@@ -430,7 +430,7 @@ impl BundleSource {
     &self,
     bundle_name: String,
   ) -> Result<Arc<LoadedDescriptor>, crate::Error> {
-    let inner = self.inner.load_descriptor(&bundle_name).await?;
+    let inner = self.inner.load(&bundle_name).await?;
     Ok(Arc::new(LoadedDescriptor { inner }))
   }
 
@@ -457,7 +457,7 @@ impl BundleSource {
   ) -> Result<Option<BundleManifestMetadata>, crate::Error> {
     let metadata = self
       .inner
-      .load_builtin_metadata(&bundle_name, &version)
+      .get_builtin_metadata(&bundle_name, &version)
       .await?
       .map(BundleManifestMetadata::from);
     Ok(metadata)
@@ -472,7 +472,7 @@ impl BundleSource {
   ) -> Result<Option<BundleManifestMetadata>, crate::Error> {
     let metadata = self
       .inner
-      .load_remote_metadata(&bundle_name, &version)
+      .get_remote_metadata(&bundle_name, &version)
       .await?
       .map(BundleManifestMetadata::from);
     Ok(metadata)

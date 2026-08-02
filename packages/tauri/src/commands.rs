@@ -19,7 +19,7 @@ pub(crate) async fn source_load_version<R: Runtime>(
   bundle_name: String,
 ) -> crate::Result<Option<BundleSourceVersion>> {
   let wvb = app.wvb();
-  let version = wvb.source().load_version(&bundle_name).await?;
+  let version = wvb.source().get_version(&bundle_name).await?;
   Ok(version)
 }
 
@@ -82,7 +82,7 @@ pub(crate) async fn source_load_builtin_metadata<R: Runtime>(
   let wvb = app.wvb();
   let metadata = wvb
     .source()
-    .load_builtin_metadata(&bundle_name, &version)
+    .get_builtin_metadata(&bundle_name, &version)
     .await?;
   Ok(metadata)
 }
@@ -96,7 +96,7 @@ pub(crate) async fn source_load_remote_metadata<R: Runtime>(
   let wvb = app.wvb();
   let metadata = wvb
     .source()
-    .load_remote_metadata(&bundle_name, &version)
+    .get_remote_metadata(&bundle_name, &version)
     .await?;
   Ok(metadata)
 }
@@ -107,7 +107,7 @@ pub(crate) async fn source_unload_descriptor<R: Runtime>(
   bundle_name: String,
 ) -> crate::Result<bool> {
   let wvb = app.wvb();
-  Ok(wvb.source().unload_descriptor(&bundle_name))
+  Ok(wvb.source().unload(&bundle_name))
 }
 
 #[command]

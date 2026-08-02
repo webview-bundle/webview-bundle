@@ -210,7 +210,7 @@ async fn loaded_descriptor_verifies_by_default() {
     .corrupt_builtin_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
   let source = system.source().get_source();
-  let descriptor = source.load_descriptor("app").await.unwrap();
+  let descriptor = source.load("app").await.unwrap();
   let err = descriptor.get_data(INDEX).await.unwrap_err();
   assert!(matches!(err, wvb::Error::ChecksumMismatch));
 }
@@ -234,7 +234,7 @@ async fn source_read_options_apply_to_loaded_descriptor() {
   let options = BundleSourceOptions::default()
     .data_read(DataReadOptions::default().checksum(ChecksumReadOptions::default().verify(true)));
   let source = system.source().get_source_with(options);
-  let descriptor = source.load_descriptor("app").await.unwrap();
+  let descriptor = source.load("app").await.unwrap();
   let err = descriptor.get_data(INDEX).await.unwrap_err();
   assert!(matches!(err, wvb::Error::ChecksumMismatch));
 }
@@ -254,7 +254,7 @@ async fn load_verifies_the_header_checksum() {
     .corrupt_builtin_bundle("app", "1.0.0", |data| data[13] ^= 0xff);
 
   let source = system.source().get_source();
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::InvalidHeaderChecksum));
 }
 
@@ -275,7 +275,7 @@ async fn load_verifies_the_index_checksum() {
     });
 
   let source = system.source().get_source();
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::InvalidIndexChecksum));
 }
 
@@ -299,7 +299,7 @@ async fn header_index_verification_can_be_turned_off() {
     )
     .index_read(IndexReadOptions::default().checksum(ChecksumReadOptions::default().verify(false)));
   let source = system.source().get_source_with(options);
-  source.load_descriptor("app").await.unwrap();
+  source.load("app").await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +328,7 @@ async fn load_detects_a_corrupted_remote_bundle() {
     .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Strict));
   let source = system.source().get_source_with(options);
 
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
 }
 
@@ -397,7 +397,7 @@ async fn check_mode_all_with_strict_policy_requires_builtin_integrity() {
   );
   let source = system.source().get_source_with(options);
 
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
 }
 
@@ -443,7 +443,7 @@ async fn integrity_check_defaults_to_only_remote_under_the_optional_policy() {
     .corrupt_remote_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
   let source = system.source().get_source();
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
 }
 
@@ -467,7 +467,7 @@ async fn a_remote_bundle_without_integrity_metadata_loads_by_default() {
     .corrupt_remote_bundle("app", "1.0.0", |data| data[offset] ^= 0xff);
 
   let source = Arc::new(system.source().get_source());
-  source.load_descriptor("app").await.unwrap();
+  source.load("app").await.unwrap();
 
   let protocol = BundleProtocol::new(source);
   let err = protocol
@@ -520,7 +520,7 @@ async fn load_rejects_a_tampered_bundle_whose_integrity_was_updated() {
     .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = system.source().get_source_with(options);
 
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
 }
 
@@ -551,13 +551,13 @@ async fn signature_verification_runs_independently_of_the_integrity_check() {
     .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Off))
     .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = system.source().get_source_with(options);
-  source.load_descriptor("app").await.unwrap();
+  source.load("app").await.unwrap();
 
   // Under the default (optional) policy the integrity check runs too and catches it.
   let options = BundleSourceOptions::default()
     .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = system.source().get_source_with(options);
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
 }
 
@@ -626,10 +626,10 @@ async fn a_bad_signature_fails_the_load_even_with_integrity_off() {
     .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = system.source().get_source_with(options);
 
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
   // A retry re-runs the check rather than caching the error as a loaded descriptor.
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
 }
 
@@ -653,7 +653,7 @@ async fn signature_verify_mode_all_reaches_builtin_bundles() {
       .verify_mode(BundleSourceVerifyMode::All),
   );
   let source = system.source().get_source_with(options);
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::SignatureVerifyFailed));
 }
 
@@ -673,7 +673,7 @@ async fn signature_verify_mode_only_remote_leaves_builtin_bundles_alone() {
   let options = BundleSourceOptions::default()
     .signature(BundleSourceSignatureOptions::default().verify(verifier()));
   let source = system.source().get_source_with(options);
-  source.load_descriptor("app").await.unwrap();
+  source.load("app").await.unwrap();
 }
 
 /// The updater verifies the signature on download independently of the integrity policy, so
@@ -746,6 +746,6 @@ async fn updater_installs_a_signed_but_mismatched_bundle_only_for_the_load_to_re
   updater.install("app", "2.0.0").await.unwrap();
 
   // But loading it re-checks integrity, and the advertised hash does not match the bytes.
-  let err = source.load_descriptor("app").await.unwrap_err();
+  let err = source.load("app").await.unwrap_err();
   assert!(matches!(err, wvb::Error::IntegrityVerifyFailed));
 }

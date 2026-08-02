@@ -101,7 +101,7 @@ impl Updater {
 
     let metadata = self
       .source
-      .load_remote_metadata(&bundle_name, &version)
+      .get_remote_metadata(&bundle_name, &version)
       .await?
       .ok_or_else(|| crate::Error::bundle_entry_not_exists(&bundle_name, &version))?;
 
@@ -129,7 +129,7 @@ impl Updater {
       .source
       .update_remote_version(&bundle_name, &version)
       .await?;
-    self.source.unload_descriptor(&bundle_name);
+    self.source.unload(&bundle_name);
     let _ = self.source.prune_remote_bundles(&bundle_name).await;
 
     Ok(())
@@ -144,7 +144,7 @@ impl Updater {
   }
 
   async fn to_update_info(&self, info: RemoteBundleInfo) -> crate::Result<BundleUpdateInfo> {
-    let local_version = self.source.load_version(&info.name).await?;
+    let local_version = self.source.get_version(&info.name).await?;
     let is_available = if let Some(ref local_ver) = local_version {
       local_ver.version != info.version
     } else {

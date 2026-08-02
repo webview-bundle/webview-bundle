@@ -56,11 +56,7 @@ async fn concurrent_installs_all_persist() {
     .remote_dir(&remote_dir)
     .build();
   for name in &names {
-    let version = reloaded
-      .load_version(name)
-      .await
-      .unwrap()
-      .map(|v| v.version);
+    let version = reloaded.get_version(name).await.unwrap().map(|v| v.version);
     assert_eq!(
       version,
       Some("1.0.0".to_string()),
@@ -95,7 +91,7 @@ async fn rewrite_active_bundle_no_torn_reads() {
   // The bundle + metadata we keep re-writing into the active version's path.
   let bundle = source.fetch_remote_bundle("app", "1.0.0").await.unwrap();
   let metadata = source
-    .load_remote_metadata("app", "1.0.0")
+    .get_remote_metadata("app", "1.0.0")
     .await
     .unwrap()
     .unwrap();
@@ -270,7 +266,7 @@ async fn concurrent_reload_no_partial_manifest() {
         for name in &names {
           // Must never fail with a manifest parse error, regardless of in-flight saves.
           reloaded
-            .load_version(name)
+            .get_version(name)
             .await
             .expect("fresh source observed a corrupt manifest");
         }

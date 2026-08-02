@@ -491,7 +491,7 @@ impl BundleSource {
     &self,
     bundle_name: String,
   ) -> crate::Result<Option<BundleSourceVersion>> {
-    let version = self.inner.load_version(&bundle_name).await?;
+    let version = self.inner.get_version(&bundle_name).await?;
     Ok(version.map(Into::into))
   }
 
@@ -656,7 +656,7 @@ impl BundleSource {
   ) -> crate::Result<Option<BundleManifestMetadata>> {
     let metadata = self
       .inner
-      .load_builtin_metadata(&bundle_name, &version)
+      .get_builtin_metadata(&bundle_name, &version)
       .await?
       .map(BundleManifestMetadata::from);
     Ok(metadata)
@@ -675,7 +675,7 @@ impl BundleSource {
   ) -> crate::Result<Option<BundleManifestMetadata>> {
     let metadata = self
       .inner
-      .load_remote_metadata(&bundle_name, &version)
+      .get_remote_metadata(&bundle_name, &version)
       .await?
       .map(BundleManifestMetadata::from);
     Ok(metadata)
@@ -731,7 +731,7 @@ impl BundleSource {
   /// ```
   #[napi]
   pub async fn load_descriptor(&self, bundle_name: String) -> crate::Result<LoadedDescriptor> {
-    let inner = self.inner.load_descriptor(&bundle_name).await?;
+    let inner = self.inner.load(&bundle_name).await?;
     Ok(LoadedDescriptor { inner })
   }
 
@@ -745,7 +745,7 @@ impl BundleSource {
   /// @returns {boolean} True if a cached descriptor was removed
   #[napi]
   pub fn unload_descriptor(&self, bundle_name: String) -> bool {
-    self.inner.unload_descriptor(&bundle_name)
+    self.inner.unload(&bundle_name)
   }
 
   /// Removes a single staged remote bundle version.

@@ -530,13 +530,14 @@ impl MockSource {
             .versions
             .insert(bundle.version().to_string(), bundle.metadata());
           if is_current {
-            entry.current_version = Some(bundle.version().to_string());
+            entry.current = Some(bundle.version().to_string());
           }
         })
         .or_insert_with(|| BundleManifestEntry {
           versions: HashMap::from([(bundle.version().to_string(), bundle.metadata())]),
-          current_version: is_current.then(|| bundle.version().to_string()),
-          previous_version: None,
+          current: is_current.then(|| bundle.version().to_string()),
+          previous: None,
+          staged: None,
         });
     }
     Some(manifest)

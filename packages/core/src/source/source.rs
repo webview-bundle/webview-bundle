@@ -2,9 +2,10 @@
 use crate::integrity::IntegrityPolicy;
 #[cfg(feature = "signature")]
 use crate::signature::SignatureVerify;
+use crate::source::utils::atomic_write_file;
 use crate::source::{
-  BundleManifest, BundleManifestMetadata, BundleSourceKind, BundleSourceOptions,
-  BundleSourceVersion, ListBundleManifestItem, ReadOnly, ReadWrite, utils,
+  BundleManifest, BundleManifestEntryItem, BundleManifestEntryItemStatus, BundleManifestMetadata,
+  BundleSourceKind, BundleSourceOptions, BundleSourceVersion, ReadOnly, ReadWrite, utils,
 };
 use crate::{
   AsyncBundleReader, AsyncReader, Bundle, BundleDescriptor, BundleReader, DataReadOptions,
@@ -14,9 +15,7 @@ use dashmap::DashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
 
 /// Builder for creating a `BundleSource`.
@@ -104,9 +103,15 @@ impl BundleSourceBuilder {
 #[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 #[non_exhaustive]
 pub struct ListBundleItem {
-  #[cfg_attr(feature = "_serde", serde(rename = "type"))]
-  pub kind: BundleSourceKind,
-  pub item: ListBundleManifestItem,
+  pub source: BundleSourceKind,
+  #[cfg_attr(feature = "_serde", serde(flatten))]
+  pub item: BundleManifestEntryItem,
+}
+
+impl ListBundleItem {
+  pub(crate) fn from(source: BundleSourceKind, item: BundleManifestEntryItem) -> Self {
+    Self { source, item }
+  }
 }
 
 /// A lazily-initialized descriptor cell, shared so concurrent loads single-flight.
@@ -118,11 +123,6 @@ pub struct BundleSource {
   builtin_manifest: BundleManifest<ReadOnly>,
   remote_dir: PathBuf,
   remote_manifest: BundleManifest<ReadWrite>,
-  // Each entry pairs the descriptor cell with the filepath it was loaded from.
-  // The filepath acts as a version fingerprint: when the active version swaps,
-  // `filepath()` resolves to a different path, so `load_descriptor` notices the
-  // stale entry and rebuilds. The returned `LoadedDescriptor` carries this same
-  // filepath, so its `reader()` always opens the file matching the descriptor.
   descriptors: DashMap<String, (PathBuf, DescriptorCell)>,
   options: BundleSourceOptions,
 }
@@ -195,42 +195,43 @@ impl std::ops::Deref for LoadedDescriptor {
   }
 }
 
-static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
-
 impl BundleSource {
   pub fn builder() -> BundleSourceBuilder {
     BundleSourceBuilder::new()
   }
 
+  pub fn options(&self) -> &BundleSourceOptions {
+    &self.options
+  }
+
   pub async fn list_bundles(&self) -> crate::Result<Vec<ListBundleItem>> {
-    let (builtin_entries, remote_entries) = tokio::try_join!(
-      self.builtin_manifest.list_entries(),
-      self.remote_manifest.list_entries()
-    )?;
-    let builtin_items = builtin_entries
-      .into_iter()
-      .map(|item| ListBundleItem {
-        kind: BundleSourceKind::Builtin,
-        item,
-      })
-      .collect::<Vec<_>>();
-    let remote_items = remote_entries
-      .into_iter()
-      .map(|item| ListBundleItem {
-        kind: BundleSourceKind::Remote,
-        item,
-      })
-      .collect::<Vec<_>>();
+    let (builtin_items, remote_items) =
+      tokio::try_join!(self.list_builtin_bundles(), self.list_remote_bundles(),)?;
     Ok([builtin_items, remote_items].concat())
   }
 
-  pub async fn load_version(
-    &self,
-    bundle_name: &str,
-  ) -> crate::Result<Option<BundleSourceVersion>> {
+  pub async fn list_builtin_bundles(&self) -> crate::Result<Vec<ListBundleItem>> {
+    let entries = self.builtin_manifest.list_entries().await?;
+    let items = entries
+      .into_iter()
+      .map(|item| ListBundleItem::from(BundleSourceKind::Builtin, item))
+      .collect::<Vec<_>>();
+    Ok(items)
+  }
+
+  pub async fn list_remote_bundles(&self) -> crate::Result<Vec<ListBundleItem>> {
+    let entries = self.remote_manifest.list_entries().await?;
+    let items = entries
+      .into_iter()
+      .map(|item| ListBundleItem::from(BundleSourceKind::Builtin, item))
+      .collect::<Vec<_>>();
+    Ok(items)
+  }
+
+  pub async fn get_version(&self, bundle_name: &str) -> crate::Result<Option<BundleSourceVersion>> {
     match self
       .remote_manifest
-      .load_current_version(bundle_name)
+      .get_current_version(bundle_name)
       .await?
     {
       Some(ver) => Ok(Some(BundleSourceVersion::remote(ver))),
@@ -238,7 +239,7 @@ impl BundleSource {
         // fallback to builtin version
         let builtin_version = self
           .builtin_manifest
-          .load_current_version(bundle_name)
+          .get_current_version(bundle_name)
           .await?
           .map(BundleSourceVersion::builtin);
         Ok(builtin_version)
@@ -249,7 +250,7 @@ impl BundleSource {
   pub async fn update_remote_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
     self
       .remote_manifest
-      .update_current_version(bundle_name, version)
+      .set_current_version(bundle_name, version)
       .await?;
     self.remote_manifest.save().await?;
     Ok(())
@@ -260,13 +261,9 @@ impl BundleSource {
     self.filepath_for(bundle_name, &ver)
   }
 
-  pub fn options(&self) -> &BundleSourceOptions {
-    &self.options
-  }
-
   async fn resolve_version(&self, bundle_name: &str) -> crate::Result<BundleSourceVersion> {
     self
-      .load_version(bundle_name)
+      .get_version(bundle_name)
       .await?
       .ok_or(crate::Error::BundleNotFound)
   }
@@ -298,13 +295,6 @@ impl BundleSource {
     }
   }
 
-  /// Verifies a bundle file against the integrity and signature recorded for it in the
-  /// manifest, as selected by [`BundleSourceOptions::integrity`] and
-  /// [`BundleSourceOptions::signature`].
-  ///
-  /// Returns the raw bytes when the integrity check read the file — the caller parses the
-  /// bundle from them rather than re-reading it — and `None` otherwise, leaving the caller
-  /// on its lazy read path.
   async fn verified_bytes(
     &self,
     filepath: &Path,
@@ -328,12 +318,12 @@ impl BundleSource {
       let metadata = match version.kind {
         BundleSourceKind::Builtin => {
           self
-            .load_builtin_metadata(bundle_name, &version.version)
+            .get_builtin_metadata(bundle_name, &version.version)
             .await?
         }
         BundleSourceKind::Remote => {
           self
-            .load_remote_metadata(bundle_name, &version.version)
+            .get_remote_metadata(bundle_name, &version.version)
             .await?
         }
       }
@@ -466,29 +456,29 @@ impl BundleSource {
     self.read_descriptor(&filepath, bundle_name, &version).await
   }
 
-  pub async fn load_builtin_metadata(
+  pub async fn get_builtin_metadata(
     &self,
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Option<BundleManifestMetadata>> {
     self
       .builtin_manifest
-      .load_metadata(bundle_name, version)
+      .get_entry_metadata(bundle_name, version)
       .await
   }
 
-  pub async fn load_remote_metadata(
+  pub async fn get_remote_metadata(
     &self,
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Option<BundleManifestMetadata>> {
     self
       .remote_manifest
-      .load_metadata(bundle_name, version)
+      .get_entry_metadata(bundle_name, version)
       .await
   }
 
-  pub async fn load_descriptor(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
+  pub async fn load(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
     let version = self.resolve_version(bundle_name).await?;
     let filepath = self.filepath_for(bundle_name, &version)?;
     let cell = match self.descriptors.entry(bundle_name.to_string()) {
@@ -529,7 +519,7 @@ impl BundleSource {
     }))
   }
 
-  pub fn unload_descriptor(&self, bundle_name: &str) -> bool {
+  pub fn unload(&self, bundle_name: &str) -> bool {
     self.descriptors.remove(bundle_name).is_some()
   }
 
@@ -552,11 +542,6 @@ impl BundleSource {
 
   /// Writes the raw bytes of a `.wvb` file to the remote directory and records it in the
   /// manifest.
-  ///
-  /// Prefer this over [`BundleSource::write_remote_bundle`] when the bytes are already at
-  /// hand (e.g. straight from a download): the integrity string in `metadata` covers those
-  /// exact bytes, and storing them verbatim — rather than re-serializing a parsed
-  /// [`Bundle`] — is what lets the file be verified again on every later load.
   pub async fn write_remote_bundle_data(
     &self,
     bundle_name: &str,
@@ -565,28 +550,7 @@ impl BundleSource {
     metadata: BundleManifestMetadata,
   ) -> crate::Result<()> {
     let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
-    if let Some(parent) = filepath.parent() {
-      let _ = tokio::fs::create_dir_all(parent).await;
-    }
-
-    // Write to a temp file then atomically rename into place.
-    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
-
-    let mut tmp = filepath.clone().into_os_string();
-    tmp.push(format!(".{seq}.tmp"));
-
-    let tmp = PathBuf::from(tmp);
-    let mut file = File::create(&tmp).await?;
-
-    file.write_all(data).await?;
-    file.flush().await?;
-    drop(file); // close the temp handle before rename (required on Windows)
-
-    if let Err(e) = tokio::fs::rename(&tmp, &filepath).await {
-      let _ = tokio::fs::remove_file(&tmp).await;
-      return Err(e.into());
-    }
-
+    atomic_write_file(&filepath, data).await?;
     self
       .remote_manifest
       .insert_entry(bundle_name, version, metadata)
@@ -601,40 +565,47 @@ impl BundleSource {
     &self,
     bundle_name: &str,
     version: &str,
+    force: Option<bool>,
   ) -> crate::Result<bool> {
     let removed = self
       .remote_manifest
-      .remove_entry(bundle_name, version)
+      .remove_entry(bundle_name, version, force)
       .await?;
     if removed {
-      let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
-      let _ = tokio::fs::remove_file(&filepath).await;
+      if let Ok(filepath) = self.get_remote_bundle_filepath(bundle_name, version) {
+        let _ = tokio::fs::remove_file(&filepath).await;
+      }
       self.remote_manifest.save().await?;
     }
     Ok(removed)
   }
 
-  pub async fn remote_retained_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
-    self.remote_manifest.retained_versions(bundle_name).await
+  pub async fn remove_remote_bundles(
+    &self,
+    items: Vec<BundleManifestEntryItem>,
+    force: Option<bool>,
+  ) -> crate::Result<Vec<BundleManifestEntryItem>> {
+    let removed = self.remote_manifest.remove_entries(items, force).await?;
+    if !removed.is_empty() {
+      self.remote_manifest.save().await?;
+    }
+
+    Ok(removed)
   }
 
-  /// Removes every staged remote version except the retained set ({current, previous}).
-  pub async fn prune_remote_bundles(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
-    let retained = self.remote_retained_versions(bundle_name).await?;
-    let all = self.remote_manifest.list_versions(bundle_name).await?;
-    let mut removed = vec![];
-    for version in all {
-      if retained.contains(&version) {
-        continue;
-      }
-      if self
-        .remove_remote_bundle(bundle_name, &version)
-        .await
-        .unwrap_or(false)
-      {
-        removed.push(version);
-      }
-    }
+  /// Remove orphan remote bundles which is not using so can free disk space.
+  pub async fn prune_remote_bundles(
+    &self,
+    bundle_name: &str,
+  ) -> crate::Result<Vec<BundleManifestEntryItem>> {
+    let items = self
+      .remote_manifest
+      .list_entries()
+      .await?
+      .into_iter()
+      .filter(|x| x.name == bundle_name && x.status == BundleManifestEntryItemStatus::Orphan)
+      .collect::<Vec<_>>();
+    let removed = self.remove_remote_bundles(items, None).await?;
     Ok(removed)
   }
 
@@ -644,7 +615,7 @@ impl BundleSource {
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<PathBuf> {
-    let filename = format!("{bundle_name}_{version}.{EXTENSION}");
+    let filename = format!("{version}.{EXTENSION}");
     let filepath = base_dir.join(bundle_name).join(filename);
     if !is_valid_path_component(bundle_name) || !is_valid_path_component(version) {
       return Err(crate::Error::invalid_filepath(filepath.to_string_lossy()));
@@ -653,8 +624,6 @@ impl BundleSource {
   }
 }
 
-/// Returns whether `value` is safe to use verbatim as a single filesystem path component on
-/// Windows, macOS, and Linux.
 fn is_valid_path_component(value: &str) -> bool {
   !value.is_empty()
     && value != "."
@@ -891,7 +860,7 @@ mod tests {
     for _i in 0..10 {
       let s = source.clone();
       let handle = tokio::spawn(async move {
-        let _ = s.load_descriptor("app.wvb").await;
+        let _ = s.load("app.wvb").await;
       });
       handles.push(handle);
     }
@@ -909,23 +878,20 @@ mod tests {
         .remote_dir(fixture.get_path("remote"))
         .build(),
     );
-    let m1 = source.load_descriptor("app").await.unwrap();
-    assert!(
-      source.unload_descriptor("app"),
-      "unload should remove existing entry"
-    );
-    let m2 = source.load_descriptor("app").await.unwrap();
+    let m1 = source.load("app").await.unwrap();
+    assert!(source.unload("app"), "unload should remove existing entry");
+    let m2 = source.load("app").await.unwrap();
     assert!(
       !Arc::ptr_eq(m1.descriptor(), m2.descriptor()),
       "after unload, reloading should produce a new descriptor"
     );
 
-    assert!(source.unload_descriptor("app"));
-    let m3 = source.load_descriptor("app").await.unwrap();
+    assert!(source.unload("app"));
+    let m3 = source.load("app").await.unwrap();
     assert!(!Arc::ptr_eq(m2.descriptor(), m3.descriptor()));
 
-    assert!(source.unload_descriptor("app"));
-    let m4 = source.load_descriptor("app").await.unwrap();
+    assert!(source.unload("app"));
+    let m4 = source.load("app").await.unwrap();
     assert!(!Arc::ptr_eq(m3.descriptor(), m4.descriptor()));
   }
 
@@ -948,7 +914,7 @@ mod tests {
     let mut set = JoinSet::new();
     for _i in 0..n {
       let s = source.clone();
-      set.spawn(async move { s.load_descriptor("app").await });
+      set.spawn(async move { s.load("app").await });
     }
     let mut initials = Vec::with_capacity(n);
     while let Some(res) = set.join_next().await {
@@ -969,7 +935,7 @@ mod tests {
       let before = barrier_before_unload.clone();
       before_set.spawn(async move {
         before.wait().await;
-        s.load_descriptor("app").await
+        s.load("app").await
       });
     }
     let mut after_set = JoinSet::new();
@@ -978,12 +944,12 @@ mod tests {
       let after = barrier_after_unload.clone();
       after_set.spawn(async move {
         after.wait().await;
-        s.load_descriptor("app").await
+        s.load("app").await
       });
     }
 
     barrier_before_unload.wait().await;
-    assert!(source.unload_descriptor("app"));
+    assert!(source.unload("app"));
     barrier_after_unload.wait().await;
 
     let mut before_jobs = Vec::with_capacity(n);

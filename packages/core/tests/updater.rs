@@ -438,7 +438,7 @@ async fn install_prunes_old_and_supports_rollback() {
   assert_eq!(retained, vec!["1.2.0".to_string(), "1.3.0".to_string()]);
   assert!(
     source
-      .load_remote_metadata("app", "1.1.0")
+      .get_remote_metadata("app", "1.1.0")
       .await
       .unwrap()
       .is_none()

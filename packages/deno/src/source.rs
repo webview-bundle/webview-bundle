@@ -338,7 +338,7 @@ pub unsafe extern "C" fn wvb_source_load_version(
     return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
-  match runtime().block_on(async move { source.load_version(&name).await }) {
+  match runtime().block_on(async move { source.get_version(&name).await }) {
     Ok(Some(v)) => ok_result(source_version_json(&v), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
     Err(e) => core_err(e),
@@ -441,7 +441,7 @@ pub unsafe extern "C" fn wvb_source_load_builtin_metadata(
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
-  match runtime().block_on(async move { source.load_builtin_metadata(&name, &version).await }) {
+  match runtime().block_on(async move { source.get_builtin_metadata(&name, &version).await }) {
     Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
     Err(e) => core_err(e),
@@ -461,7 +461,7 @@ pub unsafe extern "C" fn wvb_source_load_remote_metadata(
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
-  match runtime().block_on(async move { source.load_remote_metadata(&name, &version).await }) {
+  match runtime().block_on(async move { source.get_remote_metadata(&name, &version).await }) {
     Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
     Err(e) => core_err(e),
@@ -480,7 +480,7 @@ pub unsafe extern "C" fn wvb_source_unload_descriptor(
   };
   let name = unsafe { cstr(bundle_name) };
   ok_result(
-    serde_json::Value::Bool(source.inner.unload_descriptor(&name)),
+    serde_json::Value::Bool(source.inner.unload(&name)),
     Vec::new(),
   )
 }
@@ -638,7 +638,7 @@ pub unsafe extern "C" fn wvb_source_load_descriptor(
     return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
-  match runtime().block_on(async move { source.load_descriptor(&name).await }) {
+  match runtime().block_on(async move { source.load(&name).await }) {
     Ok(loaded) => ok_handle(Box::into_raw(Box::new(WvbLoadedDescriptor {
       inner: loaded,
     }))),
