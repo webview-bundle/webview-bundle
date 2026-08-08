@@ -1,4 +1,4 @@
-use crate::source::kind::BundleSourceKind;
+use crate::source::types::BundleSourceKind;
 
 /// Bundle version with source kind information.
 ///

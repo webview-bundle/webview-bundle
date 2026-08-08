@@ -102,7 +102,7 @@
 //! # #[cfg(all(feature = "remote", feature = "source"))]
 //! # async {
 //! use wvb::remote::Remote;
-//! use wvb::source::{BundleManifestMetadata, BundleSource};
+//! use wvb::source::{BundleManifestVersionData, BundleSource};
 //!
 //! let remote = Remote::builder()
 //!     .endpoint("https://updates.example.com")
@@ -121,7 +121,7 @@
 //!         "app",
 //!         &info.version,
 //!         &data,
-//!         BundleManifestMetadata {
+//!         BundleManifestVersionData {
 //!             etag: info.etag,
 //!             integrity: info.integrity,
 //!             signature: info.signature,
@@ -173,3 +173,4 @@ pub mod source;
 pub mod testing;
 #[cfg(feature = "updater")]
 pub mod updater;
+pub(crate) mod util;

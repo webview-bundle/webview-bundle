@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "async")]
 use tokio::io::AsyncWriteExt;
 
 pub fn normalize_path(base_dir: &Path, path: &Path) -> PathBuf {
@@ -9,6 +9,7 @@ pub fn normalize_path(base_dir: &Path, path: &Path) -> PathBuf {
   }
 }
 
+#[cfg(feature = "async")]
 pub async fn read_file_with_retry(path: &Path) -> std::io::Result<Vec<u8>> {
   let mut attempts = 0;
   loop {
@@ -27,14 +28,16 @@ pub async fn read_file_with_retry(path: &Path) -> std::io::Result<Vec<u8>> {
   }
 }
 
-static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "async")]
+static WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[cfg(feature = "async")]
 pub async fn atomic_write_file(filepath: &Path, data: &[u8]) -> std::io::Result<()> {
   if let Some(parent) = filepath.parent() {
     let _ = tokio::fs::create_dir_all(parent).await;
   }
 
-  let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+  let seq = WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
   let mut tmp = filepath.to_path_buf().into_os_string();
   tmp.push(format!(".{seq}.tmp"));
@@ -64,17 +67,18 @@ pub async fn atomic_write_file(filepath: &Path, data: &[u8]) -> std::io::Result<
   Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "async"))]
 async fn sync_dir(dir: &Path) {
   if let Ok(dir) = tokio::fs::File::open(dir).await {
     let _ = dir.sync_all().await;
   }
 }
 
-#[cfg(not(unix))]
+#[cfg(all(not(unix), feature = "async"))]
 async fn sync_dir(_dir: &Path) {}
 
-async fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+#[cfg(feature = "async")]
+pub async fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
   let mut attempts = 0;
   loop {
     match tokio::fs::rename(from, to).await {

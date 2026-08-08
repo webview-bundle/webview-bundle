@@ -51,8 +51,8 @@ pub struct BundleManifestMetadata {
   pub last_modified: Option<String>,
 }
 
-impl From<source::BundleManifestMetadata> for BundleManifestMetadata {
-  fn from(value: source::BundleManifestMetadata) -> Self {
+impl From<source::BundleManifestVersionData> for BundleManifestMetadata {
+  fn from(value: source::BundleManifestVersionData) -> Self {
     Self {
       etag: value.etag,
       integrity: value.integrity,
@@ -62,7 +62,7 @@ impl From<source::BundleManifestMetadata> for BundleManifestMetadata {
   }
 }
 
-impl From<BundleManifestMetadata> for source::BundleManifestMetadata {
+impl From<BundleManifestMetadata> for source::BundleManifestVersionData {
   fn from(value: BundleManifestMetadata) -> Self {
     Self {
       etag: value.etag,
@@ -89,7 +89,7 @@ impl From<source::ListBundleItem> for ListBundleItem {
       name: value.item.name,
       version: value.item.version,
       current: value.item.current,
-      metadata: value.item.metadata.into(),
+      metadata: value.item.data.into(),
     }
   }
 }

@@ -1,0 +1,216 @@
+use crate::remote::sfv::parse_string_dict;
+use std::collections::HashMap;
+use std::str::FromStr;
+
+/// Representation of bundle info from the remote server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+pub struct RemoteBundleInfo {
+  /// Bundle name
+  pub name: String,
+  /// Version of the bundle
+  pub version: String,
+  /// ETag from the remote server. Can be used to check if the bundle has been updated.
+  pub etag: Option<String>,
+  /// Integrity hash of the bundle.
+  pub integrity: Option<String>,
+  /// Signature of the bundle.
+  pub signature: Option<String>,
+  /// Last modified date from the remote server.
+  pub last_modified: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct RemoteGetUpdateOptions {
+  /// Optional etag value which got from previous update.
+  /// If this value is provided, it is used for the "if-none-match" header value.
+  pub etag: Option<String>,
+  /// Channel of this update.
+  pub channel: Option<String>,
+  /// The client requests the signature information to be used for verification.
+  ///
+  /// If the remote server holds signature information matching the request,
+  /// it returns the "wvb-tossplace-signature" header value in the response.
+  pub expect_signature: Option<RemoteExpectSignature>,
+}
+
+impl RemoteGetUpdateOptions {
+  pub fn etag(mut self, etag: impl Into<String>) -> Self {
+    self.etag = Some(etag.into());
+    self
+  }
+
+  pub fn channel(mut self, channel: impl Into<String>) -> Self {
+    self.channel = Some(channel.into());
+    self
+  }
+
+  pub fn expect_signature(mut self, expect: impl Into<RemoteExpectSignature>) -> Self {
+    self.expect_signature = Some(expect.into());
+    self
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+#[non_exhaustive]
+pub struct RemoteExpectSignature {
+  /// The signature key id for expecting to use.
+  pub key_id: String,
+  /// The signature algorithm for expecting to use.
+  pub alg: String,
+}
+
+impl RemoteExpectSignature {
+  pub fn new(key_id: impl Into<String>, alg: impl Into<String>) -> Self {
+    Self {
+      key_id: key_id.into(),
+      alg: alg.into(),
+    }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+pub struct RemoteUpdateResponse {
+  /// Update information which parsed from response body.
+  pub update: Update,
+  /// "etag" value received from server response.
+  pub etag: Option<String>,
+  /// Signature information for this update.
+  /// Client can verify the signature using the public key.
+  pub signature: Option<UpdateSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+pub struct Update {
+  /// The unique id of this update.
+  pub id: String,
+  /// The date and time at which the update was created.
+  /// The datetime should be formatted according to [ISO 8601].
+  ///
+  /// [ISO 8601]: https://en.wikipedia.org/wiki/ISO_8601
+  pub created_at: String,
+  /// The date and time at which the update should be expired.
+  /// After this expiration time, the client muse discard existing update info
+  /// and receive a new update.
+  ///
+  /// The datetime should be formatted according to [ISO 8601].
+  ///
+  /// [ISO 8601]: https://en.wikipedia.org/wiki/ISO_8601
+  pub expires_at: Option<String>,
+  /// This is managed internally by the library and uses a versioning scheme
+  /// distinct from the package version; it is utilized to ensure version compatibility
+  /// within the update model.
+  pub runtime_version: u8,
+  /// An array of bundle updates.
+  pub bundles: Vec<BundleUpdate>,
+  /// The metadata associated with an update.
+  /// Metadata should be a string-valued dictionary.
+  pub metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+pub struct BundleUpdate {
+  /// Name of the bundle.
+  pub name: String,
+  /// Version of the bundle.
+  pub version: String,
+  /// Optional download url which server defined.
+  /// If this not specified, client will download bundle with default url:
+  /// `GET /bundles/:name/:version` (`base_url` is used from the remote)
+  pub download_url: Option<String>,
+  /// Hash of the file to guarantee integrity.
+  pub integrity: Option<String>,
+  pub metadata: Option<HashMap<String, String>>,
+}
+
+/// Bundle download signature info
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+pub struct UpdateSignature {
+  pub key_id: String,
+  pub sig: String,
+  pub alg: String,
+}
+
+/// Parses the `wvb-signature` header, which is a [RFC 8941] dictionary.
+///
+/// [RFC 8941]: https://www.rfc-editor.org/rfc/rfc8941#name-dictionaries
+impl FromStr for UpdateSignature {
+  type Err = crate::Error;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    let mut dict = parse_string_dict(s).ok_or_else(|| {
+      crate::Error::bad_remote_response(format!("\"wvb-signature\" header is malformed: {s:?}"))
+    })?;
+    let key_id = dict.remove("key_id").ok_or_else(|| {
+      crate::Error::bad_remote_response(format!("\"wvb-signature\" header is missing \"key_id\""))
+    })?;
+    let alg = dict.remove("alg").ok_or_else(|| {
+      crate::Error::bad_remote_response("\"wvb-signature\" header is missing \"alg\"")
+    })?;
+    let sig = dict.remove("sig").ok_or_else(|| {
+      crate::Error::bad_remote_response("\"wvb-signature\" header is missing \"sig\"")
+    })?;
+    Ok(Self { key_id, sig, alg })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn parses_header() {
+    assert_eq!(
+      r#"key_id="somekey", alg="alg", sig="value""#.parse::<UpdateSignature>().unwrap(),
+      UpdateSignature {
+        key_id: "somekey".to_string(),
+        sig: "value".to_owned(),
+        alg: "alg".to_owned(),
+      }
+    );
+  }
+
+  #[test]
+  fn rejects_header_with_missing_member() {
+    let err = r#"key_id="somekey", alg="alg""#.parse::<UpdateSignature>().unwrap_err();
+    assert!(matches!(err, crate::Error::BadRemoteResponse(_)));
+
+    let err = r#"key_id="somekey", sig="value""#.parse::<UpdateSignature>().unwrap_err();
+    assert!(matches!(err, crate::Error::BadRemoteResponse(_)));
+
+    let err = r#"alg="alg", sig="value""#.parse::<UpdateSignature>().unwrap_err();
+    assert!(matches!(err, crate::Error::BadRemoteResponse(_)));
+  }
+
+  #[test]
+  fn rejects_malformed_header() {
+    let err = r#"alg=alg, sig=value"#.parse::<UpdateSignature>().unwrap_err();
+    assert!(matches!(err, crate::Error::BadRemoteResponse(_)));
+
+    let err = r#"keyId="somekey", alg="alg", sig="value""#.parse::<UpdateSignature>().unwrap_err();
+    assert!(matches!(err, crate::Error::BadRemoteResponse(_)));
+  }
+}
+
+/// Error string representation for remote operations.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+pub struct RemoteError {
+  /// Error message.
+  pub message: Option<String>,
+}

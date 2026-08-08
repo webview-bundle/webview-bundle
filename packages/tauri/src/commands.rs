@@ -1,7 +1,7 @@
 use crate::WebviewBundleExtra;
 use tauri::{AppHandle, Runtime, command};
 use wvb::remote::{ListRemoteBundleInfo, RemoteBundleInfo, RemoteFetchOptions};
-use wvb::source::{BundleManifestMetadata, BundleSourceVersion, ListBundleItem};
+use wvb::source::{BundleManifestVersionData, BundleSourceVersion, ListBundleItem};
 use wvb::updater::BundleUpdateInfo;
 
 #[command]
@@ -78,7 +78,7 @@ pub(crate) async fn source_load_builtin_metadata<R: Runtime>(
   app: AppHandle<R>,
   bundle_name: String,
   version: String,
-) -> crate::Result<Option<BundleManifestMetadata>> {
+) -> crate::Result<Option<BundleManifestVersionData>> {
   let wvb = app.wvb();
   let metadata = wvb
     .source()
@@ -92,7 +92,7 @@ pub(crate) async fn source_load_remote_metadata<R: Runtime>(
   app: AppHandle<R>,
   bundle_name: String,
   version: String,
-) -> crate::Result<Option<BundleManifestMetadata>> {
+) -> crate::Result<Option<BundleManifestVersionData>> {
   let wvb = app.wvb();
   let metadata = wvb
     .source()

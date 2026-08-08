@@ -2,11 +2,12 @@
 use crate::integrity::IntegrityPolicy;
 #[cfg(feature = "signature")]
 use crate::signature::SignatureVerify;
-use crate::source::utils::atomic_write_file;
+use crate::source::types::BundleSourceKind;
 use crate::source::{
-  BundleManifest, BundleManifestEntryItem, BundleManifestEntryItemStatus, BundleManifestMetadata,
-  BundleSourceKind, BundleSourceOptions, BundleSourceVersion, ReadOnly, ReadWrite, utils,
+  BundleManifest, BundleManifestEntryItem, BundleManifestEntryItemStatus,
+  BundleManifestVersionData, BundleSourceOptions, BundleSourceVersion, ReadOnly, ReadWrite,
 };
+use crate::util;
 use crate::{
   AsyncBundleReader, AsyncReader, Bundle, BundleDescriptor, BundleReader, DataReadOptions,
   EXTENSION, MANIFEST_FILENAME, Reader, Writer,
@@ -80,12 +81,12 @@ impl BundleSourceBuilder {
     let builtin_dir = self.builtin_dir;
     let builtin_manifest_filepath = self
       .builtin_manifest_filepath
-      .map(|x| utils::normalize_path(&builtin_dir, &x))
+      .map(|x| util::fs::normalize_path(&builtin_dir, &x))
       .unwrap_or(builtin_dir.join(MANIFEST_FILENAME));
     let remote_dir = self.remote_dir;
     let remote_manifest_filepath = self
       .remote_manifest_filepath
-      .map(|x| utils::normalize_path(&remote_dir, &x))
+      .map(|x| util::fs::normalize_path(&remote_dir, &x))
       .unwrap_or(remote_dir.join(MANIFEST_FILENAME));
     BundleSource {
       builtin_dir,
@@ -249,11 +250,36 @@ impl BundleSource {
 
   pub async fn update_remote_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
     self
-      .remote_manifest
-      .set_current_version(bundle_name, version)
-      .await?;
+      .update_remote_versions(&[(bundle_name.to_owned(), version.to_owned())])
+      .await
+  }
+
+  pub async fn update_remote_versions(&self, items: &[(String, String)]) -> crate::Result<()> {
+    if items.is_empty() {
+      return Ok(());
+    }
+    self.remote_manifest.set_current_versions(items).await?;
     self.remote_manifest.save().await?;
     Ok(())
+  }
+
+  pub async fn stage_remote_bundles(
+    &self,
+    items: &[(String, String, BundleManifestVersionData)],
+  ) -> crate::Result<()> {
+    if items.is_empty() {
+      return Ok(());
+    }
+    self.remote_manifest.insert_staged_entries(items).await?;
+    self.remote_manifest.save().await?;
+    Ok(())
+  }
+
+  pub async fn get_remote_staged_version(
+    &self,
+    bundle_name: &str,
+  ) -> crate::Result<Option<String>> {
+    self.remote_manifest.get_staged_version(bundle_name).await
   }
 
   pub async fn resolve_filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
@@ -460,10 +486,10 @@ impl BundleSource {
     &self,
     bundle_name: &str,
     version: &str,
-  ) -> crate::Result<Option<BundleManifestMetadata>> {
+  ) -> crate::Result<Option<BundleManifestVersionData>> {
     self
       .builtin_manifest
-      .get_entry_metadata(bundle_name, version)
+      .get_entry_data(bundle_name, version)
       .await
   }
 
@@ -471,10 +497,10 @@ impl BundleSource {
     &self,
     bundle_name: &str,
     version: &str,
-  ) -> crate::Result<Option<BundleManifestMetadata>> {
+  ) -> crate::Result<Option<BundleManifestVersionData>> {
     self
       .remote_manifest
-      .get_entry_metadata(bundle_name, version)
+      .get_entry_data(bundle_name, version)
       .await
   }
 
@@ -523,42 +549,6 @@ impl BundleSource {
     self.descriptors.remove(bundle_name).is_some()
   }
 
-  pub async fn write_remote_bundle(
-    &self,
-    bundle_name: &str,
-    version: &str,
-    bundle: &Bundle,
-    metadata: BundleManifestMetadata,
-  ) -> crate::Result<()> {
-    let mut data = vec![];
-    Writer::<Bundle>::write(
-      &mut crate::BundleWriter::new(Cursor::new(&mut data)),
-      bundle,
-    )?;
-    self
-      .write_remote_bundle_data(bundle_name, version, &data, metadata)
-      .await
-  }
-
-  /// Writes the raw bytes of a `.wvb` file to the remote directory and records it in the
-  /// manifest.
-  pub async fn write_remote_bundle_data(
-    &self,
-    bundle_name: &str,
-    version: &str,
-    data: &[u8],
-    metadata: BundleManifestMetadata,
-  ) -> crate::Result<()> {
-    let filepath = self.get_remote_bundle_filepath(bundle_name, version)?;
-    atomic_write_file(&filepath, data).await?;
-    self
-      .remote_manifest
-      .insert_entry(bundle_name, version, metadata)
-      .await?;
-    self.remote_manifest.save().await?;
-    Ok(())
-  }
-
   /// Removes a single staged remote bundle: drops its manifest entry and deletes its
   /// file from disk. Returns whether the entry existed.
   pub async fn remove_remote_bundle(
@@ -598,12 +588,24 @@ impl BundleSource {
     &self,
     bundle_name: &str,
   ) -> crate::Result<Vec<BundleManifestEntryItem>> {
+    let bundle_names = [bundle_name.to_owned()];
+    self.prune_remote_bundles_many(&bundle_names).await
+  }
+
+  /// Same as [`BundleSource::prune_remote_bundles`] for several bundles, using a single
+  /// manifest write.
+  pub async fn prune_remote_bundles_many(
+    &self,
+    bundle_names: &[String],
+  ) -> crate::Result<Vec<BundleManifestEntryItem>> {
     let items = self
       .remote_manifest
       .list_entries()
       .await?
       .into_iter()
-      .filter(|x| x.name == bundle_name && x.status == BundleManifestEntryItemStatus::Orphan)
+      .filter(|x| {
+        x.status == BundleManifestEntryItemStatus::Orphan && bundle_names.contains(&x.name)
+      })
       .collect::<Vec<_>>();
     let removed = self.remove_remote_bundles(items, None).await?;
     Ok(removed)

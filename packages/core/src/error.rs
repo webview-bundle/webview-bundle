@@ -1,81 +1,98 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ErrorCode {
-  Io,
-  Compress,
-  Decompress,
-  Encode,
-  Decode,
-  Http,
-  InvalidMagicNum,
-  InvalidVersion,
-  InvalidHeaderChecksum,
-  InvalidIndexChecksum,
-  ChecksumMismatch,
-  BundleNotFound,
-  BundleEntryNotExists,
-  BundleCannotBeRemoved,
-  InvalidFilepath,
-  SerdeJson,
-  CannotResolveProxyServer,
-  Reqwest,
-  InvalidRemoteUrl,
-  InvalidRemoteBundle,
-  RemoteBundleNotFound,
-  RemoteForbidden,
-  RemoteHttp,
-  InvalidRemoteConfig,
-  InvalidIntegrity,
-  IntegrityRequired,
-  IntegrityVerifyFailed,
-  InvalidSignature,
-  InvalidSigningKey,
-  SignatureSignFailed,
-  InvalidVerifyingKey,
-  SignatureNotExists,
-  SignatureVerifyFailed,
-  Generic,
+/// Declares [`ErrorCode`] and its mapping from [`Error`] out of one table, so a new error
+/// variant cannot be added without also giving it a wire code.
+macro_rules! error_codes {
+  (
+    $(
+      $(#[cfg($cfg:meta)])?
+      $variant:ident => $wire:literal,
+    )*
+  ) => {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ErrorCode {
+      $($variant,)*
+    }
+
+    impl ErrorCode {
+      /// The wire form of the code, as exposed to every binding.
+      pub const fn as_str(&self) -> &'static str {
+        match self {
+          $(Self::$variant => $wire,)*
+        }
+      }
+    }
+
+    impl Error {
+      pub fn code(&self) -> ErrorCode {
+        match self {
+          $(
+            $(#[cfg($cfg)])?
+            Self::$variant { .. } => ErrorCode::$variant,
+          )*
+        }
+      }
+    }
+  };
 }
 
-impl ErrorCode {
-  /// The wire form of the code, as exposed to every binding.
-  pub const fn as_str(&self) -> &'static str {
-    match self {
-      Self::Io => "io",
-      Self::Compress => "compress",
-      Self::Decompress => "decompress",
-      Self::Encode => "encode",
-      Self::Decode => "decode",
-      Self::Http => "http",
-      Self::InvalidMagicNum => "invalid_magic_num",
-      Self::InvalidVersion => "invalid_version",
-      Self::InvalidHeaderChecksum => "invalid_header_checksum",
-      Self::InvalidIndexChecksum => "invalid_index_checksum",
-      Self::ChecksumMismatch => "checksum_mismatch",
-      Self::BundleNotFound => "bundle_not_found",
-      Self::BundleEntryNotExists => "bundle_entry_not_exists",
-      Self::BundleCannotBeRemoved => "bundle_cannot_be_removed",
-      Self::InvalidFilepath => "invalid_filepath",
-      Self::SerdeJson => "serde_json",
-      Self::CannotResolveProxyServer => "cannot_resolve_proxy_server",
-      Self::Reqwest => "reqwest",
-      Self::InvalidRemoteUrl => "invalid_remote_url",
-      Self::InvalidRemoteBundle => "invalid_remote_bundle",
-      Self::RemoteBundleNotFound => "remote_bundle_not_found",
-      Self::RemoteForbidden => "remote_forbidden",
-      Self::RemoteHttp => "remote_http",
-      Self::InvalidRemoteConfig => "invalid_remote_config",
-      Self::InvalidIntegrity => "invalid_integrity",
-      Self::IntegrityRequired => "integrity_required",
-      Self::IntegrityVerifyFailed => "integrity_verify_failed",
-      Self::InvalidSignature => "invalid_signature",
-      Self::InvalidSigningKey => "invalid_signing_key",
-      Self::SignatureSignFailed => "signature_sign_failed",
-      Self::InvalidVerifyingKey => "invalid_verifying_key",
-      Self::SignatureNotExists => "signature_not_exists",
-      Self::SignatureVerifyFailed => "signature_verify_failed",
-      Self::Generic => "generic",
-    }
-  }
+error_codes! {
+  Io => "io",
+  Compress => "compress",
+  Decompress => "decompress",
+  Encode => "encode",
+  Decode => "decode",
+  Http => "http",
+  HttpInvalidUri => "http_invalid_uri",
+  Cancelled => "cancelled",
+  Timeout => "timeout",
+  InvalidMagicNum => "invalid_magic_num",
+  InvalidVersion => "invalid_version",
+  InvalidHeaderChecksum => "invalid_header_checksum",
+  InvalidIndexChecksum => "invalid_index_checksum",
+  ChecksumMismatch => "checksum_mismatch",
+  BundleNotFound => "bundle_not_found",
+  #[cfg(feature = "source")]
+  BundleEntryNotExists => "bundle_entry_not_exists",
+  #[cfg(feature = "source")]
+  BundleCannotBeRemoved => "bundle_cannot_be_removed",
+  #[cfg(feature = "source")]
+  InvalidFilepath => "invalid_filepath",
+  #[cfg(feature = "_serde")]
+  SerdeJson => "serde_json",
+  #[cfg(feature = "protocol-proxy")]
+  CannotResolveProxyServer => "cannot_resolve_proxy_server",
+  #[cfg(feature = "_reqwest")]
+  HttpClient => "http_client",
+  #[cfg(feature = "remote")]
+  RemoteHttp => "remote_http",
+  #[cfg(feature = "remote")]
+  BadRemoteRequest => "bad_remote_request",
+  #[cfg(feature = "remote")]
+  BadRemoteResponse => "bad_remote_response",
+  #[cfg(feature = "remote")]
+  InvalidRemoteConfig => "invalid_remote_config",
+  #[cfg(feature = "updater")]
+  InvalidUpdaterConfig => "invalid_updater_config",
+  #[cfg(feature = "updater")]
+  InstallAtomicFailed => "install_atomic_failed",
+  #[cfg(feature = "integrity")]
+  InvalidIntegrity => "invalid_integrity",
+  #[cfg(feature = "integrity")]
+  IntegrityRequired => "integrity_required",
+  #[cfg(feature = "integrity")]
+  IntegrityVerifyFailed => "integrity_verify_failed",
+  #[cfg(feature = "signature")]
+  InvalidSignature => "invalid_signature",
+  #[cfg(feature = "signature")]
+  InvalidSigningKey => "invalid_signing_key",
+  #[cfg(feature = "signature")]
+  SignatureSignFailed => "signature_sign_failed",
+  #[cfg(feature = "signature")]
+  InvalidVerifyingKey => "invalid_verifying_key",
+  #[cfg(feature = "signature")]
+  SignatureNotExists => "signature_not_exists",
+  #[cfg(feature = "signature")]
+  SignatureVerifyFailed => "signature_verify_failed",
+  Generic => "generic",
 }
 
 impl std::fmt::Display for ErrorCode {
@@ -106,6 +123,12 @@ pub enum Error {
   },
   #[error("http error: {0}")]
   Http(#[from] http::Error),
+  #[error("http invalid uri: {0}")]
+  HttpInvalidUri(#[from] http::uri::InvalidUri),
+  #[error("cancelled")]
+  Cancelled,
+  #[error("timeout")]
+  Timeout,
   #[error("invalid magic number")]
   InvalidMagicNum,
   #[error("invalid version format")]
@@ -140,29 +163,32 @@ pub enum Error {
   #[error("cannot resolve proxy server")]
   CannotResolveProxyServer,
   #[cfg(feature = "_reqwest")]
-  #[error("reqwest error: {0}")]
-  Reqwest(#[from] reqwest::Error),
+  #[error("http client error: {0}")]
+  HttpClient(#[from] reqwest::Error),
   #[cfg(feature = "remote")]
-  #[error("invalid remote url: {0}")]
-  InvalidRemoteUrl(#[from] http::uri::InvalidUri),
-  #[cfg(feature = "remote")]
-  #[error("invalid remote bundle: {0}")]
-  InvalidRemoteBundle(String),
-  #[cfg(feature = "remote")]
-  #[error("remote bundle not found")]
-  RemoteBundleNotFound,
-  #[cfg(feature = "remote")]
-  #[error("remote forbidden")]
-  RemoteForbidden,
-  #[cfg(feature = "remote")]
-  #[error("remote http error with status {status}")]
+  #[error("remote http error with status {status}: {}", .message.as_deref().unwrap_or("unknown"))]
   RemoteHttp {
     status: u16,
     message: Option<String>,
   },
   #[cfg(feature = "remote")]
+  #[error("bad remote request: {0}")]
+  BadRemoteRequest(String),
+  #[cfg(feature = "remote")]
+  #[error("bad remote response: {0}")]
+  BadRemoteResponse(String),
+  #[cfg(feature = "remote")]
   #[error("invalid remote config: {0}")]
   InvalidRemoteConfig(String),
+  #[cfg(feature = "updater")]
+  #[error("invalid updater config: {0}")]
+  InvalidUpdaterConfig(String),
+  #[cfg(feature = "updater")]
+  #[error("install failed atomically (bundle_name: {bundle_name}, version: {version})")]
+  InstallAtomicFailed {
+    bundle_name: String,
+    version: String,
+  },
   #[cfg(feature = "integrity")]
   #[error("invalid integrity: {0}")]
   InvalidIntegrity(String),
@@ -195,66 +221,6 @@ pub enum Error {
 }
 
 impl Error {
-  pub fn code(&self) -> ErrorCode {
-    match self {
-      Self::Io(_) => ErrorCode::Io,
-      Self::Compress(_) => ErrorCode::Compress,
-      Self::Decompress(_) => ErrorCode::Decompress,
-      Self::Encode { .. } => ErrorCode::Encode,
-      Self::Decode { .. } => ErrorCode::Decode,
-      Self::Http(_) => ErrorCode::Http,
-      Self::InvalidMagicNum => ErrorCode::InvalidMagicNum,
-      Self::InvalidVersion => ErrorCode::InvalidVersion,
-      Self::InvalidHeaderChecksum => ErrorCode::InvalidHeaderChecksum,
-      Self::InvalidIndexChecksum => ErrorCode::InvalidIndexChecksum,
-      Self::ChecksumMismatch => ErrorCode::ChecksumMismatch,
-      Self::BundleNotFound => ErrorCode::BundleNotFound,
-      #[cfg(feature = "source")]
-      Self::BundleEntryNotExists { .. } => ErrorCode::BundleEntryNotExists,
-      #[cfg(feature = "source")]
-      Self::BundleCannotBeRemoved { .. } => ErrorCode::BundleCannotBeRemoved,
-      #[cfg(feature = "source")]
-      Self::InvalidFilepath(_) => ErrorCode::InvalidFilepath,
-      #[cfg(feature = "_serde")]
-      Self::SerdeJson(_) => ErrorCode::SerdeJson,
-      #[cfg(feature = "protocol-proxy")]
-      Self::CannotResolveProxyServer => ErrorCode::CannotResolveProxyServer,
-      #[cfg(feature = "_reqwest")]
-      Self::Reqwest(_) => ErrorCode::Reqwest,
-      #[cfg(feature = "remote")]
-      Self::InvalidRemoteUrl(_) => ErrorCode::InvalidRemoteUrl,
-      #[cfg(feature = "remote")]
-      Self::InvalidRemoteBundle(_) => ErrorCode::InvalidRemoteBundle,
-      #[cfg(feature = "remote")]
-      Self::RemoteBundleNotFound => ErrorCode::RemoteBundleNotFound,
-      #[cfg(feature = "remote")]
-      Self::RemoteForbidden => ErrorCode::RemoteForbidden,
-      #[cfg(feature = "remote")]
-      Self::RemoteHttp { .. } => ErrorCode::RemoteHttp,
-      #[cfg(feature = "remote")]
-      Self::InvalidRemoteConfig(_) => ErrorCode::InvalidRemoteConfig,
-      #[cfg(feature = "integrity")]
-      Self::InvalidIntegrity(_) => ErrorCode::InvalidIntegrity,
-      #[cfg(feature = "integrity")]
-      Self::IntegrityRequired => ErrorCode::IntegrityRequired,
-      #[cfg(feature = "integrity")]
-      Self::IntegrityVerifyFailed => ErrorCode::IntegrityVerifyFailed,
-      #[cfg(feature = "signature")]
-      Self::InvalidSignature => ErrorCode::InvalidSignature,
-      #[cfg(feature = "signature")]
-      Self::InvalidSigningKey(_) => ErrorCode::InvalidSigningKey,
-      #[cfg(feature = "signature")]
-      Self::SignatureSignFailed(_) => ErrorCode::SignatureSignFailed,
-      #[cfg(feature = "signature")]
-      Self::InvalidVerifyingKey(_) => ErrorCode::InvalidVerifyingKey,
-      #[cfg(feature = "signature")]
-      Self::SignatureNotExists => ErrorCode::SignatureNotExists,
-      #[cfg(feature = "signature")]
-      Self::SignatureVerifyFailed => ErrorCode::SignatureVerifyFailed,
-      Self::Generic(_) => ErrorCode::Generic,
-    }
-  }
-
   #[cfg(feature = "source")]
   pub(crate) fn bundle_entry_not_exists(
     bundle_name: impl Into<String>,
@@ -288,15 +254,36 @@ impl Error {
   }
 
   #[cfg(feature = "remote")]
-  pub(crate) fn invalid_remote_bundle(message: impl Into<String>) -> Self {
-    Self::InvalidRemoteBundle(message.into())
-  }
-
-  #[cfg(feature = "remote")]
   pub(crate) fn remote_http(status: http::StatusCode, message: Option<impl Into<String>>) -> Self {
     Self::RemoteHttp {
       status: status.as_u16(),
       message: message.map(|x| x.into()),
+    }
+  }
+
+  #[cfg(feature = "remote")]
+  pub(crate) fn bad_remote_request(message: impl Into<String>) -> Self {
+    Self::BadRemoteRequest(message.into())
+  }
+
+  #[cfg(feature = "remote")]
+  pub(crate) fn bad_remote_response(message: impl Into<String>) -> Self {
+    Self::BadRemoteResponse(message.into())
+  }
+
+  #[cfg(feature = "updater")]
+  pub(crate) fn invalid_updater_config(message: impl Into<String>) -> Self {
+    Self::InvalidUpdaterConfig(message.into())
+  }
+
+  #[cfg(feature = "updater")]
+  pub(crate) fn install_atomic_failed(
+    bundle_name: impl Into<String>,
+    version: impl Into<String>,
+  ) -> Self {
+    Self::InstallAtomicFailed {
+      bundle_name: bundle_name.into(),
+      version: version.into(),
     }
   }
 

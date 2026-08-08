@@ -1,30 +1,31 @@
+use crate::remote::streaming::stream_to_file;
 use crate::remote::{
-  HttpOptions, ListRemoteBundleInfo, RemoteBundleInfo, RemoteError, RemoteFetchOptions,
-  RemoteOptions,
+  HttpOptions, RemoteConfig, RemoteError, RemoteGetUpdateOptions, RemoteUpdateResponse, Update,
+  UpdateSignature,
 };
-use crate::{Bundle, BundleReader, Reader};
-use futures_util::StreamExt;
-use http::{StatusCode, header, uri::Uri};
-use std::io::Cursor;
+use crate::util::cancellation::Cancellation;
+use http::StatusCode;
+use reqwest::header;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 
 #[derive(Default, Clone)]
 pub struct RemoteBuilder {
-  options: RemoteOptions,
+  config: RemoteConfig,
 }
 
 impl RemoteBuilder {
   #[must_use]
-  /// Set the base url of the remote server where bundles are hosted.
-  pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
-    self.options.endpoint = endpoint.into();
+  /// Set the base url of the remote server
+  pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
+    self.config.base_url = base_url.into();
     self
   }
 
   /// Set HTTP client options.
   pub fn http(mut self, http: HttpOptions) -> Self {
-    self.options.http = Some(http);
+    self.config.http = Some(http);
     self
   }
 
@@ -33,31 +34,35 @@ impl RemoteBuilder {
   where
     F: Fn(u64, Option<u64>, String) + Send + Sync + 'static,
   {
-    self.options.on_download = Some(Arc::new(on_download));
+    self.config.on_download = Some(Arc::new(on_download));
     self
   }
 
   /// Build the remote client with the configured options.
   pub fn build(self) -> crate::Result<Remote> {
-    if self.options.endpoint.is_empty() {
-      return Err(crate::Error::invalid_remote_config("endpoint is empty"));
+    if self.config.base_url.is_empty() {
+      return Err(crate::Error::invalid_remote_config(
+        "\"base_url\" is required",
+      ));
     }
-    // Apply HTTP options unconditionally (defaulting when unset) so the default request
-    // timeout is always in effect, even when the caller passes no `HttpOptions`.
-    let http_options = self.options.http.clone().unwrap_or_default();
+    if http::uri::Uri::from_str(&self.config.base_url).is_err() {
+      return Err(crate::Error::invalid_remote_config(
+        "\"base_url\" is invalid",
+      ));
+    }
+    let http_options = self.config.http.clone().unwrap_or_default();
     let client_builder = http_options.apply(reqwest::ClientBuilder::new());
     let client = client_builder.build()?;
     Ok(Remote {
-      options: self.options,
+      config: self.config,
       client,
     })
   }
 }
 
-/// Remote client for using with remote bundles.
 #[derive(Clone)]
 pub struct Remote {
-  options: RemoteOptions,
+  pub(crate) config: RemoteConfig,
   client: reqwest::Client,
 }
 
@@ -66,170 +71,590 @@ impl Remote {
     RemoteBuilder::default()
   }
 
-  /// `GET /bundles` : List bundles from remote
-  pub async fn list_bundles(
+  /// Gets update information for the remote server.
+  pub async fn get_update(
     &self,
-    options: Option<RemoteFetchOptions>,
-  ) -> crate::Result<Vec<ListRemoteBundleInfo>> {
-    let endpoint = self.endpoint(
-      "/bundles",
-      options
-        .and_then(|x| x.channel)
-        .map(|x| vec![("channel", x)]),
-    )?;
-    let resp = self.client.get(endpoint).send().await?;
-    match resp.status().is_success() {
-      true => Ok(resp.json::<Vec<ListRemoteBundleInfo>>().await?),
-      false => Err(self.parse_err(resp).await),
+    options: Option<RemoteGetUpdateOptions>,
+  ) -> crate::Result<Option<RemoteUpdateResponse>> {
+    let endpoint = format!(
+      "{}/update",
+      self
+        .config
+        .base_url
+        .strip_suffix('/')
+        .unwrap_or(&self.config.base_url)
+    );
+    let mut req = self
+      .client
+      .get(endpoint)
+      .header(header::ACCEPT, "application/json")
+      .header(
+        header::HeaderName::from_static("wvb-update-protocol-version"),
+        "1",
+      )
+      .header(header::HeaderName::from_static("wvb-runtime-version"), "1");
+
+    if let Some(options) = options {
+      if let Some(etag) = options.etag {
+        req = req.header(header::IF_NONE_MATCH, etag);
+      }
+      if let Some(channel) = options.channel {
+        req = req.header(
+          header::HeaderName::from_static("wvb-update-channel"),
+          channel,
+        );
+      }
+      if let Some(expect_signature) = options.expect_signature {
+        let value = format!(
+          "key_id=\"{}\", alg=\"{}\"",
+          expect_signature.key_id, expect_signature.alg
+        );
+        req = req.header(
+          header::HeaderName::from_static("wvb-expect-signature"),
+          value,
+        );
+      }
     }
+
+    let resp = req.send().await?;
+    if !resp.status().is_success() {
+      if resp.status() == StatusCode::NOT_MODIFIED {
+        return Ok(None);
+      }
+      return Err(self.parse_err(resp).await);
+    }
+
+    let etag = resp
+      .headers()
+      .get(header::ETAG)
+      .map(|x| {
+        x.to_str()
+          .map_err(|_| crate::Error::bad_remote_response("\"etag\" header is invalid format"))
+      })
+      .transpose()?
+      .map(|x| x.to_string());
+    let signature = match resp
+      .headers()
+      .get(header::HeaderName::from_static("wvb-signature"))
+    {
+      Some(value) => {
+        let value = value.to_str().map_err(|_| {
+          crate::Error::bad_remote_response("\"wvb-signature\" header is invalid format")
+        })?;
+        Some(value.parse::<UpdateSignature>()?)
+      }
+      None => None,
+    };
+
+    let update = resp.json::<Update>().await?;
+    let update_resp = RemoteUpdateResponse {
+      update,
+      etag,
+      signature,
+    };
+
+    Ok(Some(update_resp))
   }
 
-  /// `HEAD /bundles/:name` : Get bundle metadata info
-  pub async fn get_current_info(
-    &self,
-    bundle_name: &str,
-    options: Option<RemoteFetchOptions>,
-  ) -> crate::Result<RemoteBundleInfo> {
-    let endpoint = self.endpoint(
-      format!("/bundles/{bundle_name}"),
-      options
-        .and_then(|x| x.channel)
-        .map(|x| vec![("channel", x)]),
-    )?;
-    let resp = self.client.head(endpoint).send().await?;
-    match resp.status().is_success() {
-      true => Ok(self.parse_info(&resp)?),
-      false => Err(self.parse_err(resp).await),
-    }
-  }
-
-  /// GET /bundles/:name
+  /// Download bundle into given file path.
   pub async fn download(
     &self,
-    bundle_name: &str,
-    channel: Option<&String>,
-  ) -> crate::Result<(RemoteBundleInfo, Bundle, Vec<u8>)> {
-    self
-      .download_inner(format!("/bundles/{bundle_name}"), channel)
-      .await
+    url: impl Into<String>,
+    filepath: &Path,
+    cancellation: Option<Cancellation>,
+  ) -> crate::Result<()> {
+    let cancellation = cancellation.unwrap_or_default();
+
+    let resp = cancellation
+      .run_until_cancelled(self.client.get(url.into()).send())
+      .await??;
+
+    if !resp.status().is_success() {
+      return Err(self.parse_err(resp).await);
+    }
+
+    stream_to_file(
+      resp,
+      filepath,
+      Some(cancellation),
+      self.config.on_download.clone(),
+    )
+    .await?;
+
+    Ok(())
   }
 
-  /// GET /bundles/:name/:version
-  pub async fn download_version(
-    &self,
-    bundle_name: &str,
-    version: &str,
-  ) -> crate::Result<(RemoteBundleInfo, Bundle, Vec<u8>)> {
-    self
-      .download_inner(format!("/bundles/{bundle_name}/{version}"), None)
-      .await
-  }
-
-  fn endpoint(
-    &self,
-    path: impl Into<String>,
-    query: Option<Vec<(impl Into<String>, impl Into<String>)>>,
-  ) -> crate::Result<String> {
-    let endpoint = self
-      .options
-      .endpoint
-      .strip_suffix('/')
-      .unwrap_or(&self.options.endpoint);
-    let p = path.into().trim_matches('/').to_string();
-    let q = query
-      .map(|x| {
-        x.into_iter()
-          .map(|(k, v)| {
-            format!(
-              "{}={}",
-              urlencoding::encode(&k.into()),
-              urlencoding::encode(&v.into())
-            )
-          })
-          .collect::<Vec<_>>()
-          .join("&")
-      })
-      .map(|qs| format!("?{}", qs))
-      .unwrap_or_default();
-    let input = format!("{}/{}{}", endpoint, p, q);
-    let uri = Uri::from_str(&input).map_err(crate::Error::InvalidRemoteUrl)?;
-    Ok(uri.to_string())
-  }
-
-  fn parse_info(&self, resp: &reqwest::Response) -> crate::Result<RemoteBundleInfo> {
-    let headers = resp.headers();
-    let name = get_header_value(headers, "webview-bundle-name").ok_or(
-      crate::Error::invalid_remote_bundle("\"webview-bundle-name\" header is missing"),
-    )?;
-    let version = get_header_value(headers, "webview-bundle-version").ok_or(
-      crate::Error::invalid_remote_bundle("\"webview-bundle-version\" header is missing"),
-    )?;
-    let etag = get_header_value(headers, header::ETAG);
-    let last_modified = get_header_value(headers, header::LAST_MODIFIED);
-    let integrity = get_header_value(headers, "webview-bundle-integrity");
-    let signature = get_header_value(headers, "webview-bundle-signature");
-    Ok(RemoteBundleInfo {
-      name,
-      version,
-      etag,
-      integrity,
-      signature,
-      last_modified,
-    })
+  pub(crate) fn default_download_url(&self, bundle_name: &str, version: &str) -> String {
+    format!("{}/bundles/{bundle_name}/{version}", self.config.base_url)
   }
 
   async fn parse_err(&self, resp: reqwest::Response) -> crate::Error {
     let status = resp.status();
-    if status == StatusCode::FORBIDDEN {
-      return crate::Error::RemoteForbidden;
-    } else if status == StatusCode::NOT_FOUND {
-      return crate::Error::RemoteBundleNotFound;
-    }
-    let message = resp
-      .json::<RemoteError>()
-      .await
-      .map(|x| x.message)
-      .unwrap_or_default();
-    crate::Error::remote_http(status, message)
-  }
-
-  async fn download_inner(
-    &self,
-    path: String,
-    channel: Option<&String>,
-  ) -> crate::Result<(RemoteBundleInfo, Bundle, Vec<u8>)> {
-    let endpoint = self.endpoint(path, channel.map(|x| vec![("channel", x)]))?;
-    let resp = self.client.get(&endpoint).send().await?;
-    if !resp.status().is_success() {
-      return Err(self.parse_err(resp).await);
-    }
-    let info = self.parse_info(&resp)?;
-    let total_size = resp.content_length();
-    let mut stream = resp.bytes_stream();
-    let mut downloaded_bytes: u64 = 0;
-    let mut data = match total_size {
-      Some(size) => Vec::with_capacity(size as usize),
-      None => Vec::new(),
+    let message = match resp.text().await {
+      Ok(text) => serde_json::from_str::<RemoteError>(&text)
+        .ok()
+        .and_then(|x| x.message)
+        .or_else(|| {
+          let text = text.trim();
+          (!text.is_empty()).then(|| text.to_owned())
+        }),
+      Err(_) => None,
     };
-    while let Some(chunk_result) = stream.next().await {
-      let chunk = chunk_result?;
-      data.append(&mut chunk.to_vec());
-      downloaded_bytes += chunk.len() as u64;
-      if let Some(on_download) = &self.options.on_download {
-        on_download(downloaded_bytes, total_size, endpoint.to_owned());
-      }
-    }
-    let mut reader = Cursor::new(&data);
-    let bundle = Reader::<Bundle>::read(&mut BundleReader::new(&mut reader))?;
-    Ok((info, bundle, data))
+    crate::Error::remote_http(status, message)
   }
 }
 
-fn get_header_value<K>(headers: &header::HeaderMap, key: K) -> Option<String>
-where
-  K: header::AsHeaderName,
-{
-  headers
-    .get(key)
-    .map(|x| String::from_utf8_lossy(x.as_bytes()).to_string())
+#[cfg(all(test, feature = "testing"))]
+mod tests {
+  use super::*;
+  use crate::ErrorCode;
+  use crate::remote::{BundleUpdate, RemoteExpectSignature};
+  use crate::testing::TempDir;
+  use httpmock::{HttpMockRequest, HttpMockResponse, MockServer};
+  use std::collections::HashMap;
+  use std::io::{Read, Write};
+  use std::net::TcpListener;
+  use std::sync::Mutex;
+
+  const UPDATE_BODY: &str = r#"{"id":"u1","createdAt":"2026-08-08T00:00:00Z","runtimeVersion":1,"bundles":[{"name":"app","version":"1.2.3","downloadUrl":"https://cdn.example.com/app.wvb","hash":"sha256-abc"}],"metadata":{"channel":"stable"}}"#;
+
+  type Request = (String, String, Vec<(String, String)>);
+  type Captured = Arc<Mutex<Vec<Request>>>;
+  type Progress = Arc<Mutex<Vec<(u64, Option<u64>)>>>;
+
+  fn mock_server(
+    status: u16,
+    headers: Vec<(&str, &str)>,
+    body: impl Into<Vec<u8>>,
+  ) -> (MockServer, Captured) {
+    let server = MockServer::start();
+    let captured: Captured = Arc::new(Mutex::new(vec![]));
+    let sink = Arc::clone(&captured);
+    let headers = headers
+      .into_iter()
+      .map(|(name, value)| (name.to_owned(), value.to_owned()))
+      .collect::<Vec<_>>();
+    let body = body.into();
+
+    server.mock(|when, then| {
+      when.any_request();
+      then.respond_with(move |req: &HttpMockRequest| {
+        sink.lock().unwrap().push((
+          req.method_str().to_owned(),
+          req.uri().path().to_owned(),
+          req.headers_vec().clone(),
+        ));
+        HttpMockResponse::builder()
+          .status(status)
+          .headers(headers.clone())
+          .body(body.clone())
+          .build()
+      });
+    });
+
+    (server, captured)
+  }
+
+  fn raw_server(response: Vec<u8>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+      let (mut stream, _) = listener.accept().unwrap();
+      let mut head = vec![];
+      let mut buf = [0u8; 1024];
+      while !head.windows(4).any(|x| x == b"\r\n\r\n") {
+        match stream.read(&mut buf) {
+          Ok(0) | Err(_) => break,
+          Ok(read) => head.extend_from_slice(&buf[..read]),
+        }
+      }
+      let _ = stream.write_all(&response);
+      let _ = stream.flush();
+    });
+    format!("http://{addr}")
+  }
+
+  fn remote(base_url: impl Into<String>) -> Remote {
+    Remote::builder().base_url(base_url).build().unwrap()
+  }
+
+  fn remote_with_progress(base_url: impl Into<String>) -> (Remote, Progress) {
+    let progress: Progress = Arc::new(Mutex::new(vec![]));
+    let sink = Arc::clone(&progress);
+    let remote = Remote::builder()
+      .base_url(base_url)
+      .on_download(move |downloaded, total, _| sink.lock().unwrap().push((downloaded, total)))
+      .build()
+      .unwrap();
+    (remote, progress)
+  }
+
+  fn options() -> RemoteGetUpdateOptions {
+    RemoteGetUpdateOptions {
+      etag: None,
+      channel: None,
+      expect_signature: None,
+    }
+  }
+
+  fn captured_requests(captured: &Captured) -> Vec<Request> {
+    captured.lock().unwrap().clone()
+  }
+
+  fn header_of<'a>(request: &'a Request, name: &str) -> Option<&'a str> {
+    request
+      .2
+      .iter()
+      .find(|(key, _)| key.eq_ignore_ascii_case(name))
+      .map(|(_, value)| value.as_str())
+  }
+
+  #[track_caller]
+  fn remote_http(err: crate::Error) -> (u16, Option<String>) {
+    match err {
+      crate::Error::RemoteHttp { status, message } => (status, message),
+      _ => panic!("expected remote http error, got {err:?}"),
+    }
+  }
+
+  #[track_caller]
+  fn bad_remote_response(err: crate::Error) -> String {
+    match err {
+      crate::Error::BadRemoteResponse(message) => message,
+      _ => panic!("expected bad remote response error, got {err:?}"),
+    }
+  }
+
+  fn expected_update() -> Update {
+    Update {
+      id: "u1".to_owned(),
+      created_at: "2026-08-08T00:00:00Z".to_owned(),
+      expires_at: None,
+      runtime_version: 1,
+      bundles: vec![BundleUpdate {
+        name: "app".to_owned(),
+        version: "1.2.3".to_owned(),
+        download_url: Some("https://cdn.example.com/app.wvb".to_owned()),
+        integrity: Some("sha256-abc".to_owned()),
+      }],
+      metadata: HashMap::from([("channel".to_owned(), "stable".to_owned())]),
+    }
+  }
+
+  fn expected_update_resp() -> RemoteUpdateResponse {
+    RemoteUpdateResponse {
+      update: expected_update(),
+      etag: None,
+      signature: None,
+    }
+  }
+
+  #[tokio::test]
+  async fn requests_update_endpoint() {
+    let (server, captured) = mock_server(200, vec![], UPDATE_BODY);
+
+    remote(server.base_url()).get_update(None).await.unwrap();
+
+    let requests = captured_requests(&captured);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "GET");
+    assert_eq!(requests[0].1, "/update");
+    assert_eq!(header_of(&requests[0], "accept"), Some("application/json"));
+    assert_eq!(
+      header_of(&requests[0], "wvb-update-protocol-version"),
+      Some("1")
+    );
+    assert_eq!(header_of(&requests[0], "wvb-runtime-version"), Some("1"));
+    assert_eq!(header_of(&requests[0], "if-none-match"), None);
+    assert_eq!(header_of(&requests[0], "wvb-update-channel"), None);
+    assert_eq!(header_of(&requests[0], "wvb-expect-signature"), None);
+  }
+
+  #[tokio::test]
+  async fn resolves_endpoint_from_base_url() {
+    let (server, captured) = mock_server(200, vec![], UPDATE_BODY);
+
+    remote(format!("{}/", server.base_url()))
+      .get_update(None)
+      .await
+      .unwrap();
+    remote(format!("{}/api", server.base_url()))
+      .get_update(None)
+      .await
+      .unwrap();
+    remote(format!("{}/api/", server.base_url()))
+      .get_update(None)
+      .await
+      .unwrap();
+
+    let requests = captured_requests(&captured);
+    assert_eq!(
+      requests.iter().map(|x| x.1.as_str()).collect::<Vec<_>>(),
+      vec!["/update", "/api/update", "/api/update"]
+    );
+  }
+
+  #[tokio::test]
+  async fn sends_optional_headers() {
+    let (server, captured) = mock_server(200, vec![], UPDATE_BODY);
+    let options = RemoteGetUpdateOptions::default()
+      .etag("etag-1")
+      .channel("beta")
+      .expect_signature(RemoteExpectSignature::new("default", "ed25519"));
+
+    remote(server.base_url())
+      .get_update(Some(options))
+      .await
+      .unwrap();
+
+    let requests = captured_requests(&captured);
+    assert_eq!(header_of(&requests[0], "if-none-match"), Some("\"etag-1\""));
+    assert_eq!(header_of(&requests[0], "wvb-update-channel"), Some("beta"));
+    assert_eq!(
+      header_of(&requests[0], "wvb-expect-signature"),
+      Some("key_id=\"kid\", alg=\"ed25519\"")
+    );
+  }
+
+  #[tokio::test]
+  async fn parses_update() {
+    let (server, _) = mock_server(200, vec![], UPDATE_BODY);
+
+    let update = remote(server.base_url()).get_update(None).await.unwrap();
+
+    assert_eq!(update, Some(expected_update_resp()));
+  }
+
+  #[tokio::test]
+  async fn parses_signature_header() {
+    let (server, _) = mock_server(
+      200,
+      vec![(
+        "wvb-signature",
+        "key_id=\"default\", alg=\"ed25519\", sig=\"c2ln\"",
+      )],
+      UPDATE_BODY,
+    );
+
+    let options = RemoteGetUpdateOptions::default()
+      .expect_signature(RemoteExpectSignature::new("default", "ed25519"));
+    let update = remote(server.base_url())
+      .get_update(Some(options))
+      .await
+      .unwrap()
+      .unwrap();
+
+    assert_eq!(
+      update.signature,
+      Some(UpdateSignature {
+        key_id: "default".to_owned(),
+        sig: "c2ln".to_owned(),
+        alg: "ed25519".to_owned(),
+      })
+    );
+  }
+
+  #[tokio::test]
+  async fn rejects_malformed_signature_header_before_body() {
+    let (server, _) = mock_server(200, vec![("wvb-signature", "garbage")], "not json");
+
+    let err = remote(server.base_url())
+      .get_update(None)
+      .await
+      .unwrap_err();
+
+    let message = bad_remote_response(err);
+    assert!(message.contains("malformed"), "{message}");
+  }
+
+  #[tokio::test]
+  async fn rejects_non_ascii_signature_header() {
+    let mut response = b"HTTP/1.1 200 OK\r\nconnection: close\r\nwvb-signature: ".to_vec();
+    response.extend_from_slice(&[0xc3, 0x28]);
+    response
+      .extend_from_slice(format!("\r\ncontent-length: {}\r\n\r\n", UPDATE_BODY.len()).as_bytes());
+    response.extend_from_slice(UPDATE_BODY.as_bytes());
+
+    let err = remote(raw_server(response))
+      .get_update(None)
+      .await
+      .unwrap_err();
+
+    let message = bad_remote_response(err);
+    assert!(message.contains("invalid"), "{message}");
+  }
+
+  #[tokio::test]
+  async fn returns_none_when_not_modified() {
+    let (server, _) = mock_server(304, vec![], "");
+
+    let update = remote(server.base_url()).get_update(None).await.unwrap();
+
+    assert_eq!(update, None);
+  }
+
+  #[tokio::test]
+  async fn errors_on_invalid_body() {
+    let (server, _) = mock_server(200, vec![], "not json");
+
+    let err = remote(server.base_url())
+      .get_update(None)
+      .await
+      .unwrap_err();
+
+    match err {
+      crate::Error::HttpClient(err) => assert!(err.is_decode(), "{err:?}"),
+      _ => panic!("expected http client error, got {err:?}"),
+    }
+  }
+
+  #[tokio::test]
+  async fn reads_error_message_from_json_body() {
+    let (server, _) = mock_server(
+      500,
+      vec![("content-type", "application/json")],
+      r#"{"message":"boom"}"#,
+    );
+
+    let err = remote(server.base_url())
+      .get_update(None)
+      .await
+      .unwrap_err();
+
+    assert_eq!(remote_http(err), (500, Some("boom".to_owned())));
+  }
+
+  #[tokio::test]
+  async fn falls_back_to_body_text_for_error_message() {
+    let text = {
+      let (server, _) = mock_server(400, vec![], "  boom  ");
+      remote(server.base_url())
+        .get_update(None)
+        .await
+        .unwrap_err()
+    };
+    assert_eq!(remote_http(text), (400, Some("boom".to_owned())));
+
+    let json_without_message = {
+      let (server, _) = mock_server(
+        400,
+        vec![("content-type", "application/json")],
+        r#"{"error":"nope"}"#,
+      );
+      remote(server.base_url())
+        .get_update(None)
+        .await
+        .unwrap_err()
+    };
+    assert_eq!(
+      remote_http(json_without_message),
+      (400, Some(r#"{"error":"nope"}"#.to_owned()))
+    );
+  }
+
+  #[tokio::test]
+  async fn downloads_to_file() {
+    let (server, captured) = mock_server(200, vec![], b"bundle data".to_vec());
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("app.wvb");
+
+    remote(server.base_url())
+      .download(server.url("/app.wvb"), &filepath, None)
+      .await
+      .unwrap();
+
+    assert_eq!(tokio::fs::read(&filepath).await.unwrap(), b"bundle data");
+    let requests = captured_requests(&captured);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, "GET");
+    assert_eq!(requests[0].1, "/app.wvb");
+  }
+
+  #[tokio::test]
+  async fn downloads_without_update_headers() {
+    let (server, captured) = mock_server(200, vec![], b"bundle data".to_vec());
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("app.wvb");
+
+    remote(server.base_url())
+      .download(server.url("/app.wvb"), &filepath, None)
+      .await
+      .unwrap();
+
+    let requests = captured_requests(&captured);
+    assert!(header_of(&requests[0], "host").is_some());
+    assert!(
+      requests[0]
+        .2
+        .iter()
+        .all(|(key, _)| !key.starts_with("wvb-")),
+      "{:?}",
+      requests[0].2
+    );
+    assert_ne!(header_of(&requests[0], "accept"), Some("application/json"));
+  }
+
+  #[tokio::test]
+  async fn downloads_from_url_outside_base_url() {
+    let (server, _) = mock_server(200, vec![], b"bundle data".to_vec());
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("app.wvb");
+
+    remote("http://127.0.0.1:1")
+      .download(server.url("/app.wvb"), &filepath, None)
+      .await
+      .unwrap();
+
+    assert_eq!(tokio::fs::read(&filepath).await.unwrap(), b"bundle data");
+  }
+
+  #[tokio::test]
+  async fn download_errors_on_failed_status() {
+    let (server, _) = mock_server(404, vec![], r#"{"message":"missing"}"#);
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("nested").join("app.wvb");
+
+    let err = remote(server.base_url())
+      .download(server.url("/app.wvb"), &filepath, None)
+      .await
+      .unwrap_err();
+
+    assert_eq!(remote_http(err), (404, Some("missing".to_owned())));
+    assert!(!filepath.exists());
+    assert!(!filepath.parent().unwrap().exists());
+  }
+
+  #[tokio::test]
+  async fn reports_download_progress() {
+    let (server, _) = mock_server(200, vec![], b"bundle data".to_vec());
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("app.wvb");
+    let (remote, progress) = remote_with_progress(server.base_url());
+
+    remote
+      .download(server.url("/app.wvb"), &filepath, None)
+      .await
+      .unwrap();
+
+    let progress = progress.lock().unwrap().clone();
+    assert!(!progress.is_empty());
+    assert!(progress.iter().all(|(_, total)| *total == Some(11)));
+    assert_eq!(progress.last().unwrap().0, 11);
+  }
+
+  #[tokio::test]
+  async fn download_cancelled_already() {
+    let (server, _) = mock_server(200, vec![], b"bundle data".to_vec());
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("app.wvb");
+    let cancellation = Cancellation::new();
+    cancellation.cancel();
+
+    let err = remote(server.base_url())
+      .download(server.url("/app.wvb"), &filepath, Some(cancellation))
+      .await
+      .unwrap_err();
+
+    assert_eq!(err.code(), ErrorCode::Cancelled);
+  }
 }

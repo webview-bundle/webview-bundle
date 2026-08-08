@@ -1,9 +1,6 @@
 use reqwest::header::HeaderMap;
 
-/// Default total request timeout (milliseconds) applied when `HttpOptions::timeout` is
-/// not set. Bounds an otherwise-unbounded download: without it a stalled transfer would
-/// hang forever and keep holding the updater's per-bundle transaction lock. Override
-/// with [`HttpOptions::timeout`].
+/// Default total request timeout (milliseconds)
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 120_000;
 
 #[derive(Debug, Clone, Default)]

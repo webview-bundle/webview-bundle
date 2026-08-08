@@ -1,6 +1,6 @@
 use crate::remote::Remote;
 use crate::source::{
-  BundleManifestData, BundleManifestEntry, BundleManifestMetadata, BundleSource,
+  BundleManifestData, BundleManifestEntry, BundleManifestVersionData, BundleSource,
   BundleSourceOptions,
 };
 use crate::testing::TempDir;
@@ -221,8 +221,8 @@ impl MockBundle {
     data
   }
 
-  pub fn metadata(&self) -> BundleManifestMetadata {
-    BundleManifestMetadata {
+  pub fn metadata(&self) -> BundleManifestVersionData {
+    BundleManifestVersionData {
       etag: self.etag.to_owned(),
       integrity: self.integrity.to_owned(),
       signature: self.signature.to_owned(),
@@ -530,14 +530,14 @@ impl MockSource {
             .versions
             .insert(bundle.version().to_string(), bundle.metadata());
           if is_current {
-            entry.current = Some(bundle.version().to_string());
+            entry.current_version = Some(bundle.version().to_string());
           }
         })
         .or_insert_with(|| BundleManifestEntry {
           versions: HashMap::from([(bundle.version().to_string(), bundle.metadata())]),
-          current: is_current.then(|| bundle.version().to_string()),
-          previous: None,
-          staged: None,
+          current_version: is_current.then(|| bundle.version().to_string()),
+          previous_version: None,
+          staged_version: None,
         });
     }
     Some(manifest)
@@ -586,7 +586,7 @@ impl MockRemote {
 
   pub fn get_remote(&self) -> Remote {
     Remote::builder()
-      .endpoint(self.server_url())
+      .base_url(self.server_url())
       .build()
       .unwrap()
   }

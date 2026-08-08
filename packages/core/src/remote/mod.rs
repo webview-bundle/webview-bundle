@@ -1,78 +1,37 @@
-//! HTTP client for downloading bundles from a remote server.
-//!
-//! The remote module implements the client side of the bundle HTTP protocol,
-//! allowing applications to:
-//!
-//! - List available bundles on a server
-//! - Fetch bundle metadata (version, integrity, signature)
-//! - Download specific bundle versions
-//! - Verify bundle integrity before installation
-//!
-//! ## HTTP API Endpoints
-//!
-//! - `GET /bundles` - List all available bundles
-//! - `HEAD /bundles/{name}` - Get bundle metadata without downloading
-//! - `GET /bundles/{name}` - Download the current version of a bundle
-//! - `GET /bundles/{name}/{version}` - Download a specific version
+//! HTTP client for get updates or downloading bundles from a remote server.
 //!
 //! ## Example
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "remote", feature = "source"))]
-//! # async {
 //! use wvb::remote::Remote;
-//! use wvb::source::{BundleManifestMetadata, BundleSource};
 //!
 //! let remote = Remote::builder()
-//!     .endpoint("https://updates.example.com")
-//!     .build()
-//!     .unwrap();
-//! let source = BundleSource::builder()
-//!     .remote_dir("./remote")
-//!     .build();
+//!   .base_url("https://my-update-server.com")
+//!   .build()
+//!   .unwrap();
 //!
-//! // List available bundles
-//! let bundles = remote.list_bundles(None).await.unwrap();
+//! // Get update
+//! let update = remote.get_update(None).await.unwrap();
 //!
-//! // Get bundle info without downloading it
-//! let info = remote.get_current_info("app", None).await.unwrap();
-//! println!("Latest version: {}", info.version);
-//!
-//! // Download and install
-//! let (info, _bundle, data) = remote.download("app", None).await.unwrap();
-//! source
-//!     .write_remote_bundle_data(
-//!         "app",
-//!         &info.version,
-//!         &data,
-//!         BundleManifestMetadata {
-//!             etag: info.etag,
-//!             integrity: info.integrity,
-//!             signature: info.signature,
-//!             last_modified: info.last_modified,
-//!         },
-//!     )
-//!     .await
-//!     .unwrap();
-//! source.update_remote_version("app", &info.version).await.unwrap();
-//! # };
+//! // Download bundle
+//! remote.download(
+//!   "https://my-bundle-cdn.com/bundles/<some_unique_key>",
+//!   "/tmp/dir/to/download/bundle/my_bundle.wvb",
+//! None,
+//! ).await.unwrap();
 //! ```
-//!
-//! ## Headers
-//!
-//! Bundle metadata is communicated via HTTP headers:
-//!
-//! - `Webview-Bundle-Name`: Bundle identifier
-//! - `Webview-Bundle-Version`: Version string
-//! - `Webview-Bundle-Integrity`: Optional integrity hash for verification
-//! - `Webview-Bundle-Signature`: Optional digital signature
 
-mod dto;
+mod config;
 mod http;
-mod options;
 mod remote;
+mod sfv;
+mod streaming;
+mod tmp;
+mod types;
 
-pub use dto::*;
+pub use tokio_util::sync::CancellationToken;
+
+pub use config::*;
 pub use http::*;
-pub use options::*;
 pub use remote::*;
+pub use types::*;

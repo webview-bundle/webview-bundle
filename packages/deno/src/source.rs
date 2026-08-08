@@ -57,8 +57,8 @@ pub struct BundleManifestMetadata {
   pub last_modified: Option<String>,
 }
 
-impl From<&source::BundleManifestMetadata> for BundleManifestMetadata {
-  fn from(m: &source::BundleManifestMetadata) -> Self {
+impl From<&source::BundleManifestVersionData> for BundleManifestMetadata {
+  fn from(m: &source::BundleManifestVersionData) -> Self {
     Self {
       etag: m.etag.clone(),
       integrity: m.integrity.clone(),
@@ -106,7 +106,7 @@ impl From<&source::ListBundleItem> for ListBundleItem {
       name: it.item.name.clone(),
       version: it.item.version.clone(),
       current: it.item.current,
-      metadata: (&it.item.metadata).into(),
+      metadata: (&it.item.data).into(),
     }
   }
 }
@@ -299,7 +299,7 @@ pub unsafe extern "C" fn wvb_source_free(handle: *mut WvbSource) {
   }
 }
 
-fn manifest_metadata_json(m: &source::BundleManifestMetadata) -> serde_json::Value {
+fn manifest_metadata_json(m: &source::BundleManifestVersionData) -> serde_json::Value {
   wire_json(BundleManifestMetadata::from(m))
 }
 
@@ -670,8 +670,8 @@ pub unsafe extern "C" fn wvb_source_write_remote_bundle_data(
   let version = unsafe { cstr(version) };
   let bytes = unsafe { owned_bytes(data, data_len) };
   let metadata_raw = unsafe { cstr(metadata_json) };
-  let metadata: source::BundleManifestMetadata = if metadata_raw.is_empty() {
-    source::BundleManifestMetadata::default()
+  let metadata: source::BundleManifestVersionData = if metadata_raw.is_empty() {
+    source::BundleManifestVersionData::default()
   } else {
     match serde_json::from_str(&metadata_raw) {
       Ok(metadata) => metadata,

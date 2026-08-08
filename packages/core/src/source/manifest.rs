@@ -1,4 +1,4 @@
-use crate::source::utils::{atomic_write_file, read_file_with_retry};
+use crate::util;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
@@ -18,37 +18,35 @@ pub enum BundleManifestVersion {
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct BundleManifestMetadata {
-  pub etag: Option<String>,
+pub struct BundleManifestVersionData {
   pub integrity: Option<String>,
-  pub signature: Option<String>,
-  pub last_modified: Option<String>,
+  pub metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
 pub struct BundleManifestEntry {
-  pub versions: HashMap<String, BundleManifestMetadata>,
+  pub versions: HashMap<String, BundleManifestVersionData>,
   /// The current version, or `None` when versions are present on disk but none has
   /// been activated yet.
   #[cfg_attr(
     feature = "_serde",
     serde(default, skip_serializing_if = "Option::is_none")
   )]
-  pub current: Option<String>,
+  pub current_version: Option<String>,
   /// The previous version that was recorded before the current version changed.
   #[cfg_attr(
     feature = "_serde",
     serde(default, skip_serializing_if = "Option::is_none")
   )]
-  pub previous: Option<String>,
+  pub previous_version: Option<String>,
   /// The staged version that has been downloaded from remote.
   #[cfg_attr(
     feature = "_serde",
     serde(default, skip_serializing_if = "Option::is_none")
   )]
-  pub staged: Option<String>,
+  pub staged_version: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -72,15 +70,15 @@ pub enum BundleManifestEntryItemStatus {
 
 impl BundleManifestEntryItemStatus {
   pub(crate) fn from(entry: &BundleManifestEntry, version: &str) -> Self {
-    if let Some(current_version) = entry.current.as_deref()
+    if let Some(current_version) = entry.current_version.as_deref()
       && current_version == version
     {
       BundleManifestEntryItemStatus::Current
-    } else if let Some(previous_version) = entry.previous.as_deref()
+    } else if let Some(previous_version) = entry.previous_version.as_deref()
       && previous_version == version
     {
       BundleManifestEntryItemStatus::Previous
-    } else if let Some(staged_version) = entry.staged.as_deref()
+    } else if let Some(staged_version) = entry.staged_version.as_deref()
       && staged_version == version
     {
       BundleManifestEntryItemStatus::Staged
@@ -98,7 +96,7 @@ pub struct BundleManifestEntryItem {
   pub name: String,
   pub version: String,
   pub status: BundleManifestEntryItemStatus,
-  pub metadata: BundleManifestMetadata,
+  pub data: BundleManifestVersionData,
 }
 
 pub trait BundleManifestMode: Send + Sync + 'static {}
@@ -133,15 +131,15 @@ where
   }
 
   pub async fn list_entries(&self) -> crate::Result<Vec<BundleManifestEntryItem>> {
-    let data = self.load().await?.read().await;
+    let manifest = self.load().await?.read().await;
     let mut items = vec![];
-    for (bundle_name, entry) in data.entries.iter() {
-      for (version, metadata) in entry.versions.iter() {
+    for (bundle_name, entry) in manifest.entries.iter() {
+      for (version, data) in entry.versions.iter() {
         let item = BundleManifestEntryItem {
           name: bundle_name.to_string(),
           version: version.to_string(),
           status: BundleManifestEntryItemStatus::from(entry, version),
-          metadata: metadata.clone(),
+          data: data.clone(),
         };
         items.push(item);
       }
@@ -150,47 +148,37 @@ where
   }
 
   pub async fn contains_entry(&self, bundle_name: &str, version: &str) -> crate::Result<bool> {
-    let data = self.load().await?.read().await;
-    if let Some(entry) = data.entries.get(bundle_name) {
+    let manifest = self.load().await?.read().await;
+    if let Some(entry) = manifest.entries.get(bundle_name) {
       return Ok(entry.versions.contains_key(version));
     }
     Ok(false)
   }
 
-  pub async fn list_versions(&self, bundle_name: &str) -> crate::Result<Vec<String>> {
-    let data = self.load().await?.read().await;
-    let versions = data
-      .entries
-      .get(bundle_name)
-      .map(|entry| entry.versions.keys().cloned().collect())
-      .unwrap_or_default();
-    Ok(versions)
-  }
-
   pub async fn get_current_version(&self, bundle_name: &str) -> crate::Result<Option<String>> {
-    let data = self.load().await?.read().await;
-    let version = data
+    let manifest = self.load().await?.read().await;
+    let version = manifest
       .entries
       .get(bundle_name)
-      .and_then(|x| x.current.to_owned());
+      .and_then(|x| x.current_version.to_owned());
     Ok(version)
   }
 
   pub async fn get_previous_version(&self, bundle_name: &str) -> crate::Result<Option<String>> {
-    let data = self.load().await?.read().await;
-    let version = data
+    let manifest = self.load().await?.read().await;
+    let version = manifest
       .entries
       .get(bundle_name)
-      .and_then(|x| x.previous.to_owned());
+      .and_then(|x| x.previous_version.to_owned());
     Ok(version)
   }
 
   pub async fn get_staged_version(&self, bundle_name: &str) -> crate::Result<Option<String>> {
-    let data = self.load().await?.read().await;
-    let version = data
+    let manifest = self.load().await?.read().await;
+    let version = manifest
       .entries
       .get(bundle_name)
-      .and_then(|x| x.staged.to_owned());
+      .and_then(|x| x.staged_version.to_owned());
     Ok(version)
   }
 
@@ -199,33 +187,33 @@ where
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Option<BundleManifestEntryItemStatus>> {
-    let data = self.load().await?.read().await;
-    let status = data
+    let manifest = self.load().await?.read().await;
+    let status = manifest
       .entries
       .get(bundle_name)
       .map(|entry| BundleManifestEntryItemStatus::from(entry, version));
     Ok(status)
   }
 
-  pub async fn get_entry_metadata(
+  pub async fn get_entry_data(
     &self,
     bundle_name: &str,
     version: &str,
-  ) -> crate::Result<Option<BundleManifestMetadata>> {
-    let data = self.load().await?.read().await;
-    let metadata = data
+  ) -> crate::Result<Option<BundleManifestVersionData>> {
+    let manifest = self.load().await?.read().await;
+    let data = manifest
       .entries
       .get(bundle_name)
       .and_then(|entry| entry.versions.get(version))
       .cloned();
-    Ok(metadata)
+    Ok(data)
   }
 
   async fn load(&self) -> crate::Result<&RwLock<BundleManifestData>> {
     let data = self
       .data
       .get_or_try_init(|| async {
-        let raw = match read_file_with_retry(&self.filepath).await {
+        let raw = match util::fs::read_file_with_retry(&self.filepath).await {
           Ok(raw) => raw,
           Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok::<RwLock<BundleManifestData>, crate::Error>(Default::default());
@@ -242,55 +230,79 @@ where
 
 impl BundleManifest<ReadWrite> {
   pub async fn set_current_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
-    let mut data = self.load().await?.write().await;
-    let entry = data
-      .entries
-      .get_mut(bundle_name)
-      .ok_or_else(|| crate::Error::bundle_entry_not_exists(bundle_name, version))?;
-    if !entry.versions.contains_key(version) {
-      return Err(crate::Error::bundle_entry_not_exists(bundle_name, version));
+    self
+      .set_current_versions(&[(bundle_name.to_owned(), version.to_owned())])
+      .await
+  }
+
+  pub async fn set_current_versions(&self, items: &[(String, String)]) -> crate::Result<()> {
+    let mut manifest = self.load().await?.write().await;
+
+    for (bundle_name, version) in items {
+      let entry = manifest
+        .entries
+        .get(bundle_name)
+        .ok_or_else(|| crate::Error::bundle_entry_not_exists(bundle_name, version))?;
+      if !entry.versions.contains_key(version) {
+        return Err(crate::Error::bundle_entry_not_exists(bundle_name, version));
+      }
     }
 
-    if entry.previous.as_deref() == Some(version) {
-      entry.previous = None;
-    } else {
-      entry.previous = entry.current.clone();
-    }
+    for (bundle_name, version) in items {
+      let Some(entry) = manifest.entries.get_mut(bundle_name) else {
+        continue;
+      };
 
-    if entry.staged.as_deref() == Some(version) {
-      entry.staged = None;
-    }
+      if entry.previous_version.as_deref() == Some(version.as_str()) {
+        entry.previous_version = None;
+      } else {
+        entry.previous_version = entry.current_version.clone();
+      }
 
-    entry.current = Some(version.to_string());
+      if entry.staged_version.as_deref() == Some(version.as_str()) {
+        entry.staged_version = None;
+      }
+
+      entry.current_version = Some(version.to_owned());
+    }
 
     Ok(())
   }
 
-  pub async fn insert_entry(
+  pub async fn insert_stage_entry(
     &self,
     bundle_name: &str,
     version: &str,
-    metadata: BundleManifestMetadata,
-  ) -> crate::Result<bool> {
-    let mut inserted = true;
-    let mut data = self.load().await?.write().await;
-    data
-      .entries
-      .entry(bundle_name.to_string())
-      .and_modify(|entry| {
-        if entry.versions.contains_key(version) {
-          inserted = false;
-        } else {
-          entry.versions.insert(version.to_string(), metadata.clone());
-        }
-      })
-      .or_insert_with(|| BundleManifestEntry {
-        versions: HashMap::from([(version.to_string(), metadata.clone())]),
-        current: None,
-        previous: None,
-        staged: None,
-      });
-    Ok(inserted)
+    data: BundleManifestVersionData,
+  ) -> crate::Result<()> {
+    self
+      .insert_staged_entries(&[(bundle_name.to_string(), version.to_string(), data)])
+      .await
+  }
+
+  pub async fn insert_staged_entries(
+    &self,
+    items: &[(String, String, BundleManifestVersionData)],
+  ) -> crate::Result<()> {
+    let mut manifest = self.load().await?.write().await;
+
+    for (bundle_name, version, data) in items {
+      manifest
+        .entries
+        .entry(bundle_name.to_string())
+        .and_modify(|entry| {
+          entry.versions.insert(version.to_string(), data.clone());
+          entry.staged_version = Some(version.to_string());
+        })
+        .or_insert_with(|| BundleManifestEntry {
+          versions: HashMap::from([(version.to_string(), data.clone())]),
+          current_version: None,
+          previous_version: None,
+          staged_version: Some(version.to_string()),
+        });
+    }
+
+    Ok(())
   }
 
   pub async fn remove_entry(
@@ -302,64 +314,56 @@ impl BundleManifest<ReadWrite> {
     let force = force.unwrap_or(false);
     let mut data = self.load().await?.write().await;
     if let Some(entry) = data.entries.get_mut(bundle_name) {
-      if !force && entry.current.as_deref() == Some(version) {
+      if !force && entry.current_version.as_deref() == Some(version) {
         return Err(crate::Error::bundle_cannot_be_removed(bundle_name, version));
       }
-      if entry.previous.as_deref() == Some(version) {
-        entry.previous = None;
+      if entry.previous_version.as_deref() == Some(version) {
+        entry.previous_version = None;
       }
-      if entry.staged.as_deref() == Some(version) {
-        entry.staged = None;
+      if entry.staged_version.as_deref() == Some(version) {
+        entry.staged_version = None;
       }
       return Ok(entry.versions.remove(version).is_some());
     }
     Ok(false)
   }
 
-  /// Removes several versions in one pass. The returned flags line up with `items`:
-  /// `true` where the version was present and removed, `false` where entry not exists.
   pub async fn remove_entries(
     &self,
-    items: Vec<BundleManifestEntryItem>,
+    items: &[(String, String)],
     force: Option<bool>,
-  ) -> crate::Result<Vec<BundleManifestEntryItem>> {
+  ) -> crate::Result<Vec<bool>> {
     let force = force.unwrap_or(false);
     let mut data = self.load().await?.write().await;
 
     if !force {
-      for item in items.iter() {
+      for (bundle_name, version) in items.iter() {
         let is_current = data
           .entries
-          .get(&item.name)
-          .is_some_and(|entry| entry.current.as_deref() == Some(item.version.as_str()));
+          .get(bundle_name)
+          .is_some_and(|entry| entry.current_version.as_deref() == Some(version.as_str()));
         if is_current {
-          return Err(crate::Error::bundle_cannot_be_removed(
-            item.name.as_str(),
-            item.version.as_str(),
-          ));
+          return Err(crate::Error::bundle_cannot_be_removed(bundle_name, version));
         }
       }
     }
 
     let mut removed = Vec::with_capacity(items.len());
-    for item in items {
-      let Some(entry) = data.entries.get_mut(&item.name) else {
+    for (bundle_name, version) in items {
+      let Some(entry) = data.entries.get_mut(bundle_name) else {
         continue;
       };
-      let name = item.name.to_string();
-      let version = item.version.as_str();
-      if entry.current.as_deref() == Some(version) {
-        entry.current = None;
+      let name = bundle_name.to_string();
+      if entry.current_version.as_deref() == Some(version) {
+        entry.current_version = None;
       }
-      if entry.previous.as_deref() == Some(version) {
-        entry.previous = None;
+      if entry.previous_version.as_deref() == Some(version) {
+        entry.previous_version = None;
       }
-      if entry.staged.as_deref() == Some(version) {
-        entry.staged = None;
+      if entry.staged_version.as_deref() == Some(version) {
+        entry.staged_version = None;
       }
-      if entry.versions.remove(version).is_some() {
-        removed.push(item);
-      }
+      removed.push(entry.versions.remove(version).is_some());
       if entry.versions.is_empty() {
         data.entries.remove(&name);
       }
@@ -381,7 +385,7 @@ impl BundleManifest<ReadWrite> {
       serde_json::to_vec(&*data)
     }?;
 
-    atomic_write_file(&self.filepath, &raw).await?;
+    util::fs::atomic_write_file(&self.filepath, &raw).await?;
 
     Ok(())
   }
@@ -391,6 +395,7 @@ impl BundleManifest<ReadWrite> {
 mod tests {
   use super::*;
   use crate::testing::*;
+  use crate::util;
   use std::sync::Arc;
 
   #[tokio::test]
@@ -411,13 +416,13 @@ mod tests {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("builtin/manifest.json"), ReadOnly);
     manifest
-      .get_entry_metadata("app", "1.0.0")
+      .get_entry_data("app", "1.0.0")
       .await
       .unwrap()
       .unwrap();
     assert!(
       manifest
-        .get_entry_metadata("app", "not_exists")
+        .get_entry_data("app", "not_exists")
         .await
         .unwrap()
         .is_none()
@@ -434,7 +439,7 @@ mod tests {
     let mut handlers = vec![];
     for _ in 1..10 {
       let m = manifest.clone();
-      let handle = tokio::spawn(async move { m.get_entry_metadata("app", "1.0.0").await });
+      let handle = tokio::spawn(async move { m.get_entry_data("app", "1.0.0").await });
       handlers.push(handle);
     }
     for h in handlers {
@@ -506,20 +511,20 @@ mod tests {
   async fn insert_entry() {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
-    let metadata = BundleManifestMetadata {
+    let metadata = BundleManifestVersionData {
       etag: None,
       integrity: None,
       signature: None,
       last_modified: None,
     };
     let inserted = manifest
-      .insert_entry("app", "1.2.0", metadata.clone())
+      .insert_stage_entry("app", "1.2.0", metadata.clone())
       .await
       .unwrap();
     assert!(inserted);
     assert_eq!(
       manifest
-        .get_entry_metadata("app", "1.2.0")
+        .get_entry_data("app", "1.2.0")
         .await
         .unwrap()
         .unwrap(),
@@ -539,20 +544,20 @@ mod tests {
       &fixture.get_path("bundles").join("manifest.json"),
       ReadWrite,
     );
-    let metadata = BundleManifestMetadata {
+    let metadata = BundleManifestVersionData {
       etag: None,
       integrity: None,
       signature: None,
       last_modified: None,
     };
     let inserted = manifest
-      .insert_entry("vite", "1.0.0", metadata.clone())
+      .insert_stage_entry("vite", "1.0.0", metadata.clone())
       .await
       .unwrap();
     assert!(inserted);
     assert_eq!(
       manifest
-        .get_entry_metadata("vite", "1.0.0")
+        .get_entry_data("vite", "1.0.0")
         .await
         .unwrap()
         .unwrap(),
@@ -580,7 +585,7 @@ mod tests {
     assert!(removed);
     assert!(
       manifest
-        .get_entry_metadata("app", "1.1.0")
+        .get_entry_data("app", "1.1.0")
         .await
         .unwrap()
         .is_none()
@@ -614,7 +619,7 @@ mod tests {
     assert!(removed);
     assert!(
       manifest
-        .get_entry_metadata("app", "1.1.0")
+        .get_entry_data("app", "1.1.0")
         .await
         .unwrap()
         .is_none()
@@ -627,7 +632,7 @@ mod tests {
     let filepath = temp.dir().join("remote").join("manifest.json");
     let manifest = BundleManifest::new(&filepath, ReadWrite);
     manifest
-      .insert_entry("app", "1.0.0", BundleManifestMetadata::default())
+      .insert_stage_entry("app", "1.0.0", BundleManifestVersionData::default())
       .await
       .unwrap();
     manifest.set_current_version("app", "1.0.0").await.unwrap();
@@ -657,7 +662,7 @@ mod tests {
     let filepath = temp.dir().join("manifest.json");
     let manifest = Arc::new(BundleManifest::new(&filepath, ReadWrite));
     manifest
-      .insert_entry("app", "1.0.0", BundleManifestMetadata::default())
+      .insert_stage_entry("app", "1.0.0", BundleManifestVersionData::default())
       .await
       .unwrap();
     manifest.save().await.unwrap();
@@ -667,10 +672,10 @@ mod tests {
       let m = manifest.clone();
       writers.push(tokio::spawn(async move {
         for j in 0..8 {
-          m.insert_entry(
+          m.insert_stage_entry(
             "app",
             &format!("2.{i}.{j}"),
-            BundleManifestMetadata::default(),
+            BundleManifestVersionData::default(),
           )
           .await
           .unwrap();
@@ -683,7 +688,7 @@ mod tests {
       let filepath = filepath.clone();
       tokio::spawn(async move {
         for _ in 0..200 {
-          let raw = read_file_with_retry(&filepath).await.unwrap();
+          let raw = util::fs::read_file_with_retry(&filepath).await.unwrap();
           serde_json::from_slice::<BundleManifestData>(&raw)
             .expect("the manifest on disk must always be a complete document");
           tokio::task::yield_now().await;
@@ -705,7 +710,7 @@ mod tests {
     let manifest = BundleManifest::new(&temp.dir().join("manifest.json"), ReadWrite);
     for version in versions {
       manifest
-        .insert_entry("app", version, BundleManifestMetadata::default())
+        .insert_stage_entry("app", version, BundleManifestVersionData::default())
         .await
         .unwrap();
     }
@@ -779,7 +784,7 @@ mod tests {
       name: "not_exists".to_string(),
       version: "1.0.0".to_string(),
       status: BundleManifestEntryItemStatus::Orphan,
-      metadata: BundleManifestMetadata::default(),
+      data: BundleManifestVersionData::default(),
     });
     // Removed once: the duplicate is already gone, and the unknown bundle never existed.
     let removed = manifest.remove_entries(items, None).await.unwrap();

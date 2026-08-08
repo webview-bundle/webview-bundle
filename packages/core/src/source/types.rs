@@ -2,8 +2,6 @@
 use crate::integrity::{IntegrityCheck, IntegrityPolicy};
 #[cfg(feature = "signature")]
 use crate::signature::SignatureVerify;
-#[cfg(feature = "integrity")]
-use crate::source::BundleSourceKind;
 use crate::{DataReadOptions, HeaderReadOptions, IndexReadOptions};
 
 /// Which bundles a load-time integrity verification applies to.
@@ -127,4 +125,15 @@ impl BundleSourceOptions {
     self.signature = options;
     self
   }
+}
+
+/// The type of bundle source: builtin or remote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+pub enum BundleSourceKind {
+  /// Bundles shipped with the application (read-only, fallback)
+  Builtin,
+  /// Downloaded bundles (takes priority)
+  Remote,
 }
