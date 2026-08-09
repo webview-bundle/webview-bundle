@@ -271,9 +271,9 @@ impl Updater {
       ));
     }
 
-    let metadata = self
+    let version_data = self
       .source
-      .get_remote_metadata(&target.name, &target.version)
+      .get_remote_version_data(&target.name, &target.version)
       .await?
       .ok_or_else(|| crate::Error::bundle_entry_not_exists(&target.name, &target.version))?;
 
@@ -287,15 +287,11 @@ impl Updater {
 
     #[cfg(feature = "integrity")]
     self
-      .verify(
-        &data,
-        metadata.integrity.as_deref(),
-        metadata.signature.as_deref(),
-      )
+      .verify(&data, version_data.integrity.as_deref())
       .await?;
 
     #[cfg(not(feature = "integrity"))]
-    let _ = &metadata;
+    let _ = &version_data;
 
     Ok(())
   }
@@ -313,12 +309,7 @@ impl Updater {
     .map_err(|_| crate::Error::Timeout)
   }
 
-  async fn verify(
-    &self,
-    data: &[u8],
-    integrity: Option<&str>,
-    signature: Option<&str>,
-  ) -> crate::Result<()> {
+  async fn verify(&self, data: &[u8], integrity: Option<&str>) -> crate::Result<()> {
     #[cfg(feature = "integrity")]
     {
       crate::integrity::verify_integrity(
@@ -328,12 +319,6 @@ impl Updater {
         data,
       )
       .await?;
-    }
-    #[cfg(feature = "signature")]
-    {
-      if let Some(verify) = &self.options.signature.verify {
-        crate::signature::verify_signature(verify, integrity, signature).await?;
-      }
     }
     #[cfg(not(feature = "integrity"))]
     {

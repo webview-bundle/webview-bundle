@@ -441,7 +441,7 @@ pub unsafe extern "C" fn wvb_source_load_builtin_metadata(
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
-  match runtime().block_on(async move { source.get_builtin_metadata(&name, &version).await }) {
+  match runtime().block_on(async move { source.get_builtin_version_data(&name, &version).await }) {
     Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
     Err(e) => core_err(e),
@@ -461,7 +461,7 @@ pub unsafe extern "C" fn wvb_source_load_remote_metadata(
   };
   let name = unsafe { cstr(bundle_name) };
   let version = unsafe { cstr(version) };
-  match runtime().block_on(async move { source.get_remote_metadata(&name, &version).await }) {
+  match runtime().block_on(async move { source.get_remote_version_data(&name, &version).await }) {
     Ok(Some(m)) => ok_result(manifest_metadata_json(&m), Vec::new()),
     Ok(None) => ok_result(serde_json::Value::Null, Vec::new()),
     Err(e) => core_err(e),

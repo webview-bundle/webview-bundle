@@ -6,8 +6,7 @@ use tauri::{
 
 pub use config::*;
 pub use wvb::signature::{
-  EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
-  RsaPssVerifier,
+  EcdsaSecp256r1, EcdsaSecp384r1, Ed25519, RsaPkcs1V15Sha256, RsaPssSha256,
 };
 
 #[cfg(target_os = "android")]

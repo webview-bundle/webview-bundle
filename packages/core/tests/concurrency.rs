@@ -91,7 +91,7 @@ async fn rewrite_active_bundle_no_torn_reads() {
   // The bundle + metadata we keep re-writing into the active version's path.
   let bundle = source.fetch_remote_bundle("app", "1.0.0").await.unwrap();
   let metadata = source
-    .get_remote_metadata("app", "1.0.0")
+    .get_remote_version_data("app", "1.0.0")
     .await
     .unwrap()
     .unwrap();

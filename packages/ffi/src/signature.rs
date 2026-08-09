@@ -105,73 +105,73 @@ impl TryFrom<SignatureVerifierOptions> for signature::SignatureVerify {
     let verifier = match opts.algorithm {
       SignatureAlgorithm::EcdsaSecp256r1 => match opts.key.format {
         VerifyingKeyFormat::Sec1 => signature::SignatureVerify::EcdsaSecp256r1(Arc::new(
-          signature::EcdsaSecp256r1Verifier::from_sec1_bytes(require_der(&opts.key)?)?,
+          signature::EcdsaSecp256r1::from_sec1_bytes(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiDer => signature::SignatureVerify::EcdsaSecp256r1(Arc::new(
-          signature::EcdsaSecp256r1Verifier::from_public_key_der(require_der(&opts.key)?)?,
+          signature::EcdsaSecp256r1::from_public_key_der(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiPem => signature::SignatureVerify::EcdsaSecp256r1(Arc::new(
-          signature::EcdsaSecp256r1Verifier::from_public_key_pem(require_pem(&opts.key)?)?,
+          signature::EcdsaSecp256r1::from_public_key_pem(require_pem(&opts.key)?)?,
         )),
         _ => return Err(unsupported),
       },
       SignatureAlgorithm::EcdsaSecp384r1 => match opts.key.format {
         VerifyingKeyFormat::Sec1 => signature::SignatureVerify::EcdsaSecp384r1(Arc::new(
-          signature::EcdsaSecp384r1Verifier::from_sec1_bytes(require_der(&opts.key)?)?,
+          signature::EcdsaSecp384r1::from_sec1_bytes(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiDer => signature::SignatureVerify::EcdsaSecp384r1(Arc::new(
-          signature::EcdsaSecp384r1Verifier::from_public_key_der(require_der(&opts.key)?)?,
+          signature::EcdsaSecp384r1::from_public_key_der(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiPem => signature::SignatureVerify::EcdsaSecp384r1(Arc::new(
-          signature::EcdsaSecp384r1Verifier::from_public_key_pem(require_pem(&opts.key)?)?,
+          signature::EcdsaSecp384r1::from_public_key_pem(require_pem(&opts.key)?)?,
         )),
         _ => return Err(unsupported),
       },
       SignatureAlgorithm::Ed25519 => match opts.key.format {
         VerifyingKeyFormat::SpkiDer => signature::SignatureVerify::Ed25519(Arc::new(
-          signature::Ed25519Verifier::from_public_key_der(require_der(&opts.key)?)?,
+          signature::Ed25519::from_public_key_der(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiPem => signature::SignatureVerify::Ed25519(Arc::new(
-          signature::Ed25519Verifier::from_public_key_pem(require_pem(&opts.key)?)?,
+          signature::Ed25519::from_public_key_pem(require_pem(&opts.key)?)?,
         )),
         VerifyingKeyFormat::Raw => {
           let bytes = require_der(&opts.key)?;
           let arr: &[u8; 32] = bytes.try_into().map_err(|_| {
             crate::Error::invalid_signature_options("Ed25519 raw key must be 32 bytes")
           })?;
-          signature::SignatureVerify::Ed25519(Arc::new(
-            signature::Ed25519Verifier::from_public_key_bytes(arr)?,
-          ))
+          signature::SignatureVerify::Ed25519(Arc::new(signature::Ed25519::from_public_key_bytes(
+            arr,
+          )?))
         }
         _ => return Err(unsupported),
       },
       SignatureAlgorithm::RsaPkcs1V15 => match opts.key.format {
         VerifyingKeyFormat::Pkcs1Der => signature::SignatureVerify::RsaPkcs1V15(Arc::new(
-          signature::RsaPkcs1V15Verifier::from_pkcs1_der(require_der(&opts.key)?)?,
+          signature::RsaPkcs1V15Sha256::from_pkcs1_der(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::Pkcs1Pem => signature::SignatureVerify::RsaPkcs1V15(Arc::new(
-          signature::RsaPkcs1V15Verifier::from_pkcs1_pem(require_pem(&opts.key)?)?,
+          signature::RsaPkcs1V15Sha256::from_pkcs1_pem(require_pem(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiDer => signature::SignatureVerify::RsaPkcs1V15(Arc::new(
-          signature::RsaPkcs1V15Verifier::from_public_key_der(require_der(&opts.key)?)?,
+          signature::RsaPkcs1V15Sha256::from_public_key_der(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiPem => signature::SignatureVerify::RsaPkcs1V15(Arc::new(
-          signature::RsaPkcs1V15Verifier::from_public_key_pem(require_pem(&opts.key)?)?,
+          signature::RsaPkcs1V15Sha256::from_public_key_pem(require_pem(&opts.key)?)?,
         )),
         _ => return Err(unsupported),
       },
       SignatureAlgorithm::RsaPss => match opts.key.format {
         VerifyingKeyFormat::Pkcs1Der => signature::SignatureVerify::RsaPss(Arc::new(
-          signature::RsaPssVerifier::from_pkcs1_der(require_der(&opts.key)?)?,
+          signature::RsaPssSha256::from_pkcs1_der(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::Pkcs1Pem => signature::SignatureVerify::RsaPss(Arc::new(
-          signature::RsaPssVerifier::from_pkcs1_pem(require_pem(&opts.key)?)?,
+          signature::RsaPssSha256::from_pkcs1_pem(require_pem(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiDer => signature::SignatureVerify::RsaPss(Arc::new(
-          signature::RsaPssVerifier::from_public_key_der(require_der(&opts.key)?)?,
+          signature::RsaPssSha256::from_public_key_der(require_der(&opts.key)?)?,
         )),
         VerifyingKeyFormat::SpkiPem => signature::SignatureVerify::RsaPss(Arc::new(
-          signature::RsaPssVerifier::from_public_key_pem(require_pem(&opts.key)?)?,
+          signature::RsaPssSha256::from_public_key_pem(require_pem(&opts.key)?)?,
         )),
         _ => return Err(unsupported),
       },

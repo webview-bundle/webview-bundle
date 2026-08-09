@@ -23,12 +23,12 @@
 //! ```no_run
 //! # #[cfg(feature = "signature-edd25519")]
 //! # async {
-//! use wvb::signature::{Ed25519Verifier, SignatureVerify};
+//! use wvb::signature::{Ed25519, SignatureVerify};
 //! use std::sync::Arc;
 //!
 //! // Create verifier with public key PEM
 //! let public_key_pem = "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----";
-//! let verifier = Ed25519Verifier::from_public_key_pem(public_key_pem).unwrap();
+//! let verifier = Ed25519::from_public_key_pem(public_key_pem).unwrap();
 //! let signature_verifier = SignatureVerify::Ed25519(Arc::new(verifier));
 //!
 //! // The signed message is the bundle's integrity string, not the bundle bytes:
@@ -64,26 +64,31 @@
 //! }));
 //! ```
 
-#[cfg(feature = "signature-ecdsa_secp256r1")]
+mod alg;
+#[cfg(feature = "signature-ecdsa-secp256r1")]
 mod ecdsa_secp256r1;
-#[cfg(feature = "signature-ecdsa_secp384r1")]
+#[cfg(feature = "signature-ecdsa-secp384r1")]
 mod ecdsa_secp384r1;
-#[cfg(feature = "signature-edd25519")]
+#[cfg(feature = "signature-ed25519")]
 mod ed25519;
-#[cfg(feature = "signature-rsa_pkcs1_v1_5")]
-mod rsa_pkcs1_v1_5;
-#[cfg(feature = "signature-rsa_pss")]
-mod rsa_pss;
+mod key;
+#[cfg(feature = "signature-rsa-pkcs1-v1_5-sha256")]
+mod rsa_pkcs1_v1_5_sha256;
+#[cfg(feature = "signature-rsa-pss-sha256")]
+mod rsa_pss_sha256;
 mod verify;
 
-#[cfg(feature = "signature-ecdsa_secp256r1")]
+#[cfg(feature = "signature-ecdsa-secp256r1")]
 pub use ecdsa_secp256r1::*;
-#[cfg(feature = "signature-ecdsa_secp384r1")]
+#[cfg(feature = "signature-ecdsa-secp384r1")]
 pub use ecdsa_secp384r1::*;
-#[cfg(feature = "signature-edd25519")]
+#[cfg(feature = "signature-ed25519")]
 pub use ed25519::*;
-#[cfg(feature = "signature-rsa_pkcs1_v1_5")]
-pub use rsa_pkcs1_v1_5::*;
-#[cfg(feature = "signature-rsa_pss")]
-pub use rsa_pss::*;
+#[cfg(feature = "signature-rsa-pkcs1-v1_5-sha256")]
+pub use rsa_pkcs1_v1_5_sha256::*;
+#[cfg(feature = "signature-rsa-pss-sha256")]
+pub use rsa_pss_sha256::*;
+
+pub use alg::*;
+pub use key::*;
 pub use verify::*;

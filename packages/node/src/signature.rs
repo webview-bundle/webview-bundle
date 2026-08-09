@@ -173,25 +173,19 @@ impl FromNapiValue for SignatureVerifier {
           SignatureAlgorithm::EcdsaSecp256r1 => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Sec1 => Ok(
-                signature::EcdsaSecp256r1Verifier::from_sec1_bytes(&into_buffer_data(
-                  inner.key.data,
-                )?)
-                .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                signature::EcdsaSecp256r1::from_sec1_bytes(&into_buffer_data(inner.key.data)?)
+                  .map_err(crate::Error::from)
+                  .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
-                signature::EcdsaSecp256r1Verifier::from_public_key_der(&into_buffer_data(
-                  inner.key.data,
-                )?)
-                .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                signature::EcdsaSecp256r1::from_public_key_der(&into_buffer_data(inner.key.data)?)
+                  .map_err(crate::Error::from)
+                  .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
-                signature::EcdsaSecp256r1Verifier::from_public_key_pem(&into_string_data(
-                  inner.key.data,
-                )?)
-                .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                signature::EcdsaSecp256r1::from_public_key_pem(&into_string_data(inner.key.data)?)
+                  .map_err(crate::Error::from)
+                  .map_err(napi::Error::from)?,
               ),
               _ => Err(unsupported_key_format),
             }?;
@@ -200,25 +194,19 @@ impl FromNapiValue for SignatureVerifier {
           SignatureAlgorithm::EcdsaSecp384r1 => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Sec1 => Ok(
-                signature::EcdsaSecp384r1Verifier::from_sec1_bytes(&into_buffer_data(
-                  inner.key.data,
-                )?)
-                .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                signature::EcdsaSecp384r1::from_sec1_bytes(&into_buffer_data(inner.key.data)?)
+                  .map_err(crate::Error::from)
+                  .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
-                signature::EcdsaSecp384r1Verifier::from_public_key_der(&into_buffer_data(
-                  inner.key.data,
-                )?)
-                .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                signature::EcdsaSecp384r1::from_public_key_der(&into_buffer_data(inner.key.data)?)
+                  .map_err(crate::Error::from)
+                  .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
-                signature::EcdsaSecp384r1Verifier::from_public_key_pem(&into_string_data(
-                  inner.key.data,
-                )?)
-                .map_err(crate::Error::from)
-                .map_err(napi::Error::from)?,
+                signature::EcdsaSecp384r1::from_public_key_pem(&into_string_data(inner.key.data)?)
+                  .map_err(crate::Error::from)
+                  .map_err(napi::Error::from)?,
               ),
               _ => Err(unsupported_key_format),
             }?;
@@ -227,12 +215,12 @@ impl FromNapiValue for SignatureVerifier {
           SignatureAlgorithm::Ed25519 => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::SpkiDer => Ok(
-                signature::Ed25519Verifier::from_public_key_der(&into_buffer_data(inner.key.data)?)
+                signature::Ed25519::from_public_key_der(&into_buffer_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
-                signature::Ed25519Verifier::from_public_key_pem(&into_string_data(inner.key.data)?)
+                signature::Ed25519::from_public_key_pem(&into_string_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
@@ -247,7 +235,7 @@ impl FromNapiValue for SignatureVerifier {
                     ))
                   })?;
                 Ok(
-                  signature::Ed25519Verifier::from_public_key_bytes(bytes)
+                  signature::Ed25519::from_public_key_bytes(bytes)
                     .map_err(crate::Error::from)
                     .map_err(napi::Error::from)?,
                 )
@@ -259,24 +247,24 @@ impl FromNapiValue for SignatureVerifier {
           SignatureAlgorithm::RsaPkcs1V1_5 => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Pkcs1Der => Ok(
-                signature::RsaPkcs1V15Verifier::from_pkcs1_der(&into_buffer_data(inner.key.data)?)
+                signature::RsaPkcs1V15Sha256::from_pkcs1_der(&into_buffer_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::Pkcs1Pem => Ok(
-                signature::RsaPkcs1V15Verifier::from_pkcs1_pem(&into_string_data(inner.key.data)?)
+                signature::RsaPkcs1V15Sha256::from_pkcs1_pem(&into_string_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
-                signature::RsaPkcs1V15Verifier::from_public_key_der(&into_buffer_data(
+                signature::RsaPkcs1V15Sha256::from_public_key_der(&into_buffer_data(
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
                 .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
-                signature::RsaPkcs1V15Verifier::from_public_key_pem(&into_string_data(
+                signature::RsaPkcs1V15Sha256::from_public_key_pem(&into_string_data(
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
@@ -289,22 +277,22 @@ impl FromNapiValue for SignatureVerifier {
           SignatureAlgorithm::RsaPss => {
             let verifier = match &inner.key.format {
               VerifyingKeyFormat::Pkcs1Der => Ok(
-                signature::RsaPssVerifier::from_pkcs1_der(&into_buffer_data(inner.key.data)?)
+                signature::RsaPssSha256::from_pkcs1_der(&into_buffer_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::Pkcs1Pem => Ok(
-                signature::RsaPssVerifier::from_pkcs1_pem(&into_string_data(inner.key.data)?)
+                signature::RsaPssSha256::from_pkcs1_pem(&into_string_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiDer => Ok(
-                signature::RsaPssVerifier::from_public_key_der(&into_buffer_data(inner.key.data)?)
+                signature::RsaPssSha256::from_public_key_der(&into_buffer_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
               VerifyingKeyFormat::SpkiPem => Ok(
-                signature::RsaPssVerifier::from_public_key_pem(&into_string_data(inner.key.data)?)
+                signature::RsaPssSha256::from_public_key_pem(&into_string_data(inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),

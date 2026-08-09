@@ -1,7 +1,5 @@
 #[cfg(feature = "integrity")]
 use crate::integrity::IntegrityPolicy;
-#[cfg(feature = "signature")]
-use crate::signature::SignatureVerify;
 use crate::source::types::BundleSourceKind;
 use crate::source::{
   BundleEntryPruneResult, BundleEntryRemoveResult, BundleEntryRemoveResultKind, BundleManifest,
@@ -11,7 +9,7 @@ use crate::source::{
 use crate::util;
 use crate::{
   AsyncBundleReader, AsyncReader, Bundle, BundleDescriptor, BundleReader, DataReadOptions,
-  EXTENSION, MANIFEST_FILENAME, Reader, Writer,
+  EXTENSION, MANIFEST_FILENAME, Reader,
 };
 use dashmap::DashMap;
 use std::io::Cursor;
@@ -249,6 +247,13 @@ impl BundleSource {
     }
   }
 
+  pub async fn get_remote_staged_version(
+    &self,
+    bundle_name: &str,
+  ) -> crate::Result<Option<String>> {
+    self.remote_manifest.get_staged_version(bundle_name).await
+  }
+
   pub async fn update_remote_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
     self
       .update_remote_versions(&[(bundle_name.to_owned(), version.to_owned())])
@@ -264,6 +269,20 @@ impl BundleSource {
     Ok(())
   }
 
+  pub async fn stage_remote_bundle(
+    &self,
+    bundle_name: &str,
+    version: &str,
+    data: BundleManifestVersionData,
+  ) -> crate::Result<()> {
+    self
+      .remote_manifest
+      .insert_stage_entry(bundle_name, version, data)
+      .await?;
+    self.remote_manifest.save().await?;
+    Ok(())
+  }
+
   pub async fn stage_remote_bundles(
     &self,
     items: &[(String, String, BundleManifestVersionData)],
@@ -274,13 +293,6 @@ impl BundleSource {
     self.remote_manifest.insert_staged_entries(items).await?;
     self.remote_manifest.save().await?;
     Ok(())
-  }
-
-  pub async fn get_remote_staged_version(
-    &self,
-    bundle_name: &str,
-  ) -> crate::Result<Option<String>> {
-    self.remote_manifest.get_staged_version(bundle_name).await
   }
 
   pub async fn resolve_filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
@@ -313,15 +325,6 @@ impl BundleSource {
       && self.options.integrity.check_mode.should_verify(kind)
   }
 
-  /// The signature verifier applied to bundles of this kind on load, if any.
-  #[cfg(feature = "signature")]
-  fn signature_verifier_on_load(&self, kind: &BundleSourceKind) -> Option<&SignatureVerify> {
-    match self.options.signature.verify_mode.should_verify(kind) {
-      true => self.options.signature.verify.as_ref(),
-      false => None,
-    }
-  }
-
   async fn verified_bytes(
     &self,
     filepath: &Path,
@@ -331,26 +334,19 @@ impl BundleSource {
     #[cfg(feature = "integrity")]
     {
       let check_integrity = self.checks_integrity_on_load(&version.kind);
-      #[cfg(feature = "signature")]
-      let signature_verifier = self.signature_verifier_on_load(&version.kind);
-      #[cfg(feature = "signature")]
-      let verify_signature = signature_verifier.is_some();
-      #[cfg(not(feature = "signature"))]
-      let verify_signature = false;
-
-      if !check_integrity && !verify_signature {
+      if !check_integrity {
         return Ok(None);
       }
 
-      let metadata = match version.kind {
+      let data = match version.kind {
         BundleSourceKind::Builtin => {
           self
-            .get_builtin_metadata(bundle_name, &version.version)
+            .get_builtin_version_data(bundle_name, &version.version)
             .await?
         }
         BundleSourceKind::Remote => {
           self
-            .get_remote_metadata(bundle_name, &version.version)
+            .get_remote_version_data(bundle_name, &version.version)
             .await?
         }
       }
@@ -358,7 +354,7 @@ impl BundleSource {
 
       // The signature covers the integrity string, not the file, so only the integrity
       // check needs the bytes.
-      let data = match check_integrity && metadata.integrity.is_some() {
+      let file_data = match check_integrity && data.integrity.is_some() {
         true => Some(read_file(filepath).await?),
         false => None,
       };
@@ -366,23 +362,12 @@ impl BundleSource {
         crate::integrity::verify_integrity(
           &self.options.integrity.policy,
           &self.options.integrity.check,
-          metadata.integrity.as_deref(),
-          data.as_deref().unwrap_or_default(),
+          data.integrity.as_deref(),
+          file_data.as_deref().unwrap_or_default(),
         )
         .await?;
       }
-
-      #[cfg(feature = "signature")]
-      if let Some(verify) = signature_verifier {
-        crate::signature::verify_signature(
-          verify,
-          metadata.integrity.as_deref(),
-          metadata.signature.as_deref(),
-        )
-        .await?;
-      }
-
-      Ok(data)
+      Ok(file_data)
     }
     #[cfg(not(feature = "integrity"))]
     {
@@ -483,25 +468,25 @@ impl BundleSource {
     self.read_descriptor(&filepath, bundle_name, &version).await
   }
 
-  pub async fn get_builtin_metadata(
+  pub async fn get_builtin_version_data(
     &self,
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Option<BundleManifestVersionData>> {
     self
       .builtin_manifest
-      .get_entry_data(bundle_name, version)
+      .get_entry_version_data(bundle_name, version)
       .await
   }
 
-  pub async fn get_remote_metadata(
+  pub async fn get_remote_version_data(
     &self,
     bundle_name: &str,
     version: &str,
   ) -> crate::Result<Option<BundleManifestVersionData>> {
     self
       .remote_manifest
-      .get_entry_data(bundle_name, version)
+      .get_entry_version_data(bundle_name, version)
       .await
   }
 
@@ -626,19 +611,13 @@ impl BundleSource {
     &self,
     bundle_name: &str,
   ) -> crate::Result<BundleEntryPruneResult> {
-    let result = self
-      .remote_manifest
-      .prune_entry(bundle_name)
-      .await?;
+    let result = self.remote_manifest.prune_entry(bundle_name).await?;
 
     if !result.pruned_versions.is_empty() {
       self.remote_manifest.save().await?;
       let mut filepaths = vec![];
       for version in result.pruned_versions.iter() {
-        if let Ok(filepath) = self.get_remote_bundle_filepath(
-          &result.name,
-          version
-        ) {
+        if let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, version) {
           filepaths.push(filepath);
         }
       }
@@ -754,28 +733,356 @@ async fn remove_files_by_chunk(filepaths: Vec<PathBuf>, chunk_size: usize) {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::ChecksumReadOptions;
+  use crate::source::{BundleManifestData, BundleManifestEntry, BundleManifestEntryItemStatus};
   use crate::testing::{Fixtures, TempDir};
+  use std::collections::HashMap;
+
+  fn fixture_source() -> BundleSource {
+    let fixture = Fixtures::bundles();
+    BundleSource::builder()
+      .builtin_dir(fixture.get_path("builtin"))
+      .remote_dir(fixture.get_path("remote"))
+      .build()
+  }
+
+  fn remote_source(temp: &TempDir) -> BundleSource {
+    BundleSource::builder()
+      .remote_dir(temp.dir().join("remote"))
+      .build()
+  }
+
+  async fn stage(source: &BundleSource, bundle_name: &str, version: &str, data: &[u8]) {
+    source
+      .stage_remote_bundle(bundle_name, version, BundleManifestVersionData::default())
+      .await
+      .unwrap();
+    let filepath = source
+      .get_remote_bundle_filepath(bundle_name, version)
+      .unwrap();
+    tokio::fs::create_dir_all(filepath.parent().unwrap())
+      .await
+      .unwrap();
+    tokio::fs::write(&filepath, data).await.unwrap();
+  }
 
   async fn staged_source(temp: &TempDir, versions: &[&str]) -> BundleSource {
-    let source = BundleSource::builder()
-      .remote_dir(temp.dir().join("remote"))
-      .build();
+    let source = remote_source(temp);
     for version in versions {
-      source
-        .stage_remote_bundles(&[(
-          "app".to_string(),
-          version.to_string(),
-          BundleManifestVersionData::default(),
-        )])
-        .await
-        .unwrap();
-      let filepath = source.get_remote_bundle_filepath("app", version).unwrap();
-      tokio::fs::create_dir_all(filepath.parent().unwrap())
-        .await
-        .unwrap();
-      tokio::fs::write(&filepath, b"bundle").await.unwrap();
+      stage(&source, "app", version, b"bundle").await;
     }
     source
+  }
+
+  async fn staged_bundle_source(temp: &TempDir, versions: &[&str]) -> BundleSource {
+    let data = tokio::fs::read(Fixtures::bundles().get_path("remote/app/1.0.0.wvb"))
+      .await
+      .unwrap();
+    let source = remote_source(temp);
+    for version in versions {
+      stage(&source, "app", version, &data).await;
+    }
+    source
+  }
+
+  #[tokio::test]
+  async fn stage_remote_bundle_records_version_data() {
+    let temp = TempDir::new();
+    let source = remote_source(&temp);
+    let data = BundleManifestVersionData {
+      integrity: Some("sha256:abc".to_owned()),
+      metadata: Some(HashMap::from([("channel".to_owned(), "stable".to_owned())])),
+    };
+
+    source
+      .stage_remote_bundle("app", "1.0.0", data.clone())
+      .await
+      .unwrap();
+
+    assert_eq!(
+      source
+        .get_remote_staged_version("app")
+        .await
+        .unwrap()
+        .as_deref(),
+      Some("1.0.0")
+    );
+    assert_eq!(
+      source
+        .get_remote_version_data("app", "1.0.0")
+        .await
+        .unwrap(),
+      Some(data.clone())
+    );
+    assert!(source.get_version("app").await.unwrap().is_none());
+
+    let reopened = remote_source(&temp);
+    assert_eq!(
+      reopened
+        .get_remote_version_data("app", "1.0.0")
+        .await
+        .unwrap(),
+      Some(data)
+    );
+    assert_eq!(
+      reopened
+        .get_remote_staged_version("app")
+        .await
+        .unwrap()
+        .as_deref(),
+      Some("1.0.0")
+    );
+  }
+
+  #[tokio::test]
+  async fn stage_remote_bundles_stages_every_item() {
+    let temp = TempDir::new();
+    let source = remote_source(&temp);
+
+    source
+      .stage_remote_bundles(&[
+        (
+          "app".to_owned(),
+          "1.0.0".to_owned(),
+          BundleManifestVersionData::default(),
+        ),
+        (
+          "docs".to_owned(),
+          "2.0.0".to_owned(),
+          BundleManifestVersionData::default(),
+        ),
+      ])
+      .await
+      .unwrap();
+
+    let reopened = remote_source(&temp);
+    let mut items = reopened
+      .list_remote_bundles()
+      .await
+      .unwrap()
+      .into_iter()
+      .map(|x| (x.item.name, x.item.version, x.item.status))
+      .collect::<Vec<_>>();
+    items.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    assert_eq!(
+      items,
+      vec![
+        (
+          "app".to_owned(),
+          "1.0.0".to_owned(),
+          BundleManifestEntryItemStatus::Staged
+        ),
+        (
+          "docs".to_owned(),
+          "2.0.0".to_owned(),
+          BundleManifestEntryItemStatus::Staged
+        ),
+      ]
+    );
+  }
+
+  #[tokio::test]
+  async fn staging_and_updating_nothing_leaves_the_manifest_untouched() {
+    let temp = TempDir::new();
+    let source = remote_source(&temp);
+
+    source.stage_remote_bundles(&[]).await.unwrap();
+    source.update_remote_versions(&[]).await.unwrap();
+
+    assert!(!temp.dir().join("remote").join(MANIFEST_FILENAME).exists());
+  }
+
+  #[tokio::test]
+  async fn update_remote_version_activates_a_staged_version() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0"]).await;
+
+    source.update_remote_version("app", "1.0.0").await.unwrap();
+
+    assert_eq!(
+      source.get_version("app").await.unwrap(),
+      Some(BundleSourceVersion::remote("1.0.0".to_owned()))
+    );
+    assert_eq!(source.get_remote_staged_version("app").await.unwrap(), None);
+
+    let reopened = remote_source(&temp);
+    assert_eq!(
+      reopened.get_version("app").await.unwrap(),
+      Some(BundleSourceVersion::remote("1.0.0".to_owned()))
+    );
+  }
+
+  #[tokio::test]
+  async fn update_remote_version_rejects_a_version_that_was_never_staged() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0"]).await;
+
+    let err = source
+      .update_remote_version("app", "9.9.9")
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::BundleEntryNotExists { .. }));
+    let err = source
+      .update_remote_version("unknown", "1.0.0")
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::BundleEntryNotExists { .. }));
+    assert!(source.get_version("app").await.unwrap().is_none());
+  }
+
+  #[tokio::test]
+  async fn get_version_prefers_remote_over_builtin() {
+    let source = fixture_source();
+    assert_eq!(
+      source.get_version("app").await.unwrap(),
+      Some(BundleSourceVersion::remote("1.0.0".to_owned()))
+    );
+    assert!(source.get_version("unknown").await.unwrap().is_none());
+
+    let temp = TempDir::new();
+    let builtin_only = BundleSource::builder()
+      .builtin_dir(Fixtures::bundles().get_path("builtin"))
+      .remote_dir(temp.dir().join("remote"))
+      .build();
+    assert_eq!(
+      builtin_only.get_version("app").await.unwrap(),
+      Some(BundleSourceVersion::builtin("1.0.0".to_owned()))
+    );
+  }
+
+  #[tokio::test]
+  async fn version_data_is_read_from_the_matching_manifest() {
+    let source = fixture_source();
+
+    assert_eq!(
+      source
+        .get_builtin_version_data("app", "1.0.0")
+        .await
+        .unwrap(),
+      Some(BundleManifestVersionData::default())
+    );
+    assert!(
+      source
+        .get_builtin_version_data("app", "1.1.0")
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(
+      source
+        .get_remote_version_data("app", "1.1.0")
+        .await
+        .unwrap(),
+      Some(BundleManifestVersionData::default())
+    );
+    assert!(
+      source
+        .get_remote_version_data("unknown", "1.0.0")
+        .await
+        .unwrap()
+        .is_none()
+    );
+  }
+
+  #[tokio::test]
+  async fn list_bundles_merges_builtin_and_remote_entries() {
+    let source = fixture_source();
+
+    let builtin = source.list_builtin_bundles().await.unwrap();
+    assert!(
+      builtin
+        .iter()
+        .all(|x| x.source == BundleSourceKind::Builtin)
+    );
+    assert_eq!(
+      builtin
+        .iter()
+        .map(|x| (x.item.version.as_str(), x.item.status.clone()))
+        .collect::<Vec<_>>(),
+      vec![("1.0.0", BundleManifestEntryItemStatus::Current)]
+    );
+
+    let mut items = source
+      .list_bundles()
+      .await
+      .unwrap()
+      .into_iter()
+      .map(|x| (x.item.name, x.item.version, x.item.status))
+      .collect::<Vec<_>>();
+    items.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    assert_eq!(
+      items,
+      vec![
+        (
+          "app".to_owned(),
+          "1.0.0".to_owned(),
+          BundleManifestEntryItemStatus::Current
+        ),
+        (
+          "app".to_owned(),
+          "1.0.0".to_owned(),
+          BundleManifestEntryItemStatus::Current
+        ),
+        (
+          "app".to_owned(),
+          "1.1.0".to_owned(),
+          BundleManifestEntryItemStatus::Orphan
+        ),
+      ]
+    );
+  }
+
+  #[tokio::test]
+  async fn manifest_filepath_options_are_honored() {
+    let temp = TempDir::new();
+    let builtin_manifest_filepath = temp.dir().join("builtin-manifest.json");
+    let mut manifest = BundleManifestData::default();
+    manifest.entries.insert(
+      "app".to_owned(),
+      BundleManifestEntry {
+        versions: HashMap::from([("1.0.0".to_owned(), BundleManifestVersionData::default())]),
+        current_version: Some("1.0.0".to_owned()),
+        previous_version: None,
+        staged_version: None,
+      },
+    );
+    tokio::fs::write(
+      &builtin_manifest_filepath,
+      serde_json::to_vec(&manifest).unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let source = BundleSource::builder()
+      .builtin_dir(temp.dir().join("builtin"))
+      .builtin_manifest_filepath(&builtin_manifest_filepath)
+      .remote_dir(temp.dir().join("remote"))
+      .remote_manifest_filepath("custom.json")
+      .build();
+    source
+      .stage_remote_bundle("app", "2.0.0", BundleManifestVersionData::default())
+      .await
+      .unwrap();
+
+    assert!(temp.dir().join("remote").join("custom.json").exists());
+    assert!(!temp.dir().join("remote").join(MANIFEST_FILENAME).exists());
+    assert_eq!(
+      source.get_version("app").await.unwrap(),
+      Some(BundleSourceVersion::builtin("1.0.0".to_owned()))
+    );
+  }
+
+  #[tokio::test]
+  async fn resolve_filepath_points_at_the_active_version() {
+    let fixture = Fixtures::bundles();
+    let source = fixture_source();
+
+    assert_eq!(
+      source.resolve_filepath("app").await.unwrap(),
+      fixture.get_path("remote").join("app").join("1.0.0.wvb")
+    );
+    let err = source.resolve_filepath("unknown").await.unwrap_err();
+    assert!(matches!(err, crate::Error::BundleNotFound));
   }
 
   #[tokio::test]
@@ -788,28 +1095,32 @@ mod tests {
       .remove_remote_bundles(&[("app", "1.1.0"), ("app", "9.9.9")], None)
       .await
       .unwrap();
-    assert_eq!(removed, vec![true, false]);
+    assert_eq!(
+      removed,
+      vec![
+        BundleEntryRemoveResult::removed("app", "1.1.0"),
+        BundleEntryRemoveResult::not_found("app", "9.9.9"),
+      ]
+    );
 
     let filepath = |version| source.get_remote_bundle_filepath("app", version).unwrap();
     assert!(!filepath("1.1.0").exists());
     assert!(filepath("1.0.0").exists());
     assert!(filepath("1.2.0").exists());
 
-    // The manifest write happens before the files are deleted, so a source reopened over
-    // the same directory must not see the removed version.
     let reopened = BundleSource::builder()
       .remote_dir(temp.dir().join("remote"))
       .build();
     assert!(
       reopened
-        .get_remote_metadata("app", "1.1.0")
+        .get_remote_version_data("app", "1.1.0")
         .await
         .unwrap()
         .is_none()
     );
     assert!(
       reopened
-        .get_remote_metadata("app", "1.2.0")
+        .get_remote_version_data("app", "1.2.0")
         .await
         .unwrap()
         .is_some()
@@ -827,7 +1138,6 @@ mod tests {
       .await
       .unwrap_err();
     assert!(matches!(err, crate::Error::BundleCannotBeRemoved { .. }));
-    // Nothing was removed, so the file must still be there.
     assert!(
       source
         .get_remote_bundle_filepath("app", "1.0.0")
@@ -837,45 +1147,145 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn remove_remote_bundles_drops_the_bundle_dir_once_its_last_version_is_gone() {
+  async fn remove_remote_bundle_removes_the_current_version_when_forced() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0"]).await;
+    source.update_remote_version("app", "1.0.0").await.unwrap();
+
+    let removed = source
+      .remove_remote_bundle("app", "1.0.0", Some(true))
+      .await
+      .unwrap();
+
+    assert_eq!(removed, BundleEntryRemoveResult::removed("app", "1.0.0"));
+    assert!(
+      !source
+        .get_remote_bundle_filepath("app", "1.0.0")
+        .unwrap()
+        .exists()
+    );
+    assert!(source.get_version("app").await.unwrap().is_none());
+  }
+
+  #[tokio::test]
+  async fn remove_remote_bundle_deletes_a_single_file() {
     let temp = TempDir::new();
     let source = staged_source(&temp, &["1.0.0", "1.1.0"]).await;
-    let bundle_dir = temp.dir().join("remote").join("app");
+    let filepath = |version| source.get_remote_bundle_filepath("app", version).unwrap();
+
+    let removed = source
+      .remove_remote_bundle("app", "1.0.0", None)
+      .await
+      .unwrap();
+    assert_eq!(removed, BundleEntryRemoveResult::removed("app", "1.0.0"));
+    assert!(!filepath("1.0.0").exists());
+    assert!(filepath("1.1.0").exists());
+
+    let removed = source
+      .remove_remote_bundle("app", "1.0.0", None)
+      .await
+      .unwrap();
+    assert_eq!(removed, BundleEntryRemoveResult::not_found("app", "1.0.0"));
+  }
+
+  #[tokio::test]
+  async fn remove_remote_bundles_drops_the_entry_once_its_last_version_is_gone() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0", "1.1.0"]).await;
+    let filepath = |version| source.get_remote_bundle_filepath("app", version).unwrap();
 
     source
       .remove_remote_bundles(&[("app", "1.0.0")], None)
       .await
       .unwrap();
-    assert!(bundle_dir.exists());
+    assert_eq!(source.list_remote_bundles().await.unwrap().len(), 1);
 
     source
       .remove_remote_bundles(&[("app", "1.1.0")], None)
       .await
       .unwrap();
-    assert!(!bundle_dir.exists());
+    assert!(source.list_remote_bundles().await.unwrap().is_empty());
+    assert!(!filepath("1.0.0").exists());
+    assert!(!filepath("1.1.0").exists());
   }
 
   #[tokio::test]
-  async fn prune_remote_bundles_returns_and_deletes_only_orphans() {
+  async fn prune_remote_bundle_returns_and_deletes_only_orphans() {
     let temp = TempDir::new();
     let source = staged_source(&temp, &["1.0.0", "1.1.0", "1.2.0", "1.3.0"]).await;
     source.update_remote_version("app", "1.0.0").await.unwrap();
     source.update_remote_version("app", "1.1.0").await.unwrap();
 
-    // current=1.1.0, previous=1.0.0, staged=1.3.0, so only 1.2.0 is an orphan.
     let pruned = source.prune_remote_bundle("app").await.unwrap();
-    assert_eq!(
-      pruned
-        .iter()
-        .map(|x| x.version.as_str())
-        .collect::<Vec<_>>(),
-      vec!["1.2.0"]
-    );
+    assert_eq!(pruned.name, "app");
+    assert_eq!(pruned.pruned_versions, vec!["1.2.0"]);
+
     let filepath = |version| source.get_remote_bundle_filepath("app", version).unwrap();
     assert!(!filepath("1.2.0").exists());
     for version in ["1.0.0", "1.1.0", "1.3.0"] {
       assert!(filepath(version).exists(), "{version} must be kept");
     }
+  }
+
+  #[tokio::test]
+  async fn prune_remote_bundles_prunes_every_bundle() {
+    let temp = TempDir::new();
+    let source = remote_source(&temp);
+    for (name, version) in [
+      ("a", "1.0.0"),
+      ("a", "1.1.0"),
+      ("a", "1.2.0"),
+      ("b", "2.0.0"),
+      ("b", "2.1.0"),
+    ] {
+      stage(&source, name, version, b"bundle").await;
+    }
+    source
+      .update_remote_versions(&[
+        ("a".to_owned(), "1.0.0".to_owned()),
+        ("b".to_owned(), "2.0.0".to_owned()),
+      ])
+      .await
+      .unwrap();
+
+    let mut results = source.prune_remote_bundles(&["a", "b"]).await.unwrap();
+    results.sort_by(|x, y| x.name.cmp(&y.name));
+    assert_eq!(
+      results,
+      vec![
+        BundleEntryPruneResult {
+          name: "a".to_owned(),
+          pruned_versions: vec!["1.1.0".to_owned()],
+        },
+        BundleEntryPruneResult {
+          name: "b".to_owned(),
+          pruned_versions: vec![],
+        },
+      ]
+    );
+
+    let filepath = |name, version| source.get_remote_bundle_filepath(name, version).unwrap();
+    assert!(!filepath("a", "1.1.0").exists());
+    for (name, version) in [
+      ("a", "1.0.0"),
+      ("a", "1.2.0"),
+      ("b", "2.0.0"),
+      ("b", "2.1.0"),
+    ] {
+      assert!(
+        filepath(name, version).exists(),
+        "{name} {version} must be kept"
+      );
+    }
+
+    let reopened = remote_source(&temp);
+    assert!(
+      reopened
+        .get_remote_version_data("a", "1.1.0")
+        .await
+        .unwrap()
+        .is_none()
+    );
   }
 
   #[test]
@@ -888,7 +1298,6 @@ mod tests {
       "1.0.0",
       "1.2.3-beta.4",
       "a.b.c",
-      // Merely starting with a reserved word, or COM/LPT without a digit, is fine.
       "console",
       "com",
       "com10",
@@ -906,7 +1315,6 @@ mod tests {
       "안녕",
       "a\nb",
       "a\0b",
-      // Windows reserved device names (case-insensitive, with or without an extension).
       "con",
       "CON",
       "NuL",
@@ -916,7 +1324,6 @@ mod tests {
       "prn",
       "nul.txt",
       "con.foo.bar",
-      // Trailing dot — Windows strips it, collapsing distinct names onto the same file.
       "app.",
       "1.0.0.",
     ] {
@@ -952,7 +1359,6 @@ mod tests {
       .remote_dir("/tmp/remote")
       .build();
 
-    // Valid name + version resolve to a path.
     assert!(source.get_remote_bundle_filepath("app", "1.0.0").is_ok());
     assert!(
       source
@@ -960,7 +1366,6 @@ mod tests {
         .is_ok()
     );
 
-    // An unsafe bundle name cannot be turned into a filepath.
     for name in ["", "..", "a/b", "../etc", "a b"] {
       assert!(
         matches!(
@@ -971,7 +1376,6 @@ mod tests {
       );
     }
 
-    // An unsafe version is rejected too.
     for version in ["", "..", "1/0", "1 0"] {
       assert!(
         matches!(
@@ -984,14 +1388,13 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn invalid_filepath_when_write_remote_bundle() {
+  async fn invalid_filepath_when_fetch_remote_bundle() {
     let fixture = Fixtures::bundles();
     let source = BundleSource::builder()
       .remote_dir(fixture.get_path("remote"))
       .build();
-    let bundle = crate::BundleBuilder::new().build().unwrap();
     let err = source
-      .write_remote_bundle("../evil", "1.0.0", &bundle, Default::default())
+      .fetch_remote_bundle("../evil", "1.0.0")
       .await
       .unwrap_err();
     assert!(matches!(err, crate::Error::InvalidFilepath(_)));
@@ -999,35 +1402,47 @@ mod tests {
 
   #[tokio::test]
   async fn fetch() {
-    let fixture = Fixtures::bundles();
-    let source = BundleSource::builder()
-      .builtin_dir(fixture.get_path("builtin"))
-      .remote_dir(fixture.get_path("remote"))
-      .build();
+    let source = fixture_source();
     let bundle = source.fetch_bundle("app").await.unwrap();
     bundle.get_data("/index.html").unwrap().unwrap();
   }
 
   #[tokio::test]
+  async fn fetch_bundle_of_an_explicit_version() {
+    let source = fixture_source();
+
+    source
+      .fetch_builtin_bundle("app", "1.0.0")
+      .await
+      .unwrap()
+      .get_data("/index.html")
+      .unwrap()
+      .unwrap();
+    source
+      .fetch_remote_bundle("app", "1.1.0")
+      .await
+      .unwrap()
+      .get_data("/index.html")
+      .unwrap()
+      .unwrap();
+
+    let err = source
+      .fetch_remote_bundle("app", "9.9.9")
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::BundleNotFound));
+  }
+
+  #[tokio::test]
   async fn fetch_descriptor() {
-    let fixture = Fixtures::bundles();
-    let source = BundleSource::builder()
-      .builtin_dir(fixture.get_path("builtin"))
-      .remote_dir(fixture.get_path("remote"))
-      .build();
+    let source = fixture_source();
     let descriptor = source.fetch_descriptor("app").await.unwrap();
     assert!(descriptor.index().contains_path("/index.html"));
   }
 
   #[tokio::test]
   async fn fetch_many_times() {
-    let fixture = Fixtures::bundles();
-    let source = Arc::new(
-      BundleSource::builder()
-        .builtin_dir(fixture.get_path("builtin"))
-        .remote_dir(fixture.get_path("remote"))
-        .build(),
-    );
+    let source = Arc::new(fixture_source());
     let mut handles = Vec::new();
     for _i in 0..10 {
       let s = source.clone();
@@ -1044,29 +1459,125 @@ mod tests {
 
   #[tokio::test]
   async fn source_version_not_found() {
-    let fixture = Fixtures::bundles();
-    let source = BundleSource::builder()
-      .builtin_dir(fixture.get_path("builtin"))
-      .remote_dir(fixture.get_path("remote"))
-      .build();
+    let source = fixture_source();
     let bundle = source.fetch_bundle("not-found").await;
     assert!(matches!(bundle.unwrap_err(), crate::Error::BundleNotFound));
   }
 
   #[tokio::test]
-  async fn load_many_at_once() {
-    let fixture = Fixtures::bundles();
-    let source = Arc::new(
-      BundleSource::builder()
-        .builtin_dir(fixture.get_path("builtin"))
-        .remote_dir(fixture.get_path("remote"))
-        .build(),
+  async fn load_reads_data_of_the_loaded_version() {
+    let source = fixture_source();
+    let loaded = source.load("app").await.unwrap();
+
+    assert!(loaded.index().contains_path("/index.html"));
+    assert!(
+      !loaded
+        .get_data("/index.html")
+        .await
+        .unwrap()
+        .unwrap()
+        .is_empty()
     );
+    assert!(loaded.get_data("/not-exists.html").await.unwrap().is_none());
+    assert!(
+      loaded
+        .get_data_checksum("/index.html")
+        .await
+        .unwrap()
+        .is_some()
+    );
+    assert!(
+      loaded
+        .get_data_checksum("/not-exists.html")
+        .await
+        .unwrap()
+        .is_none()
+    );
+  }
+
+  #[tokio::test]
+  async fn load_applies_the_data_read_options_of_the_source() {
+    let fixture = Fixtures::bundles();
+    let data_read = DataReadOptions::default().checksum(ChecksumReadOptions::default().seed(42));
+    let source = BundleSource::builder()
+      .builtin_dir(fixture.get_path("builtin"))
+      .remote_dir(fixture.get_path("remote"))
+      .options(BundleSourceOptions::default().data_read(data_read))
+      .build();
+    assert_eq!(source.options().data_read, data_read);
+
+    let loaded = source.load("app").await.unwrap();
+    assert_eq!(loaded.data_read_options(), &data_read);
+
+    let err = loaded.get_data("/index.html").await.unwrap_err();
+    assert!(matches!(err, crate::Error::ChecksumMismatch));
+
+    let unverified =
+      DataReadOptions::default().checksum(ChecksumReadOptions::default().verify(false));
+    loaded
+      .get_data_with_options("/index.html", unverified)
+      .await
+      .unwrap()
+      .unwrap();
+  }
+
+  #[tokio::test]
+  async fn load_reloads_when_the_active_version_changes() {
+    let temp = TempDir::new();
+    let source = staged_bundle_source(&temp, &["1.0.0", "1.1.0"]).await;
+    source.update_remote_version("app", "1.0.0").await.unwrap();
+
+    let first = source.load("app").await.unwrap();
+    assert_eq!(
+      first.filepath,
+      source.get_remote_bundle_filepath("app", "1.0.0").unwrap()
+    );
+    let cached = source.load("app").await.unwrap();
+    assert!(Arc::ptr_eq(first.descriptor(), cached.descriptor()));
+
+    source.update_remote_version("app", "1.1.0").await.unwrap();
+
+    let next = source.load("app").await.unwrap();
+    assert!(!Arc::ptr_eq(first.descriptor(), next.descriptor()));
+    assert_eq!(
+      next.filepath,
+      source.get_remote_bundle_filepath("app", "1.1.0").unwrap()
+    );
+  }
+
+  #[tokio::test]
+  async fn remove_remote_bundle_unloads_only_the_version_it_removed() {
+    let temp = TempDir::new();
+    let source = staged_bundle_source(&temp, &["1.0.0", "1.1.0"]).await;
+    source.update_remote_version("app", "1.0.0").await.unwrap();
+    let loaded = source.load("app").await.unwrap();
+
+    source
+      .remove_remote_bundle("app", "1.1.0", None)
+      .await
+      .unwrap();
+    let after = source.load("app").await.unwrap();
+    assert!(Arc::ptr_eq(loaded.descriptor(), after.descriptor()));
+
+    source
+      .remove_remote_bundle("app", "1.0.0", Some(true))
+      .await
+      .unwrap();
+    assert!(!source.descriptors.contains_key("app"));
+    assert!(matches!(
+      source.load("app").await.unwrap_err(),
+      crate::Error::BundleNotFound
+    ));
+  }
+
+  #[tokio::test]
+  async fn load_many_at_once() {
+    let source = Arc::new(fixture_source());
     let mut handles = Vec::new();
     for _i in 0..10 {
       let s = source.clone();
       let handle = tokio::spawn(async move {
-        let _ = s.load("app.wvb").await;
+        s.load("app").await.unwrap();
       });
       handles.push(handle);
     }
@@ -1077,13 +1588,9 @@ mod tests {
 
   #[tokio::test]
   async fn load_and_unload_sequential() {
-    let fixture = Fixtures::bundles();
-    let source = Arc::new(
-      BundleSource::builder()
-        .builtin_dir(fixture.get_path("builtin"))
-        .remote_dir(fixture.get_path("remote"))
-        .build(),
-    );
+    let source = Arc::new(fixture_source());
+    assert!(!source.unload("app"), "nothing is loaded yet");
+
     let m1 = source.load("app").await.unwrap();
     assert!(source.unload("app"), "unload should remove existing entry");
     let m2 = source.load("app").await.unwrap();
@@ -1103,19 +1610,11 @@ mod tests {
 
   #[tokio::test]
   async fn load_and_unload_concurrently() {
-    use std::sync::Arc;
     use tokio::sync::Barrier;
     use tokio::task::JoinSet;
 
-    let fixture = Fixtures::bundles();
-    let source = Arc::new(
-      BundleSource::builder()
-        .builtin_dir(fixture.get_path("builtin"))
-        .remote_dir(fixture.get_path("remote"))
-        .build(),
-    );
+    let source = Arc::new(fixture_source());
 
-    // 1) initial loads. test single flight
     let n = 5usize;
     let mut set = JoinSet::new();
     for _i in 0..n {
@@ -1131,7 +1630,6 @@ mod tests {
       assert!(Arc::ptr_eq(initials[0].descriptor(), m.descriptor()));
     }
 
-    // 2) before/after barriers
     let barrier_before_unload = Arc::new(Barrier::new(n + 1));
     let barrier_after_unload = Arc::new(Barrier::new(n + 1));
 
@@ -1168,11 +1666,9 @@ mod tests {
       let v = res.unwrap().unwrap();
       after_jobs.push(v);
     }
-    // before jobs should be same with initial loads
     for m in &before_jobs {
       assert!(Arc::ptr_eq(initials[0].descriptor(), m.descriptor()));
     }
-    // after jobs should be not same with initial loads
     for m in &after_jobs {
       assert!(!Arc::ptr_eq(initials[0].descriptor(), m.descriptor()));
     }

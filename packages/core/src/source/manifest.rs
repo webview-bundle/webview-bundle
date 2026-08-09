@@ -104,7 +104,7 @@ where
     Ok(status)
   }
 
-  pub async fn get_entry_data(
+  pub async fn get_entry_version_data(
     &self,
     bundle_name: &str,
     version: &str,
@@ -373,6 +373,7 @@ impl BundleManifest<ReadWrite> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::source::BundleEntryRemoveResultKind;
   use crate::testing::*;
   use crate::util;
   use std::sync::Arc;
@@ -395,13 +396,13 @@ mod tests {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("builtin/manifest.json"), ReadOnly);
     manifest
-      .get_entry_data("app", "1.0.0")
+      .get_entry_version_data("app", "1.0.0")
       .await
       .unwrap()
       .unwrap();
     assert!(
       manifest
-        .get_entry_data("app", "not_exists")
+        .get_entry_version_data("app", "not_exists")
         .await
         .unwrap()
         .is_none()
@@ -418,7 +419,7 @@ mod tests {
     let mut handlers = vec![];
     for _ in 1..10 {
       let m = manifest.clone();
-      let handle = tokio::spawn(async move { m.get_entry_data("app", "1.0.0").await });
+      let handle = tokio::spawn(async move { m.get_entry_version_data("app", "1.0.0").await });
       handlers.push(handle);
     }
     for h in handlers {
@@ -500,7 +501,7 @@ mod tests {
       .unwrap();
     assert_eq!(
       manifest
-        .get_entry_data("app", "1.2.0")
+        .get_entry_version_data("app", "1.2.0")
         .await
         .unwrap()
         .unwrap(),
@@ -529,7 +530,7 @@ mod tests {
       .unwrap();
     assert_eq!(
       manifest
-        .get_entry_data("vite", "1.0.0")
+        .get_entry_version_data("vite", "1.0.0")
         .await
         .unwrap()
         .unwrap(),
@@ -557,11 +558,11 @@ mod tests {
   async fn remove_entry() {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
-    let removed = manifest.remove_entry("app", "1.1.0", None).await.unwrap();
-    assert!(removed);
+    let result = manifest.remove_entry("app", "1.1.0", None).await.unwrap();
+    assert_eq!(result.kind, BundleEntryRemoveResultKind::Removed);
     assert!(
       manifest
-        .get_entry_data("app", "1.1.0")
+        .get_entry_version_data("app", "1.1.0")
         .await
         .unwrap()
         .is_none()
@@ -573,14 +574,8 @@ mod tests {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
     manifest.set_current_version("app", "1.1.0").await.unwrap();
-    let err = manifest
-      .remove_entry("app", "1.1.0", None)
-      .await
-      .unwrap_err();
-    assert_eq!(
-      err.to_string(),
-      "bundle cannot be removed (bundle_name: app, version: 1.1.0)"
-    );
+    let result = manifest.remove_entry("app", "1.1.0", None).await.unwrap();
+    assert_eq!(result.kind, BundleEntryRemoveResultKind::InUse);
   }
 
   #[tokio::test]
@@ -588,14 +583,14 @@ mod tests {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
     manifest.set_current_version("app", "1.1.0").await.unwrap();
-    let removed = manifest
+    let result = manifest
       .remove_entry("app", "1.1.0", Some(true))
       .await
       .unwrap();
-    assert!(removed);
+    assert_eq!(result.kind, BundleEntryRemoveResultKind::Removed);
     assert!(
       manifest
-        .get_entry_data("app", "1.1.0")
+        .get_entry_version_data("app", "1.1.0")
         .await
         .unwrap()
         .is_none()
@@ -742,11 +737,15 @@ mod tests {
     manifest.set_current_version("app", "1.0.0").await.unwrap();
     manifest.set_current_version("app", "1.1.0").await.unwrap();
 
-    let removed = manifest
+    let results = manifest
       .remove_entries(&[("app", "1.1.0")], Some(true))
       .await
       .unwrap();
-    assert_eq!(removed, vec![true]);
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+      results.get(0).unwrap().kind,
+      BundleEntryRemoveResultKind::Removed
+    );
     assert!(!manifest.contains_entry("app", "1.1.0").await.unwrap());
     // Neither `current` nor `previous` may keep pointing at the removed version, and the
     // previous version is not silently promoted in its place.
@@ -761,7 +760,7 @@ mod tests {
   async fn remove_entries_returns_only_the_versions_it_removed() {
     let manifest = staged_manifest(&["1.0.0", "1.1.0"]).await;
     // Removed once: the duplicate is already gone, and the unknown bundle never existed.
-    let removed = manifest
+    let kinds = manifest
       .remove_entries(
         &[
           ("app", "1.1.0"),
@@ -772,19 +771,34 @@ mod tests {
         None,
       )
       .await
-      .unwrap();
-    assert_eq!(removed, vec![true, false, false, false]);
+      .unwrap()
+      .iter()
+      .map(|x| x.kind)
+      .collect::<Vec<_>>();
+    assert_eq!(
+      kinds,
+      vec![
+        BundleEntryRemoveResultKind::Removed,
+        BundleEntryRemoveResultKind::NotFound,
+        BundleEntryRemoveResultKind::NotFound,
+        BundleEntryRemoveResultKind::NotFound,
+      ]
+    );
     assert!(manifest.contains_entry("app", "1.0.0").await.unwrap());
   }
 
   #[tokio::test]
   async fn remove_entries_drops_an_entry_left_without_versions() {
     let manifest = staged_manifest(&["1.0.0"]).await;
-    let removed = manifest
+    let results = manifest
       .remove_entries(&[("app", "1.0.0")], None)
       .await
       .unwrap();
-    assert_eq!(removed, vec![true]);
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+      results.get(0).unwrap().kind,
+      BundleEntryRemoveResultKind::Removed
+    );
     assert!(manifest.list_entries().await.unwrap().is_empty());
   }
 
@@ -798,7 +812,14 @@ mod tests {
       "1.0.0"
     );
     // Removing the previous version must not leave `previous` pointing at it.
-    assert!(manifest.remove_entry("app", "1.0.0", None).await.unwrap());
+    assert_eq!(
+      manifest
+        .remove_entry("app", "1.0.0", None)
+        .await
+        .unwrap()
+        .kind,
+      BundleEntryRemoveResultKind::Removed
+    );
     assert!(
       manifest
         .get_previous_version("app")

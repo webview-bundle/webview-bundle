@@ -62,11 +62,11 @@ full = [
   "remote",
   "integrity",
   "signature",
-  "signature-ecdsa_secp256r1",
-  "signature-ecdsa_secp384r1",
-  "signature-edd25519",
-  "signature-rsa_pkcs1_v1_5",
-  "signature-rsa_pss",
+  "signature-rsa-pkcs1-v1_5-sha256",
+  "signature-rsa-pss-sha256",
+  "signature-ecdsa-secp256r1",
+  "signature-ecdsa-secp384r1",
+  "signature-ed25519",
   "tracing",
   "testing",
 ]
@@ -85,11 +85,11 @@ remote = [
 ]
 serde = ["_serde"]
 signature = ["integrity"]
-signature-ecdsa_secp256r1 = ["dep:p256"]
-signature-ecdsa_secp384r1 = ["dep:p384"]
-signature-edd25519 = ["dep:ed25519-dalek", "ed25519-dalek/pem"]
-signature-rsa_pkcs1_v1_5 = ["dep:rsa", "rsa/sha2"]
-signature-rsa_pss = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
+signature-ecdsa-secp256r1 = ["dep:p256"]
+signature-ecdsa-secp384r1 = ["dep:p384"]
+signature-ed25519 = ["dep:ed25519-dalek", "ed25519-dalek/pem"]
+signature-rsa-pkcs1-v1_5-sha256 = ["dep:rsa", "rsa/sha2"]
+signature-rsa-pss-sha256 = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
 source = ["dep:dashmap", "async", "_serde", "dep:semver", "tokio/macros"]
 testing = ["source", "remote", "dep:httpmock", "dep:time"]
 tracing = ["dep:tracing"]

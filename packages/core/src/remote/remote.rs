@@ -336,6 +336,7 @@ mod tests {
         version: "1.2.3".to_owned(),
         download_url: Some("https://cdn.example.com/app.wvb".to_owned()),
         integrity: Some("sha256-abc".to_owned()),
+        metadata: None,
       }],
       metadata: HashMap::from([("channel".to_owned(), "stable".to_owned())]),
     }

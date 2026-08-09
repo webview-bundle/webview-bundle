@@ -26,7 +26,7 @@ impl UpdaterIntegrityOptions {
   }
 }
 
-/// How bundle signatures are verified when bundles are loaded from remote.
+/// Signature options for verify update information from remote server.
 #[cfg(feature = "signature")]
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
@@ -45,10 +45,16 @@ impl UpdaterSignatureOptions {
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct UpdaterOptions {
+  /// Optional channel to fetch updates from remote server.
   pub channel: Option<String>,
   #[cfg(feature = "integrity")]
+  /// Integrity options for downloaded bundle.
   pub integrity: UpdaterIntegrityOptions,
   #[cfg(feature = "signature")]
+  /// Optional updater signature options.
+  /// It is used to verify update information retrieved from a remote server.
+  ///
+  /// This is recommended in production environments.
   pub signature: UpdaterSignatureOptions,
 }
 

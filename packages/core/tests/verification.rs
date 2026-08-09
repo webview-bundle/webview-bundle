@@ -9,7 +9,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use std::sync::Arc;
 use wvb::integrity::IntegrityPolicy;
 use wvb::protocol::{BundleProtocol, Protocol};
-use wvb::signature::{Ed25519Verifier, SignatureVerify};
+use wvb::signature::{Ed25519, SignatureVerify};
 use wvb::source::{
   BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceSignatureOptions,
   BundleSourceVerifyMode,
@@ -32,7 +32,7 @@ fn signing_key() -> SigningKey {
 }
 
 fn verifier() -> SignatureVerify {
-  let key = Ed25519Verifier::from_public_key_bytes(&signing_key().verifying_key().to_bytes())
+  let key = Ed25519::from_public_key_bytes(&signing_key().verifying_key().to_bytes())
     .expect("valid verifying key");
   SignatureVerify::Ed25519(Arc::new(key))
 }

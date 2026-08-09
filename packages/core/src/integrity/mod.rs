@@ -47,10 +47,10 @@
 //! # }
 //! ```
 
-mod check;
 mod integrity;
 mod policy;
+mod verify;
 
-pub use check::*;
 pub use integrity::*;
 pub use policy::*;
+pub use verify::*;

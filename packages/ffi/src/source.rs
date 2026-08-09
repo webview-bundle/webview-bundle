@@ -457,7 +457,7 @@ impl BundleSource {
   ) -> Result<Option<BundleManifestMetadata>, crate::Error> {
     let metadata = self
       .inner
-      .get_builtin_metadata(&bundle_name, &version)
+      .get_builtin_version_data(&bundle_name, &version)
       .await?
       .map(BundleManifestMetadata::from);
     Ok(metadata)
@@ -472,7 +472,7 @@ impl BundleSource {
   ) -> Result<Option<BundleManifestMetadata>, crate::Error> {
     let metadata = self
       .inner
-      .get_remote_metadata(&bundle_name, &version)
+      .get_remote_version_data(&bundle_name, &version)
       .await?
       .map(BundleManifestMetadata::from);
     Ok(metadata)

@@ -82,7 +82,7 @@ pub(crate) async fn source_load_builtin_metadata<R: Runtime>(
   let wvb = app.wvb();
   let metadata = wvb
     .source()
-    .get_builtin_metadata(&bundle_name, &version)
+    .get_builtin_version_data(&bundle_name, &version)
     .await?;
   Ok(metadata)
 }
@@ -96,7 +96,7 @@ pub(crate) async fn source_load_remote_metadata<R: Runtime>(
   let wvb = app.wvb();
   let metadata = wvb
     .source()
-    .get_remote_metadata(&bundle_name, &version)
+    .get_remote_version_data(&bundle_name, &version)
     .await?;
   Ok(metadata)
 }

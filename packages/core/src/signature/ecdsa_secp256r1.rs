@@ -4,11 +4,11 @@ use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
 use p256::pkcs8::DecodePublicKey;
 
-pub struct EcdsaSecp256r1Verifier {
+pub struct EcdsaSecp256r1 {
   key: VerifyingKey,
 }
 
-impl EcdsaSecp256r1Verifier {
+impl EcdsaSecp256r1 {
   pub fn from_sec1_bytes(bytes: &[u8]) -> crate::Result<Self> {
     let key = VerifyingKey::from_sec1_bytes(bytes).map_err(crate::Error::invalid_verifying_key)?;
     Ok(Self { key })
@@ -27,7 +27,7 @@ impl EcdsaSecp256r1Verifier {
   }
 }
 
-impl SignatureVerifier for EcdsaSecp256r1Verifier {
+impl SignatureVerifier for EcdsaSecp256r1 {
   async fn verify(&self, data: &[u8], signature: &str) -> crate::Result<bool> {
     let signature_bytes =
       Base64::decode_vec(signature).map_err(|_| crate::Error::InvalidSignature)?;

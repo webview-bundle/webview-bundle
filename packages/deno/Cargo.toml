@@ -17,19 +17,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 specta = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
-wvb = { workspace = true, features = [
-  "protocol",
-  "protocol-proxy",
-  "remote",
-  "updater",
-  "integrity",
-  "signature",
-  "signature-ecdsa_secp256r1",
-  "signature-ecdsa_secp384r1",
-  "signature-edd25519",
-  "signature-rsa_pkcs1_v1_5",
-  "signature-rsa_pss",
-] }
+wvb = { workspace = true, features = ["full"] }
 
 [dev-dependencies]
 specta-typescript = { workspace = true }
