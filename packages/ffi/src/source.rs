@@ -507,7 +507,7 @@ impl BundleSource {
     &self,
     bundle_name: String,
   ) -> Result<Vec<String>, crate::Error> {
-    let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
+    let removed = self.inner.prune_remote_bundle(&bundle_name).await?;
     Ok(removed)
   }
 }

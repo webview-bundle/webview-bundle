@@ -4,8 +4,9 @@ use crate::integrity::IntegrityPolicy;
 use crate::signature::SignatureVerify;
 use crate::source::types::BundleSourceKind;
 use crate::source::{
-  BundleManifest, BundleManifestEntryItem, BundleManifestEntryItemStatus,
-  BundleManifestVersionData, BundleSourceOptions, BundleSourceVersion, ReadOnly, ReadWrite,
+  BundleEntryPruneResult, BundleEntryRemoveResult, BundleEntryRemoveResultKind, BundleManifest,
+  BundleManifestEntryItem, BundleManifestVersionData, BundleSourceOptions, BundleSourceVersion,
+  ReadOnly, ReadWrite,
 };
 use crate::util;
 use crate::{
@@ -549,6 +550,13 @@ impl BundleSource {
     self.descriptors.remove(bundle_name).is_some()
   }
 
+  fn unload_filepath(&self, bundle_name: &str, filepath: &Path) -> bool {
+    self
+      .descriptors
+      .remove_if(bundle_name, |_, (cached, _)| cached == filepath)
+      .is_some()
+  }
+
   /// Removes a single staged remote bundle: drops its manifest entry and deletes its
   /// file from disk. Returns whether the entry existed.
   pub async fn remove_remote_bundle(
@@ -556,59 +564,116 @@ impl BundleSource {
     bundle_name: &str,
     version: &str,
     force: Option<bool>,
-  ) -> crate::Result<bool> {
-    let removed = self
+  ) -> crate::Result<BundleEntryRemoveResult> {
+    let result = self
       .remote_manifest
       .remove_entry(bundle_name, version, force)
       .await?;
-    if removed {
-      if let Ok(filepath) = self.get_remote_bundle_filepath(bundle_name, version) {
-        let _ = tokio::fs::remove_file(&filepath).await;
-      }
+
+    if result.kind == BundleEntryRemoveResultKind::Removed {
       self.remote_manifest.save().await?;
+      if let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, &result.version) {
+        self.unload_filepath(&result.name, &filepath);
+        remove_files_by_chunk(vec![filepath], 1).await;
+      }
     }
-    Ok(removed)
+
+    Ok(result)
   }
 
-  pub async fn remove_remote_bundles(
+  /// Same as [`BundleSource::remove_remote_bundle`] for several bundles, using a single
+  /// manifest write. The returned flags line up with `items`.
+  pub async fn remove_remote_bundles<N, V>(
     &self,
-    items: Vec<BundleManifestEntryItem>,
+    items: &[(N, V)],
     force: Option<bool>,
-  ) -> crate::Result<Vec<BundleManifestEntryItem>> {
-    let removed = self.remote_manifest.remove_entries(items, force).await?;
-    if !removed.is_empty() {
-      self.remote_manifest.save().await?;
+  ) -> crate::Result<Vec<BundleEntryRemoveResult>>
+  where
+    N: AsRef<str>,
+    V: AsRef<str>,
+  {
+    let results = self.remote_manifest.remove_entries(items, force).await?;
+    if !results
+      .iter()
+      .any(|x| x.kind == BundleEntryRemoveResultKind::Removed)
+    {
+      return Ok(results);
     }
 
-    Ok(removed)
+    // The manifest is the source of truth, so it is made durable before the files it no
+    // longer references are deleted
+    self.remote_manifest.save().await?;
+
+    let mut filepaths = Vec::with_capacity(results.len());
+    for ((name, version), result) in items.iter().zip(results.iter()) {
+      if result.kind != BundleEntryRemoveResultKind::Removed {
+        continue;
+      }
+      let (name, version) = (name.as_ref(), version.as_ref());
+      let Ok(filepath) = self.get_remote_bundle_filepath(name, version) else {
+        continue;
+      };
+      self.unload_filepath(name, &filepath);
+      filepaths.push(filepath);
+    }
+    remove_files_by_chunk(filepaths, 256).await;
+
+    Ok(results)
   }
 
   /// Remove orphan remote bundles which is not using so can free disk space.
-  pub async fn prune_remote_bundles(
+  pub async fn prune_remote_bundle(
     &self,
     bundle_name: &str,
-  ) -> crate::Result<Vec<BundleManifestEntryItem>> {
-    let bundle_names = [bundle_name.to_owned()];
-    self.prune_remote_bundles_many(&bundle_names).await
+  ) -> crate::Result<BundleEntryPruneResult> {
+    let result = self
+      .remote_manifest
+      .prune_entry(bundle_name)
+      .await?;
+
+    if !result.pruned_versions.is_empty() {
+      self.remote_manifest.save().await?;
+      let mut filepaths = vec![];
+      for version in result.pruned_versions.iter() {
+        if let Ok(filepath) = self.get_remote_bundle_filepath(
+          &result.name,
+          version
+        ) {
+          filepaths.push(filepath);
+        }
+      }
+      remove_files_by_chunk(filepaths, 256).await;
+    }
+
+    Ok(result)
   }
 
-  /// Same as [`BundleSource::prune_remote_bundles`] for several bundles, using a single
+  /// Same as [`BundleSource::prune_remote_bundle`] for several bundles, using a single
   /// manifest write.
-  pub async fn prune_remote_bundles_many(
+  pub async fn prune_remote_bundles<N>(
     &self,
-    bundle_names: &[String],
-  ) -> crate::Result<Vec<BundleManifestEntryItem>> {
-    let items = self
-      .remote_manifest
-      .list_entries()
-      .await?
-      .into_iter()
-      .filter(|x| {
-        x.status == BundleManifestEntryItemStatus::Orphan && bundle_names.contains(&x.name)
-      })
-      .collect::<Vec<_>>();
-    let removed = self.remove_remote_bundles(items, None).await?;
-    Ok(removed)
+    bundle_names: &[N],
+  ) -> crate::Result<Vec<BundleEntryPruneResult>>
+  where
+    N: AsRef<str>,
+  {
+    let results = self.remote_manifest.prune_entries(bundle_names).await?;
+    if results.iter().any(|x| !x.pruned_versions.is_empty()) {
+      self.remote_manifest.save().await?;
+    }
+
+    let mut filepaths = vec![];
+    for result in results.iter() {
+      for version in result.pruned_versions.iter() {
+        if let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, version) {
+          filepaths.push(filepath);
+        }
+      }
+    }
+
+    remove_files_by_chunk(filepaths, 256).await;
+
+    Ok(results)
   }
 
   fn get_filepath(
@@ -669,10 +734,149 @@ async fn read_file(filepath: &Path) -> crate::Result<Vec<u8>> {
   tokio::fs::read(filepath).await.map_err(map_read_error)
 }
 
+/// Deletes files, best-effort, in batches rather than one task per file.
+async fn remove_files_by_chunk(filepaths: Vec<PathBuf>, chunk_size: usize) {
+  if filepaths.is_empty() {
+    return;
+  }
+
+  for chunk in filepaths.chunks(chunk_size) {
+    let chunk = chunk.to_vec();
+    let _ = tokio::task::spawn_blocking(move || {
+      for filepath in chunk {
+        let _ = std::fs::remove_file(&filepath);
+      }
+    })
+    .await;
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::testing::Fixtures;
+  use crate::testing::{Fixtures, TempDir};
+
+  async fn staged_source(temp: &TempDir, versions: &[&str]) -> BundleSource {
+    let source = BundleSource::builder()
+      .remote_dir(temp.dir().join("remote"))
+      .build();
+    for version in versions {
+      source
+        .stage_remote_bundles(&[(
+          "app".to_string(),
+          version.to_string(),
+          BundleManifestVersionData::default(),
+        )])
+        .await
+        .unwrap();
+      let filepath = source.get_remote_bundle_filepath("app", version).unwrap();
+      tokio::fs::create_dir_all(filepath.parent().unwrap())
+        .await
+        .unwrap();
+      tokio::fs::write(&filepath, b"bundle").await.unwrap();
+    }
+    source
+  }
+
+  #[tokio::test]
+  async fn remove_remote_bundles_deletes_the_files_it_removed() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0", "1.1.0", "1.2.0"]).await;
+    source.update_remote_version("app", "1.0.0").await.unwrap();
+
+    let removed = source
+      .remove_remote_bundles(&[("app", "1.1.0"), ("app", "9.9.9")], None)
+      .await
+      .unwrap();
+    assert_eq!(removed, vec![true, false]);
+
+    let filepath = |version| source.get_remote_bundle_filepath("app", version).unwrap();
+    assert!(!filepath("1.1.0").exists());
+    assert!(filepath("1.0.0").exists());
+    assert!(filepath("1.2.0").exists());
+
+    // The manifest write happens before the files are deleted, so a source reopened over
+    // the same directory must not see the removed version.
+    let reopened = BundleSource::builder()
+      .remote_dir(temp.dir().join("remote"))
+      .build();
+    assert!(
+      reopened
+        .get_remote_metadata("app", "1.1.0")
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert!(
+      reopened
+        .get_remote_metadata("app", "1.2.0")
+        .await
+        .unwrap()
+        .is_some()
+    );
+  }
+
+  #[tokio::test]
+  async fn remove_remote_bundles_rejects_the_current_version_without_force() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0"]).await;
+    source.update_remote_version("app", "1.0.0").await.unwrap();
+
+    let err = source
+      .remove_remote_bundles(&[("app", "1.0.0")], None)
+      .await
+      .unwrap_err();
+    assert!(matches!(err, crate::Error::BundleCannotBeRemoved { .. }));
+    // Nothing was removed, so the file must still be there.
+    assert!(
+      source
+        .get_remote_bundle_filepath("app", "1.0.0")
+        .unwrap()
+        .exists()
+    );
+  }
+
+  #[tokio::test]
+  async fn remove_remote_bundles_drops_the_bundle_dir_once_its_last_version_is_gone() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0", "1.1.0"]).await;
+    let bundle_dir = temp.dir().join("remote").join("app");
+
+    source
+      .remove_remote_bundles(&[("app", "1.0.0")], None)
+      .await
+      .unwrap();
+    assert!(bundle_dir.exists());
+
+    source
+      .remove_remote_bundles(&[("app", "1.1.0")], None)
+      .await
+      .unwrap();
+    assert!(!bundle_dir.exists());
+  }
+
+  #[tokio::test]
+  async fn prune_remote_bundles_returns_and_deletes_only_orphans() {
+    let temp = TempDir::new();
+    let source = staged_source(&temp, &["1.0.0", "1.1.0", "1.2.0", "1.3.0"]).await;
+    source.update_remote_version("app", "1.0.0").await.unwrap();
+    source.update_remote_version("app", "1.1.0").await.unwrap();
+
+    // current=1.1.0, previous=1.0.0, staged=1.3.0, so only 1.2.0 is an orphan.
+    let pruned = source.prune_remote_bundle("app").await.unwrap();
+    assert_eq!(
+      pruned
+        .iter()
+        .map(|x| x.version.as_str())
+        .collect::<Vec<_>>(),
+      vec!["1.2.0"]
+    );
+    let filepath = |version| source.get_remote_bundle_filepath("app", version).unwrap();
+    assert!(!filepath("1.2.0").exists());
+    for version in ["1.0.0", "1.1.0", "1.3.0"] {
+      assert!(filepath(version).exists(), "{version} must be kept");
+    }
+  }
 
   #[test]
   fn valid_path_component() {

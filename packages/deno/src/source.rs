@@ -532,7 +532,7 @@ pub unsafe extern "C" fn wvb_source_prune_remote_bundles(
     return null_handle_err("source");
   };
   let name = unsafe { cstr(bundle_name) };
-  match runtime().block_on(async move { source.prune_remote_bundles(&name).await }) {
+  match runtime().block_on(async move { source.prune_remote_bundle(&name).await }) {
     Ok(removed) => ok_result(serde_json::json!(removed), Vec::new()),
     Err(e) => core_err(e),
   }

@@ -232,7 +232,7 @@ impl Updater {
         bundle_name
       })
       .collect::<Vec<_>>();
-    let _ = self.source.prune_remote_bundles_many(&bundle_names).await;
+    let _ = self.source.prune_remote_bundles(&bundle_names).await;
 
     let results = targets
       .iter()

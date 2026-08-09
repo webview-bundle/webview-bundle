@@ -140,7 +140,7 @@ pub(crate) async fn source_prune_remote_bundles<R: Runtime>(
   bundle_name: String,
 ) -> crate::Result<Vec<String>> {
   let wvb = app.wvb();
-  let removed = wvb.source().prune_remote_bundles(&bundle_name).await?;
+  let removed = wvb.source().prune_remote_bundle(&bundle_name).await?;
   Ok(removed)
 }
 

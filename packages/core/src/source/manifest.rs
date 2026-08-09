@@ -1,103 +1,12 @@
+use crate::source::{
+  BundleEntryPruneResult, BundleEntryRemoveResult, BundleManifestData, BundleManifestEntry,
+  BundleManifestEntryItem, BundleManifestEntryItemStatus, BundleManifestVersionData,
+};
 use crate::util;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use tokio::sync::{Mutex, OnceCell, RwLock};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(
-  feature = "_serde",
-  derive(serde_repr::Serialize_repr, serde_repr::Deserialize_repr)
-)]
-#[cfg_attr(feature = "_serde", repr(u8))]
-pub enum BundleManifestVersion {
-  #[default]
-  V1 = 1,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct BundleManifestVersionData {
-  pub integrity: Option<String>,
-  pub metadata: Option<HashMap<String, String>>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct BundleManifestEntry {
-  pub versions: HashMap<String, BundleManifestVersionData>,
-  /// The current version, or `None` when versions are present on disk but none has
-  /// been activated yet.
-  #[cfg_attr(
-    feature = "_serde",
-    serde(default, skip_serializing_if = "Option::is_none")
-  )]
-  pub current_version: Option<String>,
-  /// The previous version that was recorded before the current version changed.
-  #[cfg_attr(
-    feature = "_serde",
-    serde(default, skip_serializing_if = "Option::is_none")
-  )]
-  pub previous_version: Option<String>,
-  /// The staged version that has been downloaded from remote.
-  #[cfg_attr(
-    feature = "_serde",
-    serde(default, skip_serializing_if = "Option::is_none")
-  )]
-  pub staged_version: Option<String>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-#[non_exhaustive]
-pub struct BundleManifestData {
-  pub manifest_version: BundleManifestVersion,
-  pub entries: HashMap<String, BundleManifestEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub enum BundleManifestEntryItemStatus {
-  Current,
-  Previous,
-  Staged,
-  Orphan,
-}
-
-impl BundleManifestEntryItemStatus {
-  pub(crate) fn from(entry: &BundleManifestEntry, version: &str) -> Self {
-    if let Some(current_version) = entry.current_version.as_deref()
-      && current_version == version
-    {
-      BundleManifestEntryItemStatus::Current
-    } else if let Some(previous_version) = entry.previous_version.as_deref()
-      && previous_version == version
-    {
-      BundleManifestEntryItemStatus::Previous
-    } else if let Some(staged_version) = entry.staged_version.as_deref()
-      && staged_version == version
-    {
-      BundleManifestEntryItemStatus::Staged
-    } else {
-      BundleManifestEntryItemStatus::Orphan
-    }
-  }
-}
-
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-#[non_exhaustive]
-pub struct BundleManifestEntryItem {
-  pub name: String,
-  pub version: String,
-  pub status: BundleManifestEntryItemStatus,
-  pub data: BundleManifestVersionData,
-}
 
 pub trait BundleManifestMode: Send + Sync + 'static {}
 
@@ -235,10 +144,15 @@ impl BundleManifest<ReadWrite> {
       .await
   }
 
-  pub async fn set_current_versions(&self, items: &[(String, String)]) -> crate::Result<()> {
+  pub async fn set_current_versions<N, V>(&self, items: &[(N, V)]) -> crate::Result<()>
+  where
+    N: AsRef<str>,
+    V: AsRef<str>,
+  {
     let mut manifest = self.load().await?.write().await;
 
-    for (bundle_name, version) in items {
+    for (n, v) in items {
+      let (bundle_name, version) = (n.as_ref(), v.as_ref());
       let entry = manifest
         .entries
         .get(bundle_name)
@@ -248,18 +162,19 @@ impl BundleManifest<ReadWrite> {
       }
     }
 
-    for (bundle_name, version) in items {
+    for (n, v) in items {
+      let (bundle_name, version) = (n.as_ref(), v.as_ref());
       let Some(entry) = manifest.entries.get_mut(bundle_name) else {
         continue;
       };
 
-      if entry.previous_version.as_deref() == Some(version.as_str()) {
+      if entry.previous_version.as_deref() == Some(version) {
         entry.previous_version = None;
       } else {
         entry.previous_version = entry.current_version.clone();
       }
 
-      if entry.staged_version.as_deref() == Some(version.as_str()) {
+      if entry.staged_version.as_deref() == Some(version) {
         entry.staged_version = None;
       }
 
@@ -280,13 +195,18 @@ impl BundleManifest<ReadWrite> {
       .await
   }
 
-  pub async fn insert_staged_entries(
+  pub async fn insert_staged_entries<N, V>(
     &self,
-    items: &[(String, String, BundleManifestVersionData)],
-  ) -> crate::Result<()> {
+    items: &[(N, V, BundleManifestVersionData)],
+  ) -> crate::Result<()>
+  where
+    N: AsRef<str>,
+    V: AsRef<str>,
+  {
     let mut manifest = self.load().await?.write().await;
 
-    for (bundle_name, version, data) in items {
+    for (n, v, data) in items {
+      let (bundle_name, version) = (n.as_ref(), v.as_ref());
       manifest
         .entries
         .entry(bundle_name.to_string())
@@ -310,47 +230,58 @@ impl BundleManifest<ReadWrite> {
     bundle_name: &str,
     version: &str,
     force: Option<bool>,
-  ) -> crate::Result<bool> {
-    let force = force.unwrap_or(false);
-    let mut data = self.load().await?.write().await;
-    if let Some(entry) = data.entries.get_mut(bundle_name) {
-      if !force && entry.current_version.as_deref() == Some(version) {
-        return Err(crate::Error::bundle_cannot_be_removed(bundle_name, version));
-      }
-      if entry.previous_version.as_deref() == Some(version) {
-        entry.previous_version = None;
-      }
-      if entry.staged_version.as_deref() == Some(version) {
-        entry.staged_version = None;
-      }
-      return Ok(entry.versions.remove(version).is_some());
-    }
-    Ok(false)
+  ) -> crate::Result<BundleEntryRemoveResult> {
+    let result = self
+      .remove_entries(&[(bundle_name, version)], force)
+      .await?
+      .first()
+      .unwrap()
+      .clone();
+    Ok(result)
   }
 
-  pub async fn remove_entries(
+  pub async fn remove_entries<N, V>(
     &self,
-    items: &[(String, String)],
+    items: &[(N, V)],
     force: Option<bool>,
-  ) -> crate::Result<Vec<bool>> {
+  ) -> crate::Result<Vec<BundleEntryRemoveResult>>
+  where
+    N: AsRef<str>,
+    V: AsRef<str>,
+  {
     let force = force.unwrap_or(false);
-    let mut data = self.load().await?.write().await;
+    let mut manifest = self.load().await?.write().await;
 
     if !force {
-      for (bundle_name, version) in items.iter() {
-        let is_current = data
+      for (n, v) in items.iter() {
+        let (bundle_name, version) = (n.as_ref(), v.as_ref());
+        let is_current = manifest
           .entries
           .get(bundle_name)
-          .is_some_and(|entry| entry.current_version.as_deref() == Some(version.as_str()));
+          .is_some_and(|entry| entry.current_version.as_deref() == Some(version));
         if is_current {
           return Err(crate::Error::bundle_cannot_be_removed(bundle_name, version));
         }
       }
     }
 
-    let mut removed = Vec::with_capacity(items.len());
-    for (bundle_name, version) in items {
-      let Some(entry) = data.entries.get_mut(bundle_name) else {
+    let mut results = Vec::with_capacity(items.len());
+
+    for (n, v) in items {
+      let (bundle_name, version) = (n.as_ref(), v.as_ref());
+      if !force {
+        let is_current = manifest
+          .entries
+          .get(bundle_name)
+          .is_some_and(|x| x.current_version.as_deref() == Some(version));
+        if is_current {
+          results.push(BundleEntryRemoveResult::in_use(bundle_name, version));
+          continue;
+        }
+      }
+
+      let Some(entry) = manifest.entries.get_mut(bundle_name) else {
+        results.push(BundleEntryRemoveResult::not_found(bundle_name, version));
         continue;
       };
       let name = bundle_name.to_string();
@@ -363,18 +294,66 @@ impl BundleManifest<ReadWrite> {
       if entry.staged_version.as_deref() == Some(version) {
         entry.staged_version = None;
       }
-      removed.push(entry.versions.remove(version).is_some());
+
+      let result = match entry.versions.remove(version).is_some() {
+        true => BundleEntryRemoveResult::removed(bundle_name, version),
+        false => BundleEntryRemoveResult::not_found(bundle_name, version),
+      };
+      results.push(result);
+
       if entry.versions.is_empty() {
-        data.entries.remove(&name);
+        manifest.entries.remove(&name);
       }
     }
 
-    Ok(removed)
+    Ok(results)
+  }
+
+  pub async fn prune_entry(&self, bundle_name: &str) -> crate::Result<BundleEntryPruneResult> {
+    let results = self.prune_entries(&[bundle_name]).await?;
+    Ok(results.first().unwrap().clone())
+  }
+
+  pub async fn prune_entries<N>(
+    &self,
+    bundle_names: &[N],
+  ) -> crate::Result<Vec<BundleEntryPruneResult>>
+  where
+    N: AsRef<str>,
+  {
+    let mut manifest = self.load().await?.write().await;
+    let mut results = Vec::with_capacity(bundle_names.len());
+    for (bundle_name, entry) in manifest.entries.iter_mut() {
+      if !bundle_names.iter().any(|n| n.as_ref() == bundle_name) {
+        continue;
+      }
+
+      let pruned_versions = entry
+        .versions
+        .iter()
+        .filter_map(
+          |(version, _)| match BundleManifestEntryItemStatus::from(entry, version) {
+            BundleManifestEntryItemStatus::Orphan => Some(version.to_owned()),
+            _ => None,
+          },
+        )
+        .collect::<Vec<_>>();
+
+      for prune_version in pruned_versions.iter() {
+        entry.versions.remove(prune_version);
+      }
+
+      results.push(BundleEntryPruneResult {
+        name: bundle_name.to_owned(),
+        pruned_versions,
+      })
+    }
+    Ok(results)
   }
 
   pub async fn clear(&self) -> crate::Result<()> {
-    let mut data = self.load().await?.write().await;
-    *data = BundleManifestData::default();
+    let mut manifest = self.load().await?.write().await;
+    *manifest = BundleManifestData::default();
     Ok(())
   }
 
@@ -412,7 +391,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn get_entry_metadata() {
+  async fn get_entry_data() {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("builtin/manifest.json"), ReadOnly);
     manifest
@@ -430,7 +409,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn get_entry_metadata_concurrently() {
+  async fn get_entry_data_concurrently() {
     let fixture = Fixtures::bundles();
     let manifest = Arc::new(BundleManifest::new(
       &fixture.get_path("builtin/manifest.json"),
@@ -508,60 +487,53 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn insert_entry() {
+  async fn insert_stage_entry() {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
-    let metadata = BundleManifestVersionData {
-      etag: None,
+    let data = BundleManifestVersionData {
       integrity: None,
-      signature: None,
-      last_modified: None,
+      metadata: None,
     };
-    let inserted = manifest
-      .insert_stage_entry("app", "1.2.0", metadata.clone())
+    manifest
+      .insert_stage_entry("app", "1.2.0", data.clone())
       .await
       .unwrap();
-    assert!(inserted);
     assert_eq!(
       manifest
         .get_entry_data("app", "1.2.0")
         .await
         .unwrap()
         .unwrap(),
-      metadata
+      data
     );
-    // Staging a new version into an existing entry must NOT change the active version.
     assert_eq!(
-      manifest.get_current_version("app").await.unwrap().unwrap(),
-      "1.0.0"
+      manifest.get_staged_version("app").await.unwrap().unwrap(),
+      "1.2.0"
     );
   }
 
   #[tokio::test]
-  async fn insert_entry_from_empty() {
+  async fn insert_stage_entry_from_empty() {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(
       &fixture.get_path("bundles").join("manifest.json"),
       ReadWrite,
     );
-    let metadata = BundleManifestVersionData {
-      etag: None,
+    let data = BundleManifestVersionData {
       integrity: None,
-      signature: None,
-      last_modified: None,
+      metadata: None,
     };
-    let inserted = manifest
-      .insert_stage_entry("vite", "1.0.0", metadata.clone())
+    manifest
+      .insert_stage_entry("vite", "1.0.0", data.clone())
       .await
       .unwrap();
-    assert!(inserted);
     assert_eq!(
       manifest
         .get_entry_data("vite", "1.0.0")
         .await
         .unwrap()
         .unwrap(),
-      metadata
+      data
     );
     assert!(
       manifest
@@ -569,6 +541,10 @@ mod tests {
         .await
         .unwrap()
         .is_none(),
+    );
+    assert_eq!(
+      manifest.get_staged_version("vite").await.unwrap().unwrap(),
+      "1.0.0"
     );
     manifest.set_current_version("vite", "1.0.0").await.unwrap();
     assert_eq!(
@@ -702,7 +678,17 @@ mod tests {
     reader.await.unwrap();
 
     let reloaded = BundleManifest::new(&filepath, ReadOnly);
-    assert_eq!(reloaded.list_versions("app").await.unwrap().len(), 65);
+    assert_eq!(
+      reloaded
+        .list_entries()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|x| &x.name == "app")
+        .collect::<Vec<_>>()
+        .len(),
+      65
+    );
   }
 
   async fn staged_manifest(versions: &[&str]) -> BundleManifest<ReadWrite> {
@@ -730,20 +716,15 @@ mod tests {
       .expect("version must be listed")
   }
 
-  fn removed_versions(items: &[BundleManifestEntryItem]) -> Vec<&str> {
-    items.iter().map(|x| x.version.as_str()).collect()
-  }
-
   #[tokio::test]
   async fn remove_entries_rejects_a_current_version_without_force() {
     let manifest = staged_manifest(&["1.0.0", "1.1.0"]).await;
     manifest.set_current_version("app", "1.0.0").await.unwrap();
 
-    let items = vec![
-      entry_item(&manifest, "1.1.0").await,
-      entry_item(&manifest, "1.0.0").await,
-    ];
-    let err = manifest.remove_entries(items, None).await.unwrap_err();
+    let err = manifest
+      .remove_entries(&[("app", "1.1.0"), ("app", "1.0.0")], None)
+      .await
+      .unwrap_err();
     assert!(matches!(
       err,
       crate::Error::BundleCannotBeRemoved { ref bundle_name, ref version }
@@ -751,6 +732,7 @@ mod tests {
     ));
     // The whole batch is rejected before anything is touched, so the version listed
     // before the offending one survives too.
+    assert!(manifest.contains_entry("app", "1.0.0").await.unwrap());
     assert!(manifest.contains_entry("app", "1.1.0").await.unwrap());
   }
 
@@ -760,9 +742,11 @@ mod tests {
     manifest.set_current_version("app", "1.0.0").await.unwrap();
     manifest.set_current_version("app", "1.1.0").await.unwrap();
 
-    let items = vec![entry_item(&manifest, "1.1.0").await];
-    let removed = manifest.remove_entries(items, Some(true)).await.unwrap();
-    assert_eq!(removed_versions(&removed), vec!["1.1.0"]);
+    let removed = manifest
+      .remove_entries(&[("app", "1.1.0")], Some(true))
+      .await
+      .unwrap();
+    assert_eq!(removed, vec![true]);
     assert!(!manifest.contains_entry("app", "1.1.0").await.unwrap());
     // Neither `current` nor `previous` may keep pointing at the removed version, and the
     // previous version is not silently promoted in its place.
@@ -776,34 +760,36 @@ mod tests {
   #[tokio::test]
   async fn remove_entries_returns_only_the_versions_it_removed() {
     let manifest = staged_manifest(&["1.0.0", "1.1.0"]).await;
-    let mut items = vec![
-      entry_item(&manifest, "1.1.0").await,
-      entry_item(&manifest, "1.1.0").await,
-    ];
-    items.push(BundleManifestEntryItem {
-      name: "not_exists".to_string(),
-      version: "1.0.0".to_string(),
-      status: BundleManifestEntryItemStatus::Orphan,
-      data: BundleManifestVersionData::default(),
-    });
     // Removed once: the duplicate is already gone, and the unknown bundle never existed.
-    let removed = manifest.remove_entries(items, None).await.unwrap();
-    assert_eq!(removed_versions(&removed), vec!["1.1.0"]);
+    let removed = manifest
+      .remove_entries(
+        &[
+          ("app", "1.1.0"),
+          ("app", "1.1.0"),
+          ("app", "2.0.0"),
+          ("not_exists", "1.0.0"),
+        ],
+        None,
+      )
+      .await
+      .unwrap();
+    assert_eq!(removed, vec![true, false, false, false]);
     assert!(manifest.contains_entry("app", "1.0.0").await.unwrap());
   }
 
   #[tokio::test]
   async fn remove_entries_drops_an_entry_left_without_versions() {
     let manifest = staged_manifest(&["1.0.0"]).await;
-    let items = vec![entry_item(&manifest, "1.0.0").await];
-    let removed = manifest.remove_entries(items, None).await.unwrap();
-    assert_eq!(removed_versions(&removed), vec!["1.0.0"]);
+    let removed = manifest
+      .remove_entries(&[("app", "1.0.0")], None)
+      .await
+      .unwrap();
+    assert_eq!(removed, vec![true]);
     assert!(manifest.list_entries().await.unwrap().is_empty());
-    assert!(manifest.list_versions("app").await.unwrap().is_empty());
   }
 
   #[tokio::test]
-  async fn remove_entry_clears_previous_pointer() {
+  async fn remove_entry_clears_previous_version() {
     let manifest = staged_manifest(&["1.0.0", "1.1.0"]).await;
     manifest.set_current_version("app", "1.0.0").await.unwrap();
     manifest.set_current_version("app", "1.1.0").await.unwrap();
@@ -820,5 +806,37 @@ mod tests {
         .unwrap()
         .is_none()
     );
+  }
+
+  #[tokio::test]
+  async fn remove_entry_clears_staged_version() {
+    let manifest = staged_manifest(&["1.0.0"]).await;
+    manifest.set_current_version("app", "1.0.0").await.unwrap();
+    manifest
+      .insert_stage_entry("app", "1.1.0", BundleManifestVersionData::default())
+      .await
+      .unwrap();
+    assert_eq!(
+      manifest.get_current_version("app").await.unwrap().unwrap(),
+      "1.0.0"
+    );
+    assert!(
+      manifest
+        .get_previous_version("app")
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(
+      manifest.get_staged_version("app").await.unwrap().unwrap(),
+      "1.1.0"
+    );
+
+    manifest.remove_entry("app", "1.1.0", None).await.unwrap();
+    assert_eq!(
+      manifest.get_current_version("app").await.unwrap().unwrap(),
+      "1.0.0"
+    );
+    assert!(manifest.get_staged_version("app").await.unwrap().is_none());
   }
 }

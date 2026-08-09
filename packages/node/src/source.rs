@@ -784,7 +784,7 @@ impl BundleSource {
   /// @returns {Promise<string[]>} Versions that were removed
   #[napi]
   pub async fn prune_remote_bundles(&self, bundle_name: String) -> crate::Result<Vec<String>> {
-    let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
+    let removed = self.inner.prune_remote_bundle(&bundle_name).await?;
     Ok(removed)
   }
 }
