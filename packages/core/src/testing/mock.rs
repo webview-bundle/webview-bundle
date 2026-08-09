@@ -222,12 +222,7 @@ impl MockBundle {
   }
 
   pub fn metadata(&self) -> BundleManifestVersionData {
-    BundleManifestVersionData {
-      etag: self.etag.to_owned(),
-      integrity: self.integrity.to_owned(),
-      signature: self.signature.to_owned(),
-      last_modified: self.last_modified.to_owned(),
-    }
+    todo!()
   }
 
   pub fn is_same(&self, name: &str, version: &str) -> bool {

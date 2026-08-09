@@ -86,7 +86,7 @@ fn updater_options(options: UpdaterOptions) -> Result<updater::UpdaterOptions, c
       integrity_options = integrity_options.policy(policy.into());
     }
     if let Some(check) = integrity.check {
-      integrity_options = integrity_options.check(crate::integrity::into_checker(check));
+      integrity_options = integrity_options.algorithm(crate::integrity::into_checker(check));
     }
     updater_options = updater_options.integrity(integrity_options);
   }

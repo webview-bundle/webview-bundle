@@ -12,6 +12,7 @@ version      = "0.2.0"
 bench = false
 
 [dependencies]
+anyhow           = { workspace = true, optional = true }
 async-trait      = { workspace = true }
 base64ct         = { workspace = true, optional = true }
 bincode          = { workspace = true }
@@ -51,7 +52,16 @@ tokio      = { workspace = true, features = ["full"] }
 [features]
 _reqwest = ["dep:reqwest"]
 _serde = ["dep:serde", "dep:serde_json", "dep:serde_repr"]
-async = ["dep:tokio", "tokio/io-util", "tokio/rt", "tokio/rt-multi-thread", "tokio/fs", "tokio/sync", "tokio/time", "dep:tokio-util"]
+async = [
+  "dep:tokio",
+  "tokio/io-util",
+  "tokio/rt",
+  "tokio/rt-multi-thread",
+  "tokio/fs",
+  "tokio/sync",
+  "tokio/time",
+  "dep:tokio-util",
+]
 full = [
   "serde",
   "async",
@@ -81,7 +91,7 @@ remote = [
   "reqwest/json",
   "reqwest/stream",
   "dep:urlencoding",
-  "dep:futures-util"
+  "dep:futures-util",
 ]
 serde = ["_serde"]
 signature = ["integrity"]
@@ -91,12 +101,9 @@ signature-ed25519 = ["dep:ed25519-dalek", "ed25519-dalek/pem"]
 signature-rsa-pkcs1-v1_5-sha256 = ["dep:rsa", "rsa/sha2"]
 signature-rsa-pss-sha256 = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
 source = ["dep:dashmap", "async", "_serde", "dep:semver", "tokio/macros"]
-testing = ["source", "remote", "dep:httpmock", "dep:time"]
+testing = ["source", "remote", "integrity", "dep:httpmock", "dep:time", "dep:anyhow"]
 tracing = ["dep:tracing"]
-updater = [
-  "remote",
-  "source"
-]
+updater = ["remote", "source"]
 
 [lints.clippy]
 module_inception = "allow"

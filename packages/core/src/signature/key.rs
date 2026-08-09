@@ -15,7 +15,7 @@ pub type CustomKey = dyn Fn(
   > + Send
   + Sync;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SignatureKeySet {
   pub id: String,
   pub key: SignatureKey,
@@ -23,17 +23,11 @@ pub struct SignatureKeySet {
 
 impl SignatureKeySet {
   pub fn algorithm(&self) -> SignatureAlgorithm {
-    match &self.key {
-      SignatureKey::RsaPkcs1V1_5Sha256(_) => SignatureAlgorithm::RsaPkcs1V1_5Sha256,
-      SignatureKey::RsaPssSha256(_) => SignatureAlgorithm::RsaPssSha256,
-      SignatureKey::EcdsaSecp256r1(_) => SignatureAlgorithm::EcdsaSecp256r1,
-      SignatureKey::EcdsaSecp384r1(_) => SignatureAlgorithm::EcdsaSecp384r1,
-      SignatureKey::Ed25519(_) => SignatureAlgorithm::Ed25519,
-      SignatureKey::Custom(_) => SignatureAlgorithm::Custom,
-    }
+    self.key.algorithm()
   }
 }
 
+#[derive(Clone)]
 pub enum SignatureKey {
   #[cfg(feature = "signature-rsa-pkcs1-v1_5-sha256")]
   RsaPkcs1V1_5Sha256(crate::signature::RsaPkcs1V15Sha256),
@@ -46,6 +40,24 @@ pub enum SignatureKey {
   #[cfg(feature = "signature-ed25519")]
   Ed25519(crate::signature::Ed25519),
   Custom(Arc<CustomKey>),
+}
+
+impl SignatureKey {
+  pub fn algorithm(&self) -> SignatureAlgorithm {
+    match self {
+      #[cfg(feature = "signature-rsa-pkcs1-v1_5-sha256")]
+      SignatureKey::RsaPkcs1V1_5Sha256(_) => SignatureAlgorithm::RsaPkcs1V1_5Sha256,
+      #[cfg(feature = "signature-rsa-pss-sha256")]
+      SignatureKey::RsaPssSha256(_) => SignatureAlgorithm::RsaPssSha256,
+      #[cfg(feature = "signature-ecdsa-secp256r1")]
+      SignatureKey::EcdsaSecp256r1(_) => SignatureAlgorithm::EcdsaSecp256r1,
+      #[cfg(feature = "signature-ecdsa-secp384r1")]
+      SignatureKey::EcdsaSecp384r1(_) => SignatureAlgorithm::EcdsaSecp384r1,
+      #[cfg(feature = "signature-ed25519")]
+      SignatureKey::Ed25519(_) => SignatureAlgorithm::Ed25519,
+      SignatureKey::Custom(_) => SignatureAlgorithm::Custom,
+    }
+  }
 }
 
 impl std::fmt::Debug for SignatureKey {

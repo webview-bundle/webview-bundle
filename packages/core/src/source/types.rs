@@ -1,7 +1,5 @@
 #[cfg(feature = "integrity")]
-use crate::integrity::{IntegrityCheck, IntegrityPolicy};
-#[cfg(feature = "signature")]
-use crate::signature::SignatureVerify;
+use crate::integrity;
 use crate::{DataReadOptions, HeaderReadOptions, IndexReadOptions};
 use std::collections::HashMap;
 
@@ -32,52 +30,21 @@ impl BundleSourceVerifyMode {
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct BundleSourceIntegrityOptions {
-  pub policy: IntegrityPolicy,
-  pub check: IntegrityCheck,
+  pub policy: integrity::IntegrityPolicy,
   pub check_mode: BundleSourceVerifyMode,
 }
 
 #[cfg(feature = "integrity")]
 impl BundleSourceIntegrityOptions {
   /// How a bundle's integrity metadata is treated
-  pub fn policy(mut self, policy: IntegrityPolicy) -> Self {
+  pub fn policy(mut self, policy: integrity::IntegrityPolicy) -> Self {
     self.policy = policy;
-    self
-  }
-
-  /// The checker that validates bundle bytes against an integrity string
-  pub fn check(mut self, check: IntegrityCheck) -> Self {
-    self.check = check;
     self
   }
 
   /// Which bundles are checked on load
   pub fn check_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
     self.check_mode = mode;
-    self
-  }
-}
-
-/// How bundle signatures are verified when bundles are loaded from disk.
-#[cfg(feature = "signature")]
-#[derive(Debug, Default, Clone)]
-#[non_exhaustive]
-pub struct BundleSourceSignatureOptions {
-  pub verify: Option<SignatureVerify>,
-  pub verify_mode: BundleSourceVerifyMode,
-}
-
-#[cfg(feature = "signature")]
-impl BundleSourceSignatureOptions {
-  /// Verifies that a bundle's integrity string was signed by the matching key
-  pub fn verify(mut self, verifier: SignatureVerify) -> Self {
-    self.verify = Some(verifier);
-    self
-  }
-
-  /// Which bundles have their signature verified on load
-  pub fn verify_mode(mut self, mode: BundleSourceVerifyMode) -> Self {
-    self.verify_mode = mode;
     self
   }
 }
@@ -90,8 +57,6 @@ pub struct BundleSourceOptions {
   pub data_read: DataReadOptions,
   #[cfg(feature = "integrity")]
   pub integrity: BundleSourceIntegrityOptions,
-  #[cfg(feature = "signature")]
-  pub signature: BundleSourceSignatureOptions,
 }
 
 impl BundleSourceOptions {
@@ -117,13 +82,6 @@ impl BundleSourceOptions {
   #[cfg(feature = "integrity")]
   pub fn integrity(mut self, options: BundleSourceIntegrityOptions) -> Self {
     self.integrity = options;
-    self
-  }
-
-  /// How bundle signatures are verified on load.
-  #[cfg(feature = "signature")]
-  pub fn signature(mut self, options: BundleSourceSignatureOptions) -> Self {
-    self.signature = options;
     self
   }
 }

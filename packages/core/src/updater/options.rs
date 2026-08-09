@@ -1,5 +1,7 @@
-use crate::integrity::{IntegrityCheck, IntegrityPolicy};
-use crate::signature::SignatureVerify;
+#[cfg(feature = "integrity")]
+use crate::integrity;
+#[cfg(feature = "signature")]
+use crate::signature;
 
 /// How bundles are checked against the integrity recorded for them
 /// in the remote manifest.
@@ -7,21 +9,19 @@ use crate::signature::SignatureVerify;
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct UpdaterIntegrityOptions {
-  pub policy: IntegrityPolicy,
-  pub check: IntegrityCheck,
+  pub policy: integrity::IntegrityPolicy,
+  pub algorithm: Option<integrity::IntegrityAlgorithm>,
 }
 
 #[cfg(feature = "integrity")]
 impl UpdaterIntegrityOptions {
-  /// How a bundle's integrity metadata is treated
-  pub fn policy(mut self, policy: IntegrityPolicy) -> Self {
+  pub fn policy(mut self, policy: integrity::IntegrityPolicy) -> Self {
     self.policy = policy;
     self
   }
 
-  /// The checker that validates bundle bytes against an integrity string
-  pub fn check(mut self, check: IntegrityCheck) -> Self {
-    self.check = check;
+  pub fn algorithm(mut self, alg: integrity::IntegrityAlgorithm) -> Self {
+    self.algorithm = Some(alg);
     self
   }
 }
@@ -31,13 +31,19 @@ impl UpdaterIntegrityOptions {
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct UpdaterSignatureOptions {
-  pub verify: Option<SignatureVerify>,
+  pub key_sets: Option<Vec<signature::SignatureKeySet>>,
 }
 
 impl UpdaterSignatureOptions {
-  /// Verifies that a bundle's integrity string was signed by the matching key
-  pub fn verify(mut self, verify: SignatureVerify) -> Self {
-    self.verify = Some(verify);
+  pub fn key_set(self, key_set: signature::SignatureKeySet) -> Self {
+    self.key_sets(vec![key_set])
+  }
+
+  pub fn key_sets(mut self, key_sets: Vec<signature::SignatureKeySet>) -> Self {
+    self.key_sets = match self.key_sets {
+      Some(original) => Some(vec![original, key_sets].concat()),
+      None => Some(key_sets),
+    };
     self
   }
 }

@@ -12,12 +12,12 @@ crate-type = ["cdylib"]
 doctest    = false
 
 [dependencies]
-base64ct = { workspace = true, features = ["alloc"] }
-serde = { workspace = true, features = ["derive"] }
+base64ct   = { workspace = true, features = ["alloc"] }
+serde      = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-specta = { workspace = true }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
-wvb = { workspace = true, features = ["full"] }
+specta     = { workspace = true }
+tokio      = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+wvb        = { workspace = true, features = ["full"] }
 
 [dev-dependencies]
 specta-typescript = { workspace = true }

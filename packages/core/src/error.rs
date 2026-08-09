@@ -83,13 +83,9 @@ error_codes! {
   #[cfg(feature = "signature")]
   InvalidSignature => "invalid_signature",
   #[cfg(feature = "signature")]
-  InvalidSigningKey => "invalid_signing_key",
+  InvalidSignatureKey => "invalid_signature_key",
   #[cfg(feature = "signature")]
-  SignatureSignFailed => "signature_sign_failed",
-  #[cfg(feature = "signature")]
-  InvalidVerifyingKey => "invalid_verifying_key",
-  #[cfg(feature = "signature")]
-  SignatureNotExists => "signature_not_exists",
+  ExpectSignatureNotFound => "expect_signature_not_found",
   #[cfg(feature = "signature")]
   SignatureVerifyFailed => "signature_verify_failed",
   Generic => "generic",
@@ -202,17 +198,11 @@ pub enum Error {
   #[error("invalid signature")]
   InvalidSignature,
   #[cfg(feature = "signature")]
-  #[error("invalid signing key: {0}")]
-  InvalidSigningKey(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
-  #[cfg(feature = "signature")]
-  #[error("signature sign failed: {0}")]
-  SignatureSignFailed(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
-  #[cfg(feature = "signature")]
   #[error("invalid verifying key: {0}")]
-  InvalidVerifyingKey(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
+  InvalidSignatureKey(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
   #[cfg(feature = "signature")]
-  #[error("signature not exists")]
-  SignatureNotExists,
+  #[error("expect signature not found: key_id={key_id}, alg={alg}")]
+  ExpectSignatureNotFound { key_id: String, alg: String },
   #[cfg(feature = "signature")]
   #[error("signature verify failed")]
   SignatureVerifyFailed,
@@ -293,10 +283,18 @@ impl Error {
   }
 
   #[cfg(feature = "signature")]
-  pub(crate) fn invalid_verifying_key(
+  pub(crate) fn invalid_signature_key(
     error: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
   ) -> Self {
-    Self::InvalidVerifyingKey(error.into())
+    Self::InvalidSignatureKey(error.into())
+  }
+
+  #[cfg(feature = "signature")]
+  pub(crate) fn expect_signature_not_found(key_set: &crate::signature::SignatureKeySet) -> Self {
+    Self::ExpectSignatureNotFound {
+      key_id: key_set.id.to_owned(),
+      alg: key_set.algorithm().to_string(),
+    }
   }
 
   #[allow(dead_code)]

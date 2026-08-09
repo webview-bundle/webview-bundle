@@ -2,28 +2,7 @@ use crate::remote::sfv::parse_string_dict;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-/// Representation of bundle info from the remote server.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-pub struct RemoteBundleInfo {
-  /// Bundle name
-  pub name: String,
-  /// Version of the bundle
-  pub version: String,
-  /// ETag from the remote server. Can be used to check if the bundle has been updated.
-  pub etag: Option<String>,
-  /// Integrity hash of the bundle.
-  pub integrity: Option<String>,
-  /// Signature of the bundle.
-  pub signature: Option<String>,
-  /// Last modified date from the remote server.
-  pub last_modified: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
+#[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct RemoteGetUpdateOptions {
   /// Optional etag value which got from previous update.
@@ -31,11 +10,9 @@ pub struct RemoteGetUpdateOptions {
   pub etag: Option<String>,
   /// Channel of this update.
   pub channel: Option<String>,
+  #[cfg(feature = "signature")]
   /// The client requests the signature information to be used for verification.
-  ///
-  /// If the remote server holds signature information matching the request,
-  /// it returns the "wvb-tossplace-signature" header value in the response.
-  pub expect_signature: Option<RemoteExpectSignature>,
+  pub expect_signature: Option<crate::signature::SignatureKeySet>,
 }
 
 impl RemoteGetUpdateOptions {
@@ -49,29 +26,10 @@ impl RemoteGetUpdateOptions {
     self
   }
 
-  pub fn expect_signature(mut self, expect: impl Into<RemoteExpectSignature>) -> Self {
-    self.expect_signature = Some(expect.into());
+  #[cfg(feature = "signature")]
+  pub fn expect_signature(mut self, sig: crate::signature::SignatureKeySet) -> Self {
+    self.expect_signature = Some(sig);
     self
-  }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-#[non_exhaustive]
-pub struct RemoteExpectSignature {
-  /// The signature key id for expecting to use.
-  pub key_id: String,
-  /// The signature algorithm for expecting to use.
-  pub alg: String,
-}
-
-impl RemoteExpectSignature {
-  pub fn new(key_id: impl Into<String>, alg: impl Into<String>) -> Self {
-    Self {
-      key_id: key_id.into(),
-      alg: alg.into(),
-    }
   }
 }
 

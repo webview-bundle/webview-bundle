@@ -10,11 +10,11 @@ rust-version = "1.85.0"
 version      = "0.1.0"
 
 [dependencies]
-serde = { workspace = true }
-tauri = { workspace = true, features = ["unstable"] }
+serde     = { workspace = true }
+tauri     = { workspace = true, features = ["unstable"] }
 thiserror = { workspace = true }
-tracing = { workspace = true }
-wvb = { workspace = true, features = ["full"] }
+tracing   = { workspace = true }
+wvb       = { workspace = true, features = ["full"] }
 
 [build-dependencies]
 tauri-plugin = { workspace = true, features = ["build"] }

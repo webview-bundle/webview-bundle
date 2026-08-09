@@ -361,11 +361,9 @@ impl BundleSource {
       if check_integrity {
         crate::integrity::verify_integrity(
           &self.options.integrity.policy,
-          &self.options.integrity.check,
           data.integrity.as_deref(),
           file_data.as_deref().unwrap_or_default(),
-        )
-        .await?;
+        )?;
       }
       Ok(file_data)
     }

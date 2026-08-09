@@ -3,6 +3,8 @@ use crate::remote::{
   HttpOptions, RemoteConfig, RemoteError, RemoteGetUpdateOptions, RemoteUpdateResponse, Update,
   UpdateSignature,
 };
+#[cfg(feature = "signature")]
+use crate::signature::SignatureVerifier;
 use crate::util::cancellation::Cancellation;
 use http::StatusCode;
 use reqwest::header;
@@ -90,29 +92,32 @@ impl Remote {
       .header(header::ACCEPT, "application/json")
       .header(
         header::HeaderName::from_static("wvb-update-protocol-version"),
-        "1",
+        crate::remote::UPDATE_PROTOCOL_VERSION,
       )
-      .header(header::HeaderName::from_static("wvb-runtime-version"), "1");
+      .header(
+        header::HeaderName::from_static("wvb-runtime-version"),
+        crate::UPDATE_RUNTIME_VERSION.to_string(),
+      );
 
-    if let Some(options) = options {
-      if let Some(etag) = options.etag {
+    if let Some(options) = &options {
+      if let Some(etag) = &options.etag {
         req = req.header(header::IF_NONE_MATCH, etag);
       }
-      if let Some(channel) = options.channel {
+      if let Some(channel) = &options.channel {
         req = req.header(
           header::HeaderName::from_static("wvb-update-channel"),
           channel,
         );
       }
-      if let Some(expect_signature) = options.expect_signature {
-        let value = format!(
-          "key_id=\"{}\", alg=\"{}\"",
-          expect_signature.key_id, expect_signature.alg
-        );
-        req = req.header(
-          header::HeaderName::from_static("wvb-expect-signature"),
-          value,
-        );
+      #[cfg(feature = "signature")]
+      {
+        if let Some(sig) = &options.expect_signature {
+          let value = format!("key_id=\"{}\", alg=\"{}\"", sig.id, sig.algorithm());
+          req = req.header(
+            header::HeaderName::from_static("wvb-expect-signature"),
+            value,
+          );
+        }
       }
     }
 
@@ -146,7 +151,22 @@ impl Remote {
       None => None,
     };
 
-    let update = resp.json::<Update>().await?;
+    let bytes = resp.bytes().await?;
+
+    #[cfg(feature = "signature")]
+    {
+      if let Some(options) = &options
+        && let Some(sig) = &options.expect_signature
+      {
+        if let Some(sig_from_server) = &signature {
+          sig.key.verify(&bytes, &sig_from_server.sig).await?;
+        } else {
+          return Err(crate::Error::expect_signature_not_found(&sig));
+        }
+      }
+    }
+
+    let update = serde_json::from_slice::<Update>(&bytes)?;
     let update_resp = RemoteUpdateResponse {
       update,
       etag,
@@ -208,15 +228,23 @@ impl Remote {
 mod tests {
   use super::*;
   use crate::ErrorCode;
-  use crate::remote::{BundleUpdate, RemoteExpectSignature};
-  use crate::testing::TempDir;
+  use crate::integrity::IntegrityAlgorithm;
+  use crate::remote::BundleUpdate;
+  use crate::testing::{TempDir, TestingBundle, TestingRemoteServer};
   use httpmock::{HttpMockRequest, HttpMockResponse, MockServer};
   use std::collections::HashMap;
   use std::io::{Read, Write};
   use std::net::TcpListener;
   use std::sync::Mutex;
 
-  const UPDATE_BODY: &str = r#"{"id":"u1","createdAt":"2026-08-08T00:00:00Z","runtimeVersion":1,"bundles":[{"name":"app","version":"1.2.3","downloadUrl":"https://cdn.example.com/app.wvb","hash":"sha256-abc"}],"metadata":{"channel":"stable"}}"#;
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  use crate::signature::{Ed25519, SignatureKey, SignatureKeySet};
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  use base64ct::{Base64, Encoding};
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  use ed25519_dalek::{Signer, SigningKey};
+
+  const UPDATE_BODY: &str = r#"{"id":"u1","createdAt":"2026-08-08T00:00:00Z","runtimeVersion":1,"bundles":[{"name":"app","version":"1.2.3","downloadUrl":"https://cdn.example.com/app.wvb","integrity":"sha256-abc"}],"metadata":{"channel":"stable"}}"#;
 
   type Request = (String, String, Vec<(String, String)>);
   type Captured = Arc<Mutex<Vec<Request>>>;
@@ -289,16 +317,54 @@ mod tests {
     (remote, progress)
   }
 
-  fn options() -> RemoteGetUpdateOptions {
-    RemoteGetUpdateOptions {
-      etag: None,
-      channel: None,
-      expect_signature: None,
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  fn signing_key() -> SigningKey {
+    SigningKey::from_bytes(&[7u8; 32])
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  fn key_set(id: &str) -> SignatureKeySet {
+    let key = Ed25519::from_public_key_bytes(&signing_key().verifying_key().to_bytes()).unwrap();
+    SignatureKeySet {
+      id: id.to_owned(),
+      key: SignatureKey::Ed25519(key),
     }
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  fn sign(message: &[u8]) -> String {
+    Base64::encode_string(&signing_key().sign(message).to_bytes())
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  fn signature_header(key_id: &str, sig: &str) -> String {
+    format!("key_id=\"{key_id}\", alg=\"ed25519\", sig=\"{sig}\"")
   }
 
   fn captured_requests(captured: &Captured) -> Vec<Request> {
     captured.lock().unwrap().clone()
+  }
+
+  fn testing_bundle(name: &str, version: &str) -> TestingBundle {
+    TestingBundle::new(name, version)
+  }
+
+  fn testing_server() -> TestingRemoteServer {
+    let mut server = TestingRemoteServer::new();
+    server.insert_bundle(testing_bundle("app", "1.0.0"));
+    server.insert_bundle(testing_bundle("app", "1.2.3"));
+    server.insert_bundle(testing_bundle("admin", "0.1.0"));
+    server.set_current_version("app", "1.0.0");
+    server
+  }
+
+  fn served_bundles(update: &RemoteUpdateResponse) -> Vec<(&str, &str)> {
+    update
+      .update
+      .bundles
+      .iter()
+      .map(|x| (x.name.as_str(), x.version.as_str()))
+      .collect()
   }
 
   fn header_of<'a>(request: &'a Request, name: &str) -> Option<&'a str> {
@@ -322,6 +388,15 @@ mod tests {
     match err {
       crate::Error::BadRemoteResponse(message) => message,
       _ => panic!("expected bad remote response error, got {err:?}"),
+    }
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[track_caller]
+  fn expect_signature_not_found(err: crate::Error) -> (String, String) {
+    match err {
+      crate::Error::ExpectSignatureNotFound { key_id, alg } => (key_id, alg),
+      _ => panic!("expected expect signature not found error, got {err:?}"),
     }
   }
 
@@ -400,8 +475,7 @@ mod tests {
     let (server, captured) = mock_server(200, vec![], UPDATE_BODY);
     let options = RemoteGetUpdateOptions::default()
       .etag("etag-1")
-      .channel("beta")
-      .expect_signature(RemoteExpectSignature::new("default", "ed25519"));
+      .channel("beta");
 
     remote(server.base_url())
       .get_update(Some(options))
@@ -409,12 +483,9 @@ mod tests {
       .unwrap();
 
     let requests = captured_requests(&captured);
-    assert_eq!(header_of(&requests[0], "if-none-match"), Some("\"etag-1\""));
+    assert_eq!(header_of(&requests[0], "if-none-match"), Some("etag-1"));
     assert_eq!(header_of(&requests[0], "wvb-update-channel"), Some("beta"));
-    assert_eq!(
-      header_of(&requests[0], "wvb-expect-signature"),
-      Some("key_id=\"kid\", alg=\"ed25519\"")
-    );
+    assert_eq!(header_of(&requests[0], "wvb-expect-signature"), None);
   }
 
   #[tokio::test]
@@ -427,7 +498,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn parses_signature_header() {
+  async fn parses_signature_header_without_verifying() {
     let (server, _) = mock_server(
       200,
       vec![(
@@ -437,10 +508,8 @@ mod tests {
       UPDATE_BODY,
     );
 
-    let options = RemoteGetUpdateOptions::default()
-      .expect_signature(RemoteExpectSignature::new("default", "ed25519"));
     let update = remote(server.base_url())
-      .get_update(Some(options))
+      .get_update(None)
       .await
       .unwrap()
       .unwrap();
@@ -453,6 +522,132 @@ mod tests {
         alg: "ed25519".to_owned(),
       })
     );
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn sends_expect_signature_header() {
+    let header = signature_header("default", &sign(UPDATE_BODY.as_bytes()));
+    let (server, captured) =
+      mock_server(200, vec![("wvb-signature", header.as_str())], UPDATE_BODY);
+    let options = RemoteGetUpdateOptions::default().expect_signature(key_set("default"));
+
+    remote(server.base_url())
+      .get_update(Some(options))
+      .await
+      .unwrap();
+
+    let requests = captured_requests(&captured);
+    assert_eq!(
+      header_of(&requests[0], "wvb-expect-signature"),
+      Some("key_id=\"default\", alg=\"ed25519\"")
+    );
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn verifies_signature_over_the_response_body() {
+    let mut server = testing_server();
+    server.insert_signature_key("default", [7u8; 32]);
+    let options = RemoteGetUpdateOptions::default()
+      .expect_signature(server.signature_key_set("default").unwrap());
+
+    let update = server
+      .remote()
+      .unwrap()
+      .get_update(Some(options))
+      .await
+      .unwrap()
+      .unwrap();
+
+    assert_eq!(served_bundles(&update), vec![("app", "1.0.0")]);
+    let signature = update.signature.unwrap();
+    assert_eq!(signature.key_id, "default");
+    assert_eq!(signature.alg, "ed25519");
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn errors_when_the_server_has_no_such_signature_key() {
+    let mut server = testing_server();
+    server.insert_signature_key("default", [7u8; 32]);
+    let mut key_set = server.signature_key_set("default").unwrap();
+    key_set.id = "rotated".to_owned();
+    let options = RemoteGetUpdateOptions::default().expect_signature(key_set);
+
+    let err = server
+      .remote()
+      .unwrap()
+      .get_update(Some(options))
+      .await
+      .unwrap_err();
+
+    let (status, message) = remote_http(err);
+    assert_eq!(status, 400);
+    assert!(message.unwrap().contains("rotated"));
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn rejects_signature_over_other_bytes() {
+    let header = signature_header("default", &sign(b"other bytes"));
+    let (server, _) = mock_server(200, vec![("wvb-signature", header.as_str())], UPDATE_BODY);
+    let options = RemoteGetUpdateOptions::default().expect_signature(key_set("default"));
+
+    let err = remote(server.base_url())
+      .get_update(Some(options))
+      .await
+      .unwrap_err();
+
+    assert_eq!(err.code(), ErrorCode::InvalidSignature);
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn rejects_tampered_body() {
+    let tampered = UPDATE_BODY.replace("1.2.3", "6.6.6");
+    let header = signature_header("default", &sign(UPDATE_BODY.as_bytes()));
+    let (server, _) = mock_server(200, vec![("wvb-signature", header.as_str())], tampered);
+    let options = RemoteGetUpdateOptions::default().expect_signature(key_set("default"));
+
+    let err = remote(server.base_url())
+      .get_update(Some(options))
+      .await
+      .unwrap_err();
+
+    assert_eq!(err.code(), ErrorCode::InvalidSignature);
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn rejects_response_without_expected_signature_header() {
+    let (server, _) = mock_server(200, vec![], UPDATE_BODY);
+    let options = RemoteGetUpdateOptions::default().expect_signature(key_set("2026-08"));
+
+    let err = remote(server.base_url())
+      .get_update(Some(options))
+      .await
+      .unwrap_err();
+
+    assert_eq!(
+      expect_signature_not_found(err),
+      ("2026-08".to_owned(), "ed25519".to_owned())
+    );
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn verifies_before_parsing_the_body() {
+    let header = signature_header("default", &sign(b"other bytes"));
+    let (server, _) = mock_server(200, vec![("wvb-signature", header.as_str())], "not json");
+    let options = RemoteGetUpdateOptions::default().expect_signature(key_set("default"));
+
+    let err = remote(server.base_url())
+      .get_update(Some(options))
+      .await
+      .unwrap_err();
+
+    assert_eq!(err.code(), ErrorCode::InvalidSignature);
   }
 
   #[tokio::test]
@@ -486,12 +681,78 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn serves_current_versions() {
+    let server = testing_server();
+
+    let update = server
+      .remote()
+      .unwrap()
+      .get_update(None)
+      .await
+      .unwrap()
+      .unwrap();
+
+    assert_eq!(update.update.runtime_version, 1);
+    assert_eq!(served_bundles(&update), vec![("app", "1.0.0")]);
+    assert_eq!(
+      update.update.bundles[0].integrity,
+      Some(
+        testing_bundle("app", "1.0.0")
+          .make_integrity(IntegrityAlgorithm::Sha256)
+          .unwrap()
+          .serialize()
+      )
+    );
+  }
+
+  #[tokio::test]
   async fn returns_none_when_not_modified() {
-    let (server, _) = mock_server(304, vec![], "");
+    let server = testing_server();
+    let remote = server.remote().unwrap();
+    let etag = remote
+      .get_update(None)
+      .await
+      .unwrap()
+      .unwrap()
+      .etag
+      .unwrap();
 
-    let update = remote(server.base_url()).get_update(None).await.unwrap();
+    let options = RemoteGetUpdateOptions::default().etag(&etag);
+    assert_eq!(remote.get_update(Some(options)).await.unwrap(), None);
 
-    assert_eq!(update, None);
+    let options = RemoteGetUpdateOptions::default().etag("\"stale\"");
+    assert!(remote.get_update(Some(options)).await.unwrap().is_some());
+  }
+
+  #[tokio::test]
+  async fn etag_changes_when_served_versions_change() {
+    let mut server = testing_server();
+    let remote = server.remote().unwrap();
+    let first = remote.get_update(None).await.unwrap().unwrap();
+
+    server.set_current_version("app", "1.2.3");
+    let options = RemoteGetUpdateOptions::default().etag(first.etag.as_ref().unwrap());
+    let second = remote.get_update(Some(options)).await.unwrap().unwrap();
+
+    assert_ne!(second.etag, first.etag);
+    assert_ne!(second.update.id, first.update.id);
+    assert_eq!(served_bundles(&second), vec![("app", "1.2.3")]);
+  }
+
+  #[tokio::test]
+  async fn serves_channel_versions_only() {
+    let mut server = testing_server();
+    server.set_channel_current_version("beta", "admin", "0.1.0");
+    let remote = server.remote().unwrap();
+
+    let options = RemoteGetUpdateOptions::default().channel("beta");
+    let update = remote.get_update(Some(options)).await.unwrap().unwrap();
+
+    assert_eq!(served_bundles(&update), vec![("admin", "0.1.0")]);
+    assert_eq!(
+      update.update.metadata.get("channel").map(String::as_str),
+      Some("beta")
+    );
   }
 
   #[tokio::test]
@@ -503,10 +764,7 @@ mod tests {
       .await
       .unwrap_err();
 
-    match err {
-      crate::Error::HttpClient(err) => assert!(err.is_decode(), "{err:?}"),
-      _ => panic!("expected http client error, got {err:?}"),
-    }
+    assert_eq!(err.code(), ErrorCode::SerdeJson);
   }
 
   #[tokio::test]
@@ -569,6 +827,40 @@ mod tests {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].0, "GET");
     assert_eq!(requests[0].1, "/app.wvb");
+  }
+
+  #[tokio::test]
+  async fn downloads_bundle_from_the_default_url() {
+    let server = testing_server();
+    let remote = server.remote().unwrap();
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("app.wvb");
+
+    remote
+      .download(remote.default_download_url("app", "1.0.0"), &filepath, None)
+      .await
+      .unwrap();
+
+    assert_eq!(
+      tokio::fs::read(&filepath).await.unwrap(),
+      testing_bundle("app", "1.0.0").make_bundle_data().unwrap()
+    );
+  }
+
+  #[tokio::test]
+  async fn download_errors_when_bundle_is_not_served() {
+    let server = testing_server();
+    let remote = server.remote().unwrap();
+    let temp = TempDir::new();
+    let filepath = temp.dir().join("app.wvb");
+
+    let err = remote
+      .download(remote.default_download_url("app", "9.9.9"), &filepath, None)
+      .await
+      .unwrap_err();
+
+    assert_eq!(remote_http(err), (404, None));
+    assert!(!filepath.exists());
   }
 
   #[tokio::test]

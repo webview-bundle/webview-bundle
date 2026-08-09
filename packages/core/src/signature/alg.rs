@@ -1,16 +1,23 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SignatureAlgorithm {
-  #[cfg_attr(feature = "_serde", serde(rename = "rsa-pkcs1-v1_5-sha256"))]
   RsaPkcs1V1_5Sha256,
-  #[cfg_attr(feature = "_serde", serde(rename = "rsa-pss-sha256"))]
   RsaPssSha256,
-  #[cfg_attr(feature = "_serde", serde(rename = "ecdsa-secp256r1"))]
   EcdsaSecp256r1,
-  #[cfg_attr(feature = "_serde", serde(rename = "ecdsa-secp384r1"))]
   EcdsaSecp384r1,
-  #[cfg_attr(feature = "_serde", serde(rename = "ed25519"))]
   Ed25519,
-  #[cfg_attr(feature = "_serde", serde(rename = "custom"))]
   Custom,
+}
+
+impl std::fmt::Display for SignatureAlgorithm {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    let str = match self {
+      Self::RsaPkcs1V1_5Sha256 => "rsa-pkcs1-v1_5-sha256",
+      Self::RsaPssSha256 => "rsa-pss-sha256",
+      Self::EcdsaSecp256r1 => "ecdsa-secp256r1",
+      Self::EcdsaSecp384r1 => "ecdsa-secp384r1",
+      Self::Ed25519 => "ed25519",
+      Self::Custom => "custom",
+    };
+    write!(f, "{}", str)
+  }
 }

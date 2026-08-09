@@ -128,7 +128,7 @@ impl From<UpdaterOptions> for updater::UpdaterOptions {
       integrity_options = integrity_options.policy(policy.into());
     }
     if let Some(checker) = value.integrity_checker {
-      integrity_options = integrity_options.check(wvb::integrity::IntegrityCheck::Custom(
+      integrity_options = integrity_options.algorithm(wvb::integrity::IntegrityCheck::Custom(
         Arc::new(move |data, signature| {
           let buffer = Buffer::from(data);
           let signature = signature.to_string();

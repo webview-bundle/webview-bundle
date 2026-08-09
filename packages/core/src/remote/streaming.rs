@@ -15,6 +15,21 @@ pub async fn stream_to_file(
     tokio::fs::create_dir_all(dir).await?;
   }
 
+  // A cancelled or failed download must not leave a truncated file behind at the
+  // destination path, where it would be indistinguishable from a complete one.
+  let result = write_stream(resp, filepath, cancel, on_download).await;
+  if result.is_err() {
+    let _ = tokio::fs::remove_file(filepath).await;
+  }
+  result
+}
+
+async fn write_stream(
+  resp: reqwest::Response,
+  filepath: &Path,
+  cancel: Option<Cancellation>,
+  on_download: Option<Arc<RemoteOnDownload>>,
+) -> crate::Result<()> {
   let total_size = resp.content_length();
   let mut file = tokio::fs::File::create(filepath).await?;
   let mut stream = resp.bytes_stream();
@@ -229,7 +244,7 @@ mod tests {
     let on_download: Arc<RemoteOnDownload> = Arc::new(move |_, _, _| cancellation_cloned.cancel());
     let response = stream_response(vec![Ok(vec![b'a'; 4]), Ok(vec![b'b'; 4])]);
 
-    let err = stream_to_file(response, &filepath, None, Some(on_download))
+    let err = stream_to_file(response, &filepath, Some(cancellation), Some(on_download))
       .await
       .unwrap_err();
 

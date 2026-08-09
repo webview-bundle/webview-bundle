@@ -1,35 +1,30 @@
-//! Digital signature verification for bundles.
-//!
-//! The signature module provides cryptographic signature verification to ensure
-//! bundles are authentic and haven't been tampered with. Multiple signature
-//! algorithms are supported:
-//!
-//! - **ECDSA** (secp256r1, secp384r1) - Elliptic curve signatures
-//! - **Ed25519** - Edwards curve signatures
-//! - **RSA** (PKCS#1 v1.5, PSS) - RSA signatures
+//! Digital signature verification.
 //!
 //! ## Features
 //!
 //! Enable specific signature algorithms via cargo features:
 //!
-//! - `signature-ecdsa_secp256r1` - ECDSA with P-256 curve
-//! - `signature-ecdsa_secp384r1` - ECDSA with P-384 curve
-//! - `signature-edd25519` - Ed25519 signatures
-//! - `signature-rsa_pkcs1_v1_5` - RSA PKCS#1 v1.5
-//! - `signature-rsa_pss` - RSA-PSS
+//! - `signature-ecdsa-secp256r1` - ECDSA with P-256 curve
+//! - `signature-ecdsa-secp384r1` - ECDSA with P-384 curve
+//! - `signature-ed25519` - Ed25519 signatures
+//! - `signature-rsa-pkcs1-v1_5-sha256` - RSA PKCS#1 v1.5 (sha256)
+//! - `signature-rsa-pss-sha256` - RSA-PSS (sha256)
 //!
 //! ## Example
 //!
-//! ```no_run
-//! # #[cfg(feature = "signature-edd25519")]
-//! # async {
-//! use wvb::signature::{Ed25519, SignatureVerify};
-//! use std::sync::Arc;
+//! Each algorithm implements [`SignatureVerifier`], and [`SignatureKey`] collects them
+//! into one enum implementing the same trait. Verification returns `Ok(())` when the
+//! signature matches and an error otherwise, so the trait has to be in scope to call
+//! [`SignatureVerifier::verify`].
 //!
-//! // Create verifier with public key PEM
+//! ```no_run
+//! # #[cfg(feature = "signature-ed25519")]
+//! # async {
+//! use wvb::signature::{Ed25519, SignatureKey, SignatureVerifier};
+//!
+//! // Create key with public key PEM
 //! let public_key_pem = "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----";
-//! let verifier = Ed25519::from_public_key_pem(public_key_pem).unwrap();
-//! let signature_verifier = SignatureVerify::Ed25519(Arc::new(verifier));
+//! let key = SignatureKey::Ed25519(Ed25519::from_public_key_pem(public_key_pem).unwrap());
 //!
 //! // The signed message is the bundle's integrity string, not the bundle bytes:
 //! // the signature authenticates the integrity string, and the integrity string
@@ -37,23 +32,43 @@
 //! let message = b"sha256:n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=";
 //! let signature = "base64-encoded-signature";
 //!
-//! let is_valid = signature_verifier.verify(message, signature).await.unwrap();
-//! assert!(is_valid);
+//! key.verify(message, signature).await.unwrap();
 //! # };
+//! ```
+//!
+//! ## Key Sets
+//!
+//! [`SignatureKeySet`] pairs a key with the id it is published under, and reports the
+//! [`SignatureAlgorithm`] of the key it holds:
+//!
+//! ```no_run
+//! # #[cfg(feature = "signature-ed25519")]
+//! # {
+//! use wvb::signature::{Ed25519, SignatureAlgorithm, SignatureKey, SignatureKeySet};
+//!
+//! # let public_key_pem = "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----";
+//! let key_set = SignatureKeySet {
+//!     id: "2026-08".to_string(),
+//!     key: SignatureKey::Ed25519(Ed25519::from_public_key_pem(public_key_pem).unwrap()),
+//! };
+//! assert_eq!(key_set.algorithm(), SignatureAlgorithm::Ed25519);
+//! # }
 //! ```
 //!
 //! ## Custom Verifiers
 //!
 //! Implement custom verification logic:
 //!
-//! The closure is passed straight to [`SignatureVerify::Custom`] so its returned future
+//! The closure is passed straight to [`SignatureKey::Custom`] so its returned future
 //! coerces to the boxed trait object the variant holds — binding it to a `let` first would
-//! pin it to the concrete future type and fail to compile.
+//! pin it to the concrete future type and fail to compile. Unlike the built-in algorithms
+//! it reports its verdict as a `bool`; [`SignatureKey`] turns `false` into
+//! [`crate::Error::SignatureVerifyFailed`].
 //!
 //! ```no_run
-//! # use wvb::signature::SignatureVerify;
+//! # use wvb::signature::SignatureKey;
 //! # use std::sync::Arc;
-//! let verifier = SignatureVerify::Custom(Arc::new(|message: &[u8], signature: &str| {
+//! let key = SignatureKey::Custom(Arc::new(|message: &[u8], signature: &str| {
 //!     let message = message.to_vec();
 //!     let signature = signature.to_string();
 //!     Box::pin(async move {
