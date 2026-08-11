@@ -36,7 +36,7 @@
 //!     .build();
 //!
 //! // Remote version takes priority over builtin
-//! let version = source.load_version("app").await.unwrap();
+//! let version = source.get_version("app").await.unwrap();
 //! let bundle = source.fetch_bundle("app").await.unwrap();
 //!
 //! // List all available bundles
@@ -55,12 +55,13 @@
 //!     "app": {
 //!       "versions": {
 //!         "1.0.0": {
-//!           "etag": "...",
-//!           "integrity": "...",
-//!           "signature": "..."
+//!           "integrity": "sha256:...",
+//!           "metadata": { "channel": "stable" }
 //!         }
 //!       },
-//!       "currentVersion": "1.0.0"
+//!       "currentVersion": "1.0.0",
+//!       "previousVersion": "0.9.0",
+//!       "stagedVersion": "1.1.0"
 //!     }
 //!   }
 //! }

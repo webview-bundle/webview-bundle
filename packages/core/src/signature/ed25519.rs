@@ -36,7 +36,7 @@ impl SignatureVerifier for Ed25519 {
     self
       .key
       .verify(data, &signature)
-      .map_err(|_| crate::Error::InvalidSignature)?;
+      .map_err(|_| crate::Error::SignatureVerifyFailed)?;
     Ok(())
   }
 }

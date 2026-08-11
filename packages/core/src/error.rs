@@ -201,8 +201,8 @@ pub enum Error {
   #[error("invalid verifying key: {0}")]
   InvalidSignatureKey(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
   #[cfg(feature = "signature")]
-  #[error("expect signature not found: key_id={key_id}, alg={alg}")]
-  ExpectSignatureNotFound { key_id: String, alg: String },
+  #[error("expect signature not found: key_id={key_id}")]
+  ExpectSignatureNotFound { key_id: String },
   #[cfg(feature = "signature")]
   #[error("signature verify failed")]
   SignatureVerifyFailed,
@@ -290,10 +290,9 @@ impl Error {
   }
 
   #[cfg(feature = "signature")]
-  pub(crate) fn expect_signature_not_found(key_set: &crate::signature::SignatureKeySet) -> Self {
+  pub(crate) fn expect_signature_not_found(key_id: impl Into<String>) -> Self {
     Self::ExpectSignatureNotFound {
-      key_id: key_set.id.to_owned(),
-      alg: key_set.algorithm().to_string(),
+      key_id: key_id.into(),
     }
   }
 

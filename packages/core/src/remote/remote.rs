@@ -161,7 +161,7 @@ impl Remote {
         if let Some(sig_from_server) = &signature {
           sig.key.verify(&bytes, &sig_from_server.sig).await?;
         } else {
-          return Err(crate::Error::expect_signature_not_found(&sig));
+          return Err(crate::Error::expect_signature_not_found(&sig.id));
         }
       }
     }
@@ -393,9 +393,9 @@ mod tests {
 
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
   #[track_caller]
-  fn expect_signature_not_found(err: crate::Error) -> (String, String) {
+  fn expect_signature_not_found(err: crate::Error) -> String {
     match err {
-      crate::Error::ExpectSignatureNotFound { key_id, alg } => (key_id, alg),
+      crate::Error::ExpectSignatureNotFound { key_id } => key_id,
       _ => panic!("expected expect signature not found error, got {err:?}"),
     }
   }
@@ -599,7 +599,7 @@ mod tests {
       .await
       .unwrap_err();
 
-    assert_eq!(err.code(), ErrorCode::InvalidSignature);
+    assert_eq!(err.code(), ErrorCode::SignatureVerifyFailed);
   }
 
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
@@ -615,24 +615,21 @@ mod tests {
       .await
       .unwrap_err();
 
-    assert_eq!(err.code(), ErrorCode::InvalidSignature);
+    assert_eq!(err.code(), ErrorCode::SignatureVerifyFailed);
   }
 
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
   #[tokio::test]
   async fn rejects_response_without_expected_signature_header() {
     let (server, _) = mock_server(200, vec![], UPDATE_BODY);
-    let options = RemoteGetUpdateOptions::default().expect_signature(key_set("2026-08"));
+    let options = RemoteGetUpdateOptions::default().expect_signature(key_set("not_exists"));
 
     let err = remote(server.base_url())
       .get_update(Some(options))
       .await
       .unwrap_err();
 
-    assert_eq!(
-      expect_signature_not_found(err),
-      ("2026-08".to_owned(), "ed25519".to_owned())
-    );
+    assert_eq!(expect_signature_not_found(err), "not_exists".to_owned());
   }
 
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
@@ -647,7 +644,7 @@ mod tests {
       .await
       .unwrap_err();
 
-    assert_eq!(err.code(), ErrorCode::InvalidSignature);
+    assert_eq!(err.code(), ErrorCode::SignatureVerifyFailed);
   }
 
   #[tokio::test]

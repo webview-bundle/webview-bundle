@@ -3,7 +3,8 @@ use crate::source::{BundleManifestVersionData, BundleSource};
 use crate::updater::tmp_file::TmpFile;
 use crate::updater::update_file::UpdateFile;
 use crate::updater::{
-  DownloadOptions, DownloadResult, InstallBundleTarget, InstallResult, UpdaterOptions,
+  UpdaterDownloadOptions, UpdaterDownloadResult, UpdaterGetUpdateOptions,
+  UpdaterInstallBundleTarget, UpdaterInstallResult, UpdaterOptions,
 };
 use crate::util::cancellation::Cancellation;
 use crate::util::fs::rename_with_retry;
@@ -96,40 +97,43 @@ impl Updater {
 
   /// Fetches update information from the remote server and reduces it to the bundles that
   /// are not being served yet.
-  ///
-  /// The response is stored on disk so its etag can be replayed on the next call, and so an
-  /// update that was fetched but not downloaded yet survives a restart: when the server
-  /// answers `304 Not Modified`, the stored update is diffed instead.
-  ///
-  /// Returns `None` when the update carries nothing this source is missing.
-  pub async fn get_update(&self) -> crate::Result<Option<Update>> {
+  pub async fn get_update(
+    &self,
+    options: Option<UpdaterGetUpdateOptions>,
+  ) -> crate::Result<Option<Update>> {
     let prev = self.file.read().await?;
 
-    let mut options = RemoteGetUpdateOptions::default();
+    let mut opts = RemoteGetUpdateOptions::default();
     if let Some(prev) = &prev {
       if let Some(etag) = &prev.etag {
-        options = options.etag(etag);
+        opts = opts.etag(etag);
       }
     }
     if let Some(channel) = &self.options.channel {
-      options = options.channel(channel);
+      opts = opts.channel(channel);
     }
-    // The signature is verified against the raw response body while it is still in the
-    // client, so asking for it here is what makes the parsed update trustworthy.
+
     #[cfg(feature = "signature")]
     {
-      if let Some(key_set) = self
-        .options
-        .signature
-        .key_sets
-        .as_ref()
-        .and_then(|x| x.first())
-      {
-        options = options.expect_signature(key_set.clone());
+      if let Some(key_id) = options.and_then(|x| x.expect_signature_key_id).as_ref() {
+        match self
+          .options
+          .signature
+          .key_sets
+          .as_ref()
+          .and_then(|x| x.iter().find(|key_set| &key_set.id == key_id))
+        {
+          Some(key) => {
+            opts = opts.expect_signature(key.clone());
+          }
+          None => {
+            return Err(crate::Error::expect_signature_not_found(key_id));
+          }
+        }
       }
     }
 
-    let resp = match self.remote.get_update(Some(options)).await? {
+    let resp = match self.remote.get_update(Some(opts)).await? {
       Some(next) => {
         let changed = prev
           .as_ref()
@@ -183,8 +187,8 @@ impl Updater {
   pub async fn download(
     &self,
     bundle_updates: &[BundleUpdate],
-    options: Option<DownloadOptions>,
-  ) -> crate::Result<Vec<DownloadResult>> {
+    options: Option<UpdaterDownloadOptions>,
+  ) -> crate::Result<Vec<UpdaterDownloadResult>> {
     let options = options.unwrap_or_default();
 
     let _guard = self.lock(&options.timeout).await?;
@@ -193,12 +197,16 @@ impl Updater {
     let concurrency = options.concurrency.unwrap_or(3).max(1);
     let seq = DOWNLOAD_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-    let results = futures_util::stream::iter(bundle_updates.iter().map(|bundle_update| {
+    // The jobs own their `BundleUpdate` rather than borrowing from `bundle_updates`: a
+    // closure returning a future that borrows its argument is not general enough over
+    // lifetimes to survive `tokio::spawn`, which is exactly where downloads are driven from.
+    let jobs = bundle_updates.to_vec();
+    let results = futures_util::stream::iter(jobs.into_iter().map(|bundle_update| {
       let cancellation = cancellation.clone();
       async move {
-        let result = self.download_one(seq, bundle_update, cancellation).await;
-        Ok::<DownloadResult, crate::Error>(DownloadResult {
-          update: bundle_update.clone(),
+        let result = self.download_one(seq, &bundle_update, cancellation).await;
+        Ok::<UpdaterDownloadResult, crate::Error>(UpdaterDownloadResult {
+          update: bundle_update,
           result,
         })
       }
@@ -251,7 +259,7 @@ impl Updater {
         Some(cancellation),
       )
       .await?;
-    rename_with_retry(&tmp_file.filepath(), &filepath).await?;
+    rename_with_retry(tmp_file.filepath(), &filepath).await?;
 
     Ok(())
   }
@@ -259,8 +267,8 @@ impl Updater {
   /// Activates downloaded versions so the protocol begins serving them.
   pub async fn install(
     &self,
-    targets: &[InstallBundleTarget],
-  ) -> crate::Result<Vec<InstallResult>> {
+    targets: &[UpdaterInstallBundleTarget],
+  ) -> crate::Result<Vec<UpdaterInstallResult>> {
     let _guard = self.lock(&None).await?;
 
     let groups = group_atomic_targets(targets);
@@ -309,7 +317,7 @@ impl Updater {
             None => Ok(()),
           },
         };
-        InstallResult {
+        UpdaterInstallResult {
           target: target.clone(),
           result,
         }
@@ -319,7 +327,7 @@ impl Updater {
     Ok(results)
   }
 
-  async fn verify_install_target(&self, target: &InstallBundleTarget) -> crate::Result<()> {
+  async fn verify_install_target(&self, target: &UpdaterInstallBundleTarget) -> crate::Result<()> {
     let staged = self
       .source
       .get_remote_staged_version(&target.name)
@@ -376,7 +384,7 @@ impl Updater {
 /// A target is grouped with every target it names in `atomic`, and grouping is transitive:
 /// `a -> [b]` and `b -> [c]` puts all three in one group. Names that match no target act as a
 /// shared label, so `a -> [ui]` and `b -> [ui]` are grouped as well.
-fn group_atomic_targets(targets: &[InstallBundleTarget]) -> Vec<usize> {
+fn group_atomic_targets(targets: &[UpdaterInstallBundleTarget]) -> Vec<usize> {
   let mut parents = (0..targets.len()).collect::<Vec<_>>();
   let mut groups_by_name: HashMap<&str, usize> = HashMap::new();
 
@@ -422,287 +430,500 @@ fn union_group(parents: &mut [usize], a: usize, b: usize) {
   }
 }
 
-// #[cfg(all(test, feature = "testing"))]
-// mod tests {
-//   use super::*;
-//   use crate::ErrorCode;
-//   use crate::testing::{MockBundle, MockSource, TempDir};
-//   use httpmock::MockServer;
-//
-//   fn system(base_url: impl Into<String>) -> (MockSource, TempDir, Arc<BundleSource>, Updater) {
-//     let mock_source = MockSource::new();
-//     let temp = TempDir::new();
-//     let source = Arc::new(mock_source.get_source());
-//     let remote = Arc::new(Remote::builder().base_url(base_url).build().unwrap());
-//     let updater = Updater::builder()
-//       .source(source.clone())
-//       .remote(remote)
-//       .update_filepath(&temp.dir().join("update.json"))
-//       .build()
-//       .unwrap();
-//     (mock_source, temp, source, updater)
-//   }
-//
-//   fn serve(server: &MockServer, bundle: &MockBundle) {
-//     let path = format!("/bundles/{}/{}", bundle.name(), bundle.version());
-//     let data = bundle.bundle_data();
-//     server.mock(|when, then| {
-//       when.method("GET").path(path);
-//       then.status(200).body(data);
-//     });
-//   }
-//
-//   fn bundle_update(bundle: &MockBundle) -> BundleUpdate {
-//     BundleUpdate {
-//       name: bundle.name().to_owned(),
-//       version: bundle.version().to_owned(),
-//       download_url: None,
-//       integrity: None,
-//     }
-//   }
-//
-//   fn install_target(bundle: &MockBundle, atomic: Option<&[&str]>) -> InstallBundleTarget {
-//     InstallBundleTarget {
-//       name: bundle.name().to_owned(),
-//       version: bundle.version().to_owned(),
-//       atomic: atomic.map(|x| x.iter().map(|y| y.to_string()).collect()),
-//     }
-//   }
-//
-//   fn downloaded<'a>(results: &'a [DownloadResult], name: &str) -> &'a DownloadResult {
-//     results.iter().find(|x| x.update.name == name).unwrap()
-//   }
-//
-//   fn installed<'a>(results: &'a [InstallResult], name: &str) -> &'a InstallResult {
-//     results.iter().find(|x| x.target.name == name).unwrap()
-//   }
-//
-//   async fn stage(source: &BundleSource, bundle: &MockBundle) {
-//     source
-//       .write_remote_bundle_data(
-//         bundle.name(),
-//         bundle.version(),
-//         &bundle.bundle_data(),
-//         bundle.metadata(),
-//       )
-//       .await
-//       .unwrap();
-//     source
-//       .stage_remote_version(bundle.name(), bundle.version())
-//       .await
-//       .unwrap();
-//   }
-//
-//   async fn current_version(source: &BundleSource, bundle_name: &str) -> Option<String> {
-//     source
-//       .get_version(bundle_name)
-//       .await
-//       .unwrap()
-//       .map(|x| x.version)
-//   }
-//
-//   #[tokio::test]
-//   async fn downloads_bundles() {
-//     let server = MockServer::start();
-//     let a = MockBundle::new("a", "1.0.0");
-//     let b = MockBundle::new("b", "2.0.0");
-//     serve(&server, &a);
-//     serve(&server, &b);
-//     let (_mock_source, _temp, source, updater) = system(server.base_url());
-//
-//     let results = updater
-//       .download(&[bundle_update(&a), bundle_update(&b)], None)
-//       .await
-//       .unwrap();
-//
-//     assert_eq!(results.len(), 2);
-//     assert!(results.iter().all(|x| x.result.is_ok()));
-//     assert_eq!(
-//       tokio::fs::read(source.get_remote_bundle_filepath("a", "1.0.0").unwrap())
-//         .await
-//         .unwrap(),
-//       a.bundle_data()
-//     );
-//     assert_eq!(
-//       tokio::fs::read(source.get_remote_bundle_filepath("b", "2.0.0").unwrap())
-//         .await
-//         .unwrap(),
-//       b.bundle_data()
-//     );
-//   }
-//
-//   #[tokio::test]
-//   async fn downloads_from_custom_url() {
-//     let server = MockServer::start();
-//     let a = MockBundle::new("a", "1.0.0");
-//     let data = a.bundle_data();
-//     server.mock(|when, then| {
-//       when.method("GET").path("/custom/a.wvb");
-//       then.status(200).body(data);
-//     });
-//     let (_mock_source, _temp, source, updater) = system(server.base_url());
-//     let mut update = bundle_update(&a);
-//     update.download_url = Some(server.url("/custom/a.wvb"));
-//
-//     let results = updater.download(&[update], None).await.unwrap();
-//
-//     assert!(results[0].result.is_ok());
-//     assert_eq!(
-//       tokio::fs::read(source.get_remote_bundle_filepath("a", "1.0.0").unwrap())
-//         .await
-//         .unwrap(),
-//       a.bundle_data()
-//     );
-//   }
-//
-//   #[tokio::test]
-//   async fn download_reports_failure_per_bundle() {
-//     let server = MockServer::start();
-//     let a = MockBundle::new("a", "1.0.0");
-//     let b = MockBundle::new("b", "2.0.0");
-//     serve(&server, &a);
-//     let (_mock_source, _temp, source, updater) = system(server.base_url());
-//
-//     let results = updater
-//       .download(&[bundle_update(&a), bundle_update(&b)], None)
-//       .await
-//       .unwrap();
-//
-//     assert!(downloaded(&results, "a").result.is_ok());
-//     assert!(downloaded(&results, "b").result.is_err());
-//     assert!(
-//       !source
-//         .get_remote_bundle_filepath("b", "2.0.0")
-//         .unwrap()
-//         .exists()
-//     );
-//   }
-//
-//   #[tokio::test]
-//   async fn download_cancelled_already() {
-//     let server = MockServer::start();
-//     let a = MockBundle::new("a", "1.0.0");
-//     serve(&server, &a);
-//     let (_mock_source, _temp, source, updater) = system(server.base_url());
-//     let cancellation = Cancellation::new();
-//     cancellation.cancel();
-//     let options = DownloadOptions {
-//       cancellation: Some(cancellation),
-//       ..Default::default()
-//     };
-//
-//     let results = updater
-//       .download(&[bundle_update(&a)], Some(options))
-//       .await
-//       .unwrap();
-//
-//     assert_eq!(
-//       results[0].result.as_ref().unwrap_err().code(),
-//       ErrorCode::Cancelled
-//     );
-//     assert!(
-//       !source
-//         .get_remote_bundle_filepath("a", "1.0.0")
-//         .unwrap()
-//         .exists()
-//     );
-//   }
-//
-//   #[tokio::test]
-//   async fn installs_staged_bundles() {
-//     let (_mock_source, _temp, source, updater) = system("http://127.0.0.1:1");
-//     let a = MockBundle::new("a", "1.0.0");
-//     let b = MockBundle::new("b", "2.0.0");
-//     stage(&source, &a).await;
-//     stage(&source, &b).await;
-//
-//     let results = updater
-//       .install(&[install_target(&a, None), install_target(&b, None)])
-//       .await
-//       .unwrap();
-//
-//     assert!(results.iter().all(|x| x.result.is_ok()));
-//     assert_eq!(
-//       current_version(&source, "a").await.as_deref(),
-//       Some("1.0.0")
-//     );
-//     assert_eq!(
-//       current_version(&source, "b").await.as_deref(),
-//       Some("2.0.0")
-//     );
-//     assert_eq!(source.get_remote_staged_version("a").await.unwrap(), None);
-//   }
-//
-//   #[tokio::test]
-//   async fn install_rejects_version_which_is_not_staged() {
-//     let (_mock_source, _temp, source, updater) = system("http://127.0.0.1:1");
-//     let a = MockBundle::new("a", "1.0.0");
-//     let other = MockBundle::new("a", "9.9.9");
-//     stage(&source, &a).await;
-//
-//     let results = updater
-//       .install(&[install_target(&other, None)])
-//       .await
-//       .unwrap();
-//
-//     assert!(results[0].result.is_err());
-//     assert_eq!(current_version(&source, "a").await, None);
-//   }
-//
-//   #[tokio::test]
-//   async fn install_fails_atomic_group_together() {
-//     let (_mock_source, _temp, source, updater) = system("http://127.0.0.1:1");
-//     let a = MockBundle::new("a", "1.0.0");
-//     let b = MockBundle::new("b", "2.0.0");
-//     stage(&source, &a).await;
-//
-//     let results = updater
-//       .install(&[install_target(&a, Some(&["b"])), install_target(&b, None)])
-//       .await
-//       .unwrap();
-//
-//     assert!(matches!(
-//       &installed(&results, "a").result,
-//       Err(crate::Error::InstallAtomicFailed { bundle_name, version })
-//         if bundle_name == "b" && version == "2.0.0"
-//     ));
-//     assert!(installed(&results, "b").result.is_err());
-//     assert_eq!(current_version(&source, "a").await, None);
-//     assert_eq!(
-//       source
-//         .get_remote_staged_version("a")
-//         .await
-//         .unwrap()
-//         .as_deref(),
-//       Some("1.0.0")
-//     );
-//   }
-//
-//   #[tokio::test]
-//   async fn installs_other_targets_when_group_fails() {
-//     let (_mock_source, _temp, source, updater) = system("http://127.0.0.1:1");
-//     let a = MockBundle::new("a", "1.0.0");
-//     let b = MockBundle::new("b", "2.0.0");
-//     let c = MockBundle::new("c", "3.0.0");
-//     stage(&source, &a).await;
-//     stage(&source, &c).await;
-//
-//     let results = updater
-//       .install(&[
-//         install_target(&a, Some(&["b"])),
-//         install_target(&b, None),
-//         install_target(&c, None),
-//       ])
-//       .await
-//       .unwrap();
-//
-//     assert!(installed(&results, "c").result.is_ok());
-//     assert!(installed(&results, "a").result.is_err());
-//     assert!(installed(&results, "b").result.is_err());
-//     assert_eq!(
-//       current_version(&source, "c").await.as_deref(),
-//       Some("3.0.0")
-//     );
-//     assert_eq!(current_version(&source, "a").await, None);
-//   }
-// }
+#[cfg(all(test, feature = "testing"))]
+mod tests {
+  use super::*;
+  use crate::ErrorCode;
+  use crate::remote::RemoteUpdateResponse;
+  use crate::testing::{TempDir, TestingBundle, TestingRemoteServer, TestingSourceBuilder};
+
+  const OFFLINE_URL: &str = "http://127.0.0.1:1";
+
+  fn update_filepath() -> PathBuf {
+    TempDir::new().dir().join("update.json")
+  }
+
+  fn build_updater(
+    source: &Arc<BundleSource>,
+    base_url: &str,
+    update_filepath: &Path,
+    options: UpdaterOptions,
+  ) -> Updater {
+    Updater::builder()
+      .source(source.clone())
+      .remote(Arc::new(
+        Remote::builder().base_url(base_url).build().unwrap(),
+      ))
+      .update_filepath(update_filepath)
+      .options(options)
+      .build()
+      .unwrap()
+  }
+
+  fn updater(source: &Arc<BundleSource>, base_url: &str) -> Updater {
+    build_updater(
+      source,
+      base_url,
+      &update_filepath(),
+      UpdaterOptions::default(),
+    )
+  }
+
+  fn remote_server(bundles: &[(&str, &str)]) -> TestingRemoteServer {
+    let mut server = TestingRemoteServer::new();
+    for (name, version) in bundles {
+      server.insert_bundle(TestingBundle::new(*name, *version));
+    }
+    server
+  }
+
+  fn builtin_source(bundles: &[(&str, &str)]) -> Arc<BundleSource> {
+    let mut builder = TestingSourceBuilder::new();
+    for (name, version) in bundles {
+      builder.add_builtin_bundle(TestingBundle::new(*name, *version));
+    }
+    Arc::new(builder.build().unwrap())
+  }
+
+  fn empty_source() -> Arc<BundleSource> {
+    Arc::new(TestingSourceBuilder::new().build().unwrap())
+  }
+
+  fn staged_source(bundles: &[(&str, &str)]) -> Arc<BundleSource> {
+    let mut builder = TestingSourceBuilder::new();
+    for (name, version) in bundles {
+      builder.add_remote_bundle(TestingBundle::new(*name, *version));
+      builder.set_remote_staged_version(*name, *version);
+    }
+    Arc::new(builder.build().unwrap())
+  }
+
+  fn bundle_update(name: &str, version: &str) -> BundleUpdate {
+    BundleUpdate {
+      name: name.to_owned(),
+      version: version.to_owned(),
+      download_url: None,
+      integrity: None,
+      metadata: None,
+    }
+  }
+
+  fn install_target(
+    name: &str,
+    version: &str,
+    atomic: Option<&[&str]>,
+  ) -> UpdaterInstallBundleTarget {
+    UpdaterInstallBundleTarget {
+      name: name.to_owned(),
+      version: version.to_owned(),
+      atomic: atomic.map(|x| x.iter().map(|y| (*y).to_owned()).collect()),
+    }
+  }
+
+  fn updated_bundles(update: &Update) -> Vec<(&str, &str)> {
+    update
+      .bundles
+      .iter()
+      .map(|x| (x.name.as_str(), x.version.as_str()))
+      .collect()
+  }
+
+  async fn current_version(source: &BundleSource, bundle_name: &str) -> Option<String> {
+    source
+      .get_version(bundle_name)
+      .await
+      .unwrap()
+      .map(|x| x.version)
+  }
+
+  #[track_caller]
+  fn download_result<'a>(
+    results: &'a [UpdaterDownloadResult],
+    bundle_name: &str,
+  ) -> &'a crate::Result<()> {
+    &results
+      .iter()
+      .find(|x| x.update.name == bundle_name)
+      .unwrap()
+      .result
+  }
+
+  #[track_caller]
+  fn install_result<'a>(
+    results: &'a [UpdaterInstallResult],
+    bundle_name: &str,
+  ) -> &'a crate::Result<()> {
+    &results
+      .iter()
+      .find(|x| x.target.name == bundle_name)
+      .unwrap()
+      .result
+  }
+
+  #[track_caller]
+  fn error_code(result: &crate::Result<()>) -> ErrorCode {
+    result.as_ref().unwrap_err().code()
+  }
+
+  #[tokio::test]
+  async fn get_update_returns_bundles_which_are_not_served_yet() {
+    let mut server = remote_server(&[("app", "1.1.0"), ("admin", "0.1.0")]);
+    server.set_current_version("app", "1.1.0");
+    server.set_current_version("admin", "0.1.0");
+    let source = builtin_source(&[("app", "1.0.0"), ("admin", "0.1.0")]);
+    let updater = updater(&source, &server.base_url());
+
+    let update = updater.get_update(None).await.unwrap().unwrap();
+
+    assert_eq!(updated_bundles(&update), vec![("app", "1.1.0")]);
+  }
+
+  #[tokio::test]
+  async fn get_update_returns_none_when_every_bundle_is_served() {
+    let mut server = remote_server(&[("app", "1.0.0")]);
+    server.set_current_version("app", "1.0.0");
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, &server.base_url());
+
+    assert_eq!(updater.get_update(None).await.unwrap(), None);
+  }
+
+  #[tokio::test]
+  async fn get_update_stores_the_update_it_fetched() {
+    let mut server = remote_server(&[("app", "1.1.0")]);
+    server.set_current_version("app", "1.1.0");
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let filepath = update_filepath();
+    let updater = build_updater(
+      &source,
+      &server.base_url(),
+      &filepath,
+      UpdaterOptions::default(),
+    );
+
+    let update = updater.get_update(None).await.unwrap().unwrap();
+
+    let stored = tokio::fs::read(&filepath).await.unwrap();
+    let stored = serde_json::from_slice::<RemoteUpdateResponse>(&stored).unwrap();
+    assert_eq!(stored.update.id, update.id);
+    assert!(stored.etag.is_some());
+  }
+
+  #[tokio::test]
+  async fn get_update_returns_the_stored_update_when_it_is_not_modified() {
+    let mut server = remote_server(&[("app", "1.1.0")]);
+    server.set_current_version("app", "1.1.0");
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let filepath = update_filepath();
+    build_updater(
+      &source,
+      &server.base_url(),
+      &filepath,
+      UpdaterOptions::default(),
+    )
+    .get_update(None)
+    .await
+    .unwrap()
+    .unwrap();
+
+    let raw = tokio::fs::read(&filepath).await.unwrap();
+    let mut stored = serde_json::from_slice::<RemoteUpdateResponse>(&raw).unwrap();
+    stored.update.bundles = vec![bundle_update("app", "1.2.0")];
+    tokio::fs::write(&filepath, serde_json::to_vec(&stored).unwrap())
+      .await
+      .unwrap();
+
+    let update = build_updater(
+      &source,
+      &server.base_url(),
+      &filepath,
+      UpdaterOptions::default(),
+    )
+    .get_update(None)
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(updated_bundles(&update), vec![("app", "1.2.0")]);
+  }
+
+  #[tokio::test]
+  async fn get_update_fetches_the_configured_channel() {
+    let mut server = remote_server(&[("app", "1.0.0"), ("app", "2.0.0")]);
+    server.set_current_version("app", "1.0.0");
+    server.set_channel_current_version("beta", "app", "2.0.0");
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let updater = build_updater(
+      &source,
+      &server.base_url(),
+      &update_filepath(),
+      UpdaterOptions::default().channel("beta"),
+    );
+
+    let update = updater.get_update(None).await.unwrap().unwrap();
+
+    assert_eq!(updated_bundles(&update), vec![("app", "2.0.0")]);
+  }
+
+  #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
+  #[tokio::test]
+  async fn get_update_verifies_the_signature_of_the_expected_key() {
+    use crate::updater::UpdaterSignatureOptions;
+
+    let mut server = remote_server(&[("app", "1.1.0")]);
+    server.set_current_version("app", "1.1.0");
+    server.insert_signature_key("default", [7u8; 32]);
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let options = UpdaterOptions::default().signature(
+      UpdaterSignatureOptions::default().key_set(server.signature_key_set("default").unwrap()),
+    );
+    let updater = build_updater(&source, &server.base_url(), &update_filepath(), options);
+    let get_update_options = UpdaterGetUpdateOptions::default().expect_signature_key_id("default");
+
+    let update = updater
+      .get_update(Some(get_update_options))
+      .await
+      .unwrap()
+      .unwrap();
+
+    assert_eq!(updated_bundles(&update), vec![("app", "1.1.0")]);
+  }
+
+  #[cfg(feature = "signature")]
+  #[tokio::test]
+  async fn get_update_errors_when_the_expected_key_is_not_configured() {
+    let mut server = remote_server(&[("app", "1.1.0")]);
+    server.set_current_version("app", "1.1.0");
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, &server.base_url());
+    let options = UpdaterGetUpdateOptions::default().expect_signature_key_id("default");
+
+    let err = updater.get_update(Some(options)).await.unwrap_err();
+
+    assert_eq!(err.code(), ErrorCode::ExpectSignatureNotFound);
+  }
+
+  #[tokio::test]
+  async fn download_writes_the_bundle_into_the_source() {
+    let server = remote_server(&[("app", "1.0.0")]);
+    let source = empty_source();
+    let updater = updater(&source, &server.base_url());
+
+    updater
+      .download(&[bundle_update("app", "1.0.0")], None)
+      .await
+      .unwrap();
+
+    let filepath = source.get_remote_bundle_filepath("app", "1.0.0").unwrap();
+    assert_eq!(
+      tokio::fs::read(&filepath).await.unwrap(),
+      TestingBundle::new("app", "1.0.0")
+        .make_bundle_data()
+        .unwrap()
+    );
+  }
+
+  #[tokio::test]
+  async fn download_stages_the_downloaded_version() {
+    let server = remote_server(&[("app", "1.0.0")]);
+    let source = empty_source();
+    let updater = updater(&source, &server.base_url());
+
+    updater
+      .download(&[bundle_update("app", "1.0.0")], None)
+      .await
+      .unwrap();
+
+    assert_eq!(
+      source
+        .get_remote_staged_version("app")
+        .await
+        .unwrap()
+        .as_deref(),
+      Some("1.0.0")
+    );
+  }
+
+  #[tokio::test]
+  async fn download_reports_the_result_of_each_bundle() {
+    let server = remote_server(&[("app", "1.0.0")]);
+    let source = empty_source();
+    let updater = updater(&source, &server.base_url());
+
+    let results = updater
+      .download(
+        &[
+          bundle_update("app", "1.0.0"),
+          bundle_update("admin", "0.1.0"),
+        ],
+        None,
+      )
+      .await
+      .unwrap();
+
+    assert!(download_result(&results, "app").is_ok());
+    assert_eq!(
+      error_code(download_result(&results, "admin")),
+      ErrorCode::RemoteHttp
+    );
+  }
+
+  #[tokio::test]
+  async fn download_does_not_stage_a_bundle_it_failed_to_download() {
+    let server = remote_server(&[("app", "1.0.0")]);
+    let source = empty_source();
+    let updater = updater(&source, &server.base_url());
+
+    updater
+      .download(&[bundle_update("admin", "0.1.0")], None)
+      .await
+      .unwrap();
+
+    assert_eq!(
+      source.get_remote_staged_version("admin").await.unwrap(),
+      None
+    );
+  }
+
+  #[tokio::test]
+  async fn download_uses_the_download_url_of_the_update() {
+    let server = remote_server(&[("app", "1.0.0")]);
+    let source = empty_source();
+    let updater = updater(&source, OFFLINE_URL);
+    let mut update = bundle_update("app", "1.0.0");
+    update.download_url = Some(format!("{}/bundles/app/1.0.0", server.base_url()));
+
+    let results = updater.download(&[update], None).await.unwrap();
+
+    assert!(download_result(&results, "app").is_ok());
+  }
+
+  #[tokio::test]
+  async fn install_activates_the_staged_version() {
+    let source = staged_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .install(&[install_target("app", "1.0.0", None)])
+      .await
+      .unwrap();
+
+    assert!(install_result(&results, "app").is_ok());
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.0.0")
+    );
+  }
+
+  #[tokio::test]
+  async fn install_rejects_a_version_which_is_not_staged() {
+    let source = staged_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .install(&[install_target("app", "9.9.9", None)])
+      .await
+      .unwrap();
+
+    assert_eq!(
+      error_code(install_result(&results, "app")),
+      ErrorCode::BundleEntryNotExists
+    );
+    assert_eq!(current_version(&source, "app").await, None);
+  }
+
+  #[tokio::test]
+  async fn install_rejects_a_file_which_is_not_a_bundle() {
+    let source = staged_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+    let filepath = source.get_remote_bundle_filepath("app", "1.0.0").unwrap();
+    tokio::fs::write(&filepath, b"not a bundle").await.unwrap();
+
+    let results = updater
+      .install(&[install_target("app", "1.0.0", None)])
+      .await
+      .unwrap();
+
+    assert_eq!(
+      error_code(install_result(&results, "app")),
+      ErrorCode::InvalidMagicNum
+    );
+  }
+
+  #[cfg(feature = "integrity")]
+  #[tokio::test]
+  async fn install_rejects_a_bundle_which_does_not_match_its_integrity() {
+    use crate::BundleEntry;
+    use crate::integrity::IntegrityAlgorithm;
+
+    let mut builder = TestingSourceBuilder::new();
+    builder.set_integrity_algorithm(IntegrityAlgorithm::Sha256);
+    builder.add_remote_bundle(TestingBundle::new("app", "1.0.0"));
+    builder.set_remote_staged_version("app", "1.0.0");
+    let source = Arc::new(builder.build().unwrap());
+    let updater = updater(&source, OFFLINE_URL);
+
+    let mut tampered = TestingBundle::new("app", "1.0.0");
+    tampered.add_entry(
+      "/index.html",
+      BundleEntry::new(b"tampered", "text/html", None),
+    );
+    let filepath = source.get_remote_bundle_filepath("app", "1.0.0").unwrap();
+    tokio::fs::write(&filepath, tampered.make_bundle_data().unwrap())
+      .await
+      .unwrap();
+
+    let results = updater
+      .install(&[install_target("app", "1.0.0", None)])
+      .await
+      .unwrap();
+
+    assert_eq!(
+      error_code(install_result(&results, "app")),
+      ErrorCode::IntegrityVerifyFailed
+    );
+  }
+
+  #[tokio::test]
+  async fn install_fails_every_target_of_an_atomic_group() {
+    let source = staged_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .install(&[
+        install_target("app", "1.0.0", Some(&["admin"])),
+        install_target("admin", "0.1.0", None),
+      ])
+      .await
+      .unwrap();
+
+    assert_eq!(
+      error_code(install_result(&results, "app")),
+      ErrorCode::InstallAtomicFailed
+    );
+    assert!(install_result(&results, "admin").is_err());
+    assert_eq!(current_version(&source, "app").await, None);
+  }
+
+  #[tokio::test]
+  async fn install_activates_the_targets_outside_a_failed_group() {
+    let source = staged_source(&[("app", "1.0.0"), ("docs", "3.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .install(&[
+        install_target("app", "1.0.0", Some(&["admin"])),
+        install_target("admin", "0.1.0", None),
+        install_target("docs", "3.0.0", None),
+      ])
+      .await
+      .unwrap();
+
+    assert!(install_result(&results, "docs").is_ok());
+    assert_eq!(
+      current_version(&source, "docs").await.as_deref(),
+      Some("3.0.0")
+    );
+    assert_eq!(current_version(&source, "app").await, None);
+  }
+}

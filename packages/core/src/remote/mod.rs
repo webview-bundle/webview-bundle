@@ -3,6 +3,8 @@
 //! ## Example
 //!
 //! ```no_run
+//! # async {
+//! use std::path::Path;
 //! use wvb::remote::Remote;
 //!
 //! let remote = Remote::builder()
@@ -16,9 +18,10 @@
 //! // Download bundle
 //! remote.download(
 //!   "https://my-bundle-cdn.com/bundles/<some_unique_key>",
-//!   "/tmp/dir/to/download/bundle/my_bundle.wvb",
-//! None,
+//!   Path::new("/tmp/dir/to/download/bundle/my_bundle.wvb"),
+//!   None,
 //! ).await.unwrap();
+//! # };
 //! ```
 
 mod config;
@@ -27,7 +30,6 @@ mod http;
 mod remote;
 pub(crate) mod sfv;
 mod streaming;
-mod tmp;
 mod types;
 
 pub use config::*;

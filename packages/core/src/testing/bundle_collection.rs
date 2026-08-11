@@ -1,5 +1,6 @@
 use crate::testing::bundle::TestingBundle;
 use std::collections::HashSet;
+use std::collections::hash_set;
 
 #[derive(Default, Debug, Clone)]
 pub struct TestingBundleCollection {
@@ -37,5 +38,49 @@ impl TestingBundleCollection {
   pub fn clear(&mut self) -> &mut Self {
     self.bundles.clear();
     self
+  }
+
+  pub fn len(&self) -> usize {
+    self.bundles.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.bundles.is_empty()
+  }
+
+  pub fn iter(&self) -> hash_set::Iter<'_, TestingBundle> {
+    self.bundles.iter()
+  }
+}
+
+impl IntoIterator for TestingBundleCollection {
+  type Item = TestingBundle;
+  type IntoIter = hash_set::IntoIter<TestingBundle>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    self.bundles.into_iter()
+  }
+}
+
+impl<'a> IntoIterator for &'a TestingBundleCollection {
+  type Item = &'a TestingBundle;
+  type IntoIter = hash_set::Iter<'a, TestingBundle>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    self.bundles.iter()
+  }
+}
+
+impl FromIterator<TestingBundle> for TestingBundleCollection {
+  fn from_iter<T: IntoIterator<Item = TestingBundle>>(iter: T) -> Self {
+    Self {
+      bundles: iter.into_iter().collect(),
+    }
+  }
+}
+
+impl Extend<TestingBundle> for TestingBundleCollection {
+  fn extend<T: IntoIterator<Item = TestingBundle>>(&mut self, iter: T) {
+    self.bundles.extend(iter);
   }
 }

@@ -1,5 +1,9 @@
 use crate::integrity::{Integrity, IntegrityAlgorithm};
-use crate::{Bundle, BundleBuilderOptions, BundleEntry, BundleWriter, Writer};
+use crate::source::BundleManifestVersionData;
+use crate::{
+  Bundle, BundleBuilderOptions, BundleDescriptor, BundleEntry, BundleReader, BundleWriter, Reader,
+  Writer,
+};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
@@ -10,6 +14,7 @@ pub struct TestingBundle {
   version: String,
   entries: HashMap<String, BundleEntry>,
   options: Option<BundleBuilderOptions>,
+  metadata: Option<HashMap<String, String>>,
 }
 
 impl TestingBundle {
@@ -19,6 +24,7 @@ impl TestingBundle {
       version: version.into(),
       entries: Default::default(),
       options: None,
+      metadata: None,
     }
   }
 
@@ -62,6 +68,20 @@ impl TestingBundle {
     Ok(Integrity::compute(alg, &data))
   }
 
+  pub fn make_version_data(
+    &self,
+    integrity_alg: Option<IntegrityAlgorithm>,
+  ) -> anyhow::Result<BundleManifestVersionData> {
+    let integrity = match integrity_alg {
+      Some(alg) => Some(self.make_integrity(alg)?.serialize()),
+      None => None,
+    };
+    Ok(BundleManifestVersionData {
+      integrity,
+      metadata: self.metadata.clone(),
+    })
+  }
+
   pub fn set_name(&mut self, name: impl Into<String>) -> &mut Self {
     self.name = name.into();
     self
@@ -75,6 +95,40 @@ impl TestingBundle {
   pub fn add_entry(&mut self, path: impl Into<String>, entry: BundleEntry) -> &mut Self {
     self.entries.insert(path.into(), entry);
     self
+  }
+
+  pub fn set_metadata(&mut self, metadata: HashMap<String, String>) -> &mut Self {
+    self.metadata = Some(metadata);
+    self
+  }
+
+  /// The offset, within the bytes of the `.wvb` file, of the compressed data of `path`.
+  ///
+  /// An entry is stored as `[compressed bytes][4-byte checksum]`, so flipping a byte at this
+  /// offset corrupts the payload while leaving its checksum intact — which is what a
+  /// checksum-verifying read is supposed to catch. Flipping a byte of the payload's leading
+  /// length prefix instead surfaces as a decompression error, so tests that mean to exercise
+  /// the checksum should target this offset.
+  pub fn entry_data_offset(&self, path: &str) -> anyhow::Result<usize> {
+    let (descriptor, entry_offset, _) = self.entry_position(path)?;
+    Ok((descriptor.header().index_end_offset() + entry_offset) as usize)
+  }
+
+  /// The offset, within the bytes of the `.wvb` file, of the 4-byte checksum of `path`.
+  pub fn entry_checksum_offset(&self, path: &str) -> anyhow::Result<usize> {
+    let (descriptor, entry_offset, entry_len) = self.entry_position(path)?;
+    Ok((descriptor.header().index_end_offset() + entry_offset + entry_len) as usize)
+  }
+
+  fn entry_position(&self, path: &str) -> anyhow::Result<(BundleDescriptor, u64, u64)> {
+    let data = self.make_bundle_data()?;
+    let descriptor: BundleDescriptor = BundleReader::new(Cursor::new(&data)).read()?;
+    let entry = descriptor
+      .index()
+      .get_entry(path)
+      .ok_or_else(|| anyhow::anyhow!("no entry at {path:?}"))?;
+    let (offset, len) = (entry.offset(), entry.len());
+    Ok((descriptor, offset, len))
   }
 }
 

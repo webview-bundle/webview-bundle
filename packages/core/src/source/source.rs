@@ -120,9 +120,9 @@ type DescriptorCell = Arc<OnceCell<Arc<BundleDescriptor>>>;
 #[derive(Debug)]
 pub struct BundleSource {
   builtin_dir: PathBuf,
-  builtin_manifest: BundleManifest<ReadOnly>,
+  pub(crate) builtin_manifest: BundleManifest<ReadOnly>,
   remote_dir: PathBuf,
-  remote_manifest: BundleManifest<ReadWrite>,
+  pub(crate) remote_manifest: BundleManifest<ReadWrite>,
   descriptors: DashMap<String, (PathBuf, DescriptorCell)>,
   options: BundleSourceOptions,
 }

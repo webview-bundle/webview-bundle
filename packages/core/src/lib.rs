@@ -99,38 +99,43 @@
 //! Download and verify bundles from a remote server:
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "remote", feature = "source"))]
+//! # #[cfg(all(feature = "updater", feature = "source"))]
 //! # async {
+//! use std::path::Path;
+//! use std::sync::Arc;
 //! use wvb::remote::Remote;
-//! use wvb::source::{BundleManifestVersionData, BundleSource};
+//! use wvb::source::BundleSource;
+//! use wvb::updater::{Updater, UpdaterInstallBundleTarget};
 //!
-//! let remote = Remote::builder()
-//!     .endpoint("https://updates.example.com")
+//! let source = Arc::new(BundleSource::builder().remote_dir("./remote").build());
+//! let remote = Arc::new(
+//!     Remote::builder()
+//!         .base_url("https://updates.example.com")
+//!         .build()
+//!         .unwrap(),
+//! );
+//! let updater = Updater::builder()
+//!     .source(source.clone())
+//!     .remote(remote)
+//!     .update_filepath(Path::new("./remote/update.json"))
 //!     .build()
 //!     .unwrap();
-//! let source = BundleSource::builder()
-//!     .remote_dir("./remote")
-//!     .build();
 //!
-//! // Download the current version, then write the bytes exactly as received: the
-//! // integrity string covers those bytes, so storing them verbatim keeps the file
-//! // verifiable on every later load.
-//! let (info, _bundle, data) = remote.download("app", None).await.unwrap();
-//! source
-//!     .write_remote_bundle_data(
-//!         "app",
-//!         &info.version,
-//!         &data,
-//!         BundleManifestVersionData {
-//!             etag: info.etag,
-//!             integrity: info.integrity,
-//!             signature: info.signature,
-//!             last_modified: info.last_modified,
-//!         },
-//!     )
-//!     .await
-//!     .unwrap();
-//! source.update_remote_version("app", &info.version).await.unwrap();
+//! // The update names the bundles this source is missing. Downloading only stages them
+//! // on disk; installing is what activates them for the protocol to serve.
+//! if let Some(update) = updater.get_update(None).await.unwrap() {
+//!     updater.download(&update.bundles, None).await.unwrap();
+//!     let targets = update
+//!         .bundles
+//!         .iter()
+//!         .map(|bundle| UpdaterInstallBundleTarget {
+//!             name: bundle.name.clone(),
+//!             version: bundle.version.clone(),
+//!             atomic: None,
+//!         })
+//!         .collect::<Vec<_>>();
+//!     updater.install(&targets).await.unwrap();
+//! }
 //! # };
 //! ```
 

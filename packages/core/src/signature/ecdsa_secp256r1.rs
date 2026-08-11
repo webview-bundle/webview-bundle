@@ -37,7 +37,7 @@ impl SignatureVerifier for EcdsaSecp256r1 {
     self
       .key
       .verify(data, &signature)
-      .map_err(|_| crate::Error::InvalidSignature)?;
+      .map_err(|_| crate::Error::SignatureVerifyFailed)?;
     Ok(())
   }
 }

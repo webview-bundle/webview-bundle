@@ -12,8 +12,9 @@
 //!
 //! ```no_run
 //! # #[cfg(feature = "integrity")]
-//! # async {
-//! use wvb::integrity::{Integrity, IntegrityAlgorithm, IntegrityCheck};
+//! # {
+//! use std::str::FromStr;
+//! use wvb::integrity::{Integrity, IntegrityAlgorithm};
 //!
 //! let data = b"<html></html>";
 //!
@@ -22,8 +23,8 @@
 //! println!("Integrity: {integrity}");
 //!
 //! // Verify bytes against it.
-//! IntegrityCheck::Default.check(&integrity, data).await.unwrap();
-//! # };
+//! assert!(Integrity::from_str(&integrity).unwrap().validate(data));
+//! # }
 //! ```
 //!
 //! ## Integrity Policy
@@ -32,7 +33,7 @@
 //! check runs — required ([`IntegrityPolicy::Strict`]), checked when present
 //! ([`IntegrityPolicy::Optional`]), or disabled ([`IntegrityPolicy::Off`]). It is applied
 //! through [`crate::source::BundleSourceOptions::integrity`] (on load) and
-//! [`crate::updater::UpdaterOptions::integrity_policy`] (on download/install).
+//! [`crate::updater::UpdaterOptions::integrity`] (on install).
 //!
 //! ```no_run
 //! # #[cfg(all(feature = "integrity", feature = "source"))]

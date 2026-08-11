@@ -39,6 +39,10 @@ where
     }
   }
 
+  pub fn filepath(&self) -> &Path {
+    &self.filepath
+  }
+
   pub async fn list_entries(&self) -> crate::Result<Vec<BundleManifestEntryItem>> {
     let manifest = self.load().await?.read().await;
     let mut items = vec![];
@@ -574,8 +578,16 @@ mod tests {
     let fixture = Fixtures::bundles();
     let manifest = BundleManifest::new(&fixture.get_path("remote/manifest.json"), ReadWrite);
     manifest.set_current_version("app", "1.1.0").await.unwrap();
-    let result = manifest.remove_entry("app", "1.1.0", None).await.unwrap();
-    assert_eq!(result.kind, BundleEntryRemoveResultKind::InUse);
+    let err = manifest
+      .remove_entry("app", "1.1.0", None)
+      .await
+      .unwrap_err();
+    assert!(matches!(
+      err,
+      crate::Error::BundleCannotBeRemoved { ref bundle_name, ref version }
+        if bundle_name == "app" && version == "1.1.0"
+    ));
+    assert!(manifest.contains_entry("app", "1.1.0").await.unwrap());
   }
 
   #[tokio::test]
