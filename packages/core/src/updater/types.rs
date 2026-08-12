@@ -36,6 +36,7 @@ pub struct UpdaterSignatureOptions {
   pub key_sets: Option<Vec<signature::SignatureKeySet>>,
 }
 
+#[cfg(feature = "signature")]
 impl UpdaterSignatureOptions {
   pub fn key_set(self, key_set: signature::SignatureKeySet) -> Self {
     self.key_sets(vec![key_set])

@@ -90,6 +90,7 @@ remote = [
   "reqwest/rustls",
   "reqwest/json",
   "reqwest/stream",
+  "tokio/macros",
   "dep:urlencoding",
   "dep:futures-util",
 ]
