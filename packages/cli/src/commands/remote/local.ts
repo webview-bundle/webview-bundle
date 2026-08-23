@@ -1,7 +1,6 @@
 import { Command, Option } from 'clipanion';
 import { cascade, isBoolean, isInExclusiveRange, isInteger, isNumber } from 'typanion';
 import { localRemote } from '../../api/index.js';
-import { isColorEnabled } from '../../console.js';
 import { BaseCommand } from '../base.js';
 
 export class RemoteLocalCommand extends BaseCommand {
@@ -34,23 +33,15 @@ export class RemoteLocalCommand extends BaseCommand {
     validator: cascade(isNumber(), [isInteger(), isInExclusiveRange(1, 65535)]),
     env: 'PORT',
   });
-  readonly silent = Option.String('--silent', {
-    tolerateBoolean: true,
-    validator: isBoolean(),
-    description: 'Disable middleware log output.',
-  });
 
   async run() {
-    const silent = this.silent ?? false;
     const port = this.port ?? 4313;
     const instance = await localRemote({
       baseDir: this.baseDir,
       hostname: this.hostname,
       port,
-      silent,
       allowOtherVersions: this.allowOtherVersions,
       logger: this.logger,
-      colorEnabled: isColorEnabled(),
     });
     const handleShutdown = () => {
       instance
