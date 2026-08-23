@@ -4,6 +4,7 @@ use crate::remote::BundleUpdate;
 #[cfg(feature = "signature")]
 use crate::signature;
 use crate::util::cancellation::Cancellation;
+use std::collections::HashMap;
 
 /// How bundles are checked against the integrity recorded for them
 /// in the remote manifest.
@@ -33,18 +34,18 @@ impl UpdaterIntegrityOptions {
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct UpdaterSignatureOptions {
-  pub key_sets: Option<Vec<signature::SignatureKeySet>>,
+  pub keys: Option<Vec<signature::SignatureVerifyKey>>,
 }
 
 #[cfg(feature = "signature")]
 impl UpdaterSignatureOptions {
-  pub fn key_set(self, key_set: signature::SignatureKeySet) -> Self {
-    self.key_sets(vec![key_set])
+  pub fn add_key(self, key_set: signature::SignatureVerifyKey) -> Self {
+    self.add_keys(vec![key_set])
   }
 
-  pub fn key_sets(mut self, key_sets: Vec<signature::SignatureKeySet>) -> Self {
-    self.key_sets = match self.key_sets {
-      Some(original) => Some(vec![original, key_sets].concat()),
+  pub fn add_keys(mut self, key_sets: Vec<signature::SignatureVerifyKey>) -> Self {
+    self.keys = match self.keys {
+      Some(original) => Some([original, key_sets].concat()),
       None => Some(key_sets),
     };
     self
@@ -103,30 +104,133 @@ impl UpdaterGetUpdateOptions {
   }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct UpdaterDownloadOptions {
   pub concurrency: Option<usize>,
   pub timeout: Option<u64>,
   pub cancellation: Option<Cancellation>,
 }
 
+impl UpdaterDownloadOptions {
+  pub fn concurrency(mut self, concurrency: usize) -> Self {
+    self.concurrency = Some(concurrency);
+    self
+  }
+
+  pub fn timeout(mut self, timeout: u64) -> Self {
+    self.timeout = Some(timeout);
+    self
+  }
+
+  pub fn cancellation(mut self, cancellation: Cancellation) -> Self {
+    self.cancellation = Some(cancellation);
+    self
+  }
+}
+
 #[derive(Debug)]
-pub struct UpdaterDownloadResult {
+pub enum UpdaterDownloadResultKind {
+  Downloaded,
+  Error(crate::Error),
+}
+
+impl From<crate::Error> for UpdaterDownloadResultKind {
+  fn from(error: crate::Error) -> Self {
+    Self::Error(error)
+  }
+}
+
+#[derive(Debug)]
+pub(crate) struct UpdaterDownloadResultInner {
   pub update: BundleUpdate,
   pub result: crate::Result<()>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UpdaterInstallBundleTarget {
+impl From<UpdaterDownloadResultInner> for UpdaterDownloadResult {
+  fn from(value: UpdaterDownloadResultInner) -> Self {
+    Self {
+      name: value.update.name,
+      version: value.update.version,
+      integrity: value.update.integrity,
+      metadata: value.update.metadata,
+      result: match value.result {
+        Ok(_) => UpdaterDownloadResultKind::Downloaded,
+        Err(e) => UpdaterDownloadResultKind::Error(e),
+      },
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct UpdaterDownloadResult {
   pub name: String,
   pub version: String,
-  /// Bundles that must be installed together with this one. Targets are grouped transitively,
-  /// so declaring the relation on one side is enough.
-  pub atomic: Option<Vec<String>>,
+  pub integrity: Option<String>,
+  pub metadata: Option<HashMap<String, String>>,
+  pub result: UpdaterDownloadResultKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdaterInstallTarget {
+  pub name: String,
+  /// The staged version to install.
+  /// If this is not set, staged version recorded in the manifest will be used.
+  /// If this is set, will match the staged version recorded in the manifest.
+  pub version: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum UpdaterInstallResultKind {
+  Installed,
+  StagedVersionNotMatched,
+  StagedBundleNotExists,
+  VerifyFailed,
+  Error(crate::Error),
+}
+
+impl From<crate::Error> for UpdaterInstallResultKind {
+  fn from(error: crate::Error) -> Self {
+    Self::Error(error)
+  }
 }
 
 #[derive(Debug)]
 pub struct UpdaterInstallResult {
-  pub target: UpdaterInstallBundleTarget,
-  pub result: crate::Result<()>,
+  pub name: String,
+  pub target_version: Option<String>,
+  pub install_version: Option<String>,
+  pub result: UpdaterInstallResultKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdaterRollbackTarget {
+  pub name: String,
+  /// The previous version to roll back to.
+  /// If this is not set, previous version recorded in the manifest will be used.
+  /// If this is set, will match the previous version recorded in the manifest.
+  pub version: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum UpdaterRollbackResultKind {
+  RolledBack,
+  PreviousVersionNotMatched,
+  PreviousBundleNotExists,
+  VerifyFailed,
+  Error(crate::Error),
+}
+
+impl From<crate::Error> for UpdaterRollbackResultKind {
+  fn from(error: crate::Error) -> Self {
+    Self::Error(error)
+  }
+}
+
+#[derive(Debug)]
+pub struct UpdaterRollbackResult {
+  pub name: String,
+  pub target_version: Option<String>,
+  pub rollback_version: Option<String>,
+  pub result: UpdaterRollbackResultKind,
 }

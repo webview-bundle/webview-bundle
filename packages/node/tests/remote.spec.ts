@@ -1,167 +1,201 @@
 import { Buffer } from 'node:buffer';
-import { type ServerType, serve } from '@hono/node-server';
-import getPort from 'get-port';
-import { Hono } from 'hono';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BundleBuilder, Remote, WebviewBundleError, writeBundleIntoBuffer } from '../dist/index.js';
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  Cancellation,
+  type ErrorCode,
+  getWebviewBundleError,
+  isWebviewBundleError,
+  Remote,
+  type RemoteOnDownloadData,
+  RUNTIME_VERSION,
+  UPDATE_PROTOCOL_VERSION,
+} from '../dist/index.js';
+import { caught, errorCode } from './errors.js';
+import { buildBundleData, startUpdateServer, type UpdateServer } from './update-server.js';
 
-let port: number;
-let server: ServerType;
-let allowOnlyLatest = false;
-let lastRequestHeaders: Headers | undefined;
-let lastRequestUrl: string | undefined;
+describe('remote', () => {
+  let server: UpdateServer;
+  let tmpdir: string;
 
-beforeAll(async () => {
-  port = await getPort();
-  const app = new Hono();
+  beforeAll(async () => {
+    server = await startUpdateServer();
+  });
 
-  function makeBundleResponse(bundleName: string, version: string) {
-    const headers = new Headers();
-    headers.set('content-type', 'application/webview-bundle');
-    headers.set('webview-bundle-name', bundleName);
-    headers.set('webview-bundle-version', version);
-    const builder = new BundleBuilder();
-    builder.insertEntry('/index.html', Buffer.from('<h1>Hello World</h1>', 'utf8'));
-    const bundle = builder.build();
-    const buf = writeBundleIntoBuffer(bundle);
-    return new Response(new Uint8Array(buf), { status: 200, headers });
+  afterAll(() => server.close());
+
+  beforeEach(async () => {
+    server.bundles = [
+      { name: 'app', version: '1.0.0', data: buildBundleData('app', '1.0.0') },
+      { name: 'docs', version: '2.0.0', data: buildBundleData('docs', '2.0.0') },
+    ];
+    server.metadata = {};
+    server.failWith = undefined;
+    server.signer = undefined;
+    tmpdir = path.join(os.tmpdir(), 'webview-bundle-node-remote', randomBytes(8).toString('hex'));
+    await fs.mkdir(tmpdir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tmpdir, { recursive: true });
+    } catch {}
+  });
+
+  function makeRemote(onDownload?: (data: RemoteOnDownloadData) => void) {
+    return new Remote({ baseUrl: server.baseUrl, onDownload });
   }
 
-  // GET /bundles
-  app.get('/bundles', c => {
-    lastRequestHeaders = c.req.raw.headers;
-    lastRequestUrl = c.req.url;
-    return c.json([
+  it('gets the update the server serves', async () => {
+    const resp = await makeRemote().getUpdate();
+
+    expect(resp?.update.runtimeVersion).toBe(RUNTIME_VERSION);
+    expect(resp?.update.createdAt).toBe(server.createdAt);
+    expect(resp?.update.bundles).toEqual([
+      { name: 'app', version: '1.0.0' },
+      { name: 'docs', version: '2.0.0' },
+    ]);
+    expect(resp?.update.metadata).toEqual({});
+    expect(resp?.etag).toBeTruthy();
+    expect(resp?.signature).toBeUndefined();
+  });
+
+  it('announces the protocol and runtime version it speaks', async () => {
+    await makeRemote().getUpdate();
+
+    expect(server.lastRequest?.headers.get('wvb-update-protocol-version')).toBe(
+      UPDATE_PROTOCOL_VERSION
+    );
+    expect(server.lastRequest?.headers.get('wvb-runtime-version')).toBe(String(RUNTIME_VERSION));
+    expect(server.lastRequest?.headers.get('accept')).toBe('application/json');
+  });
+
+  it('returns null when the update is not modified', async () => {
+    const remote = makeRemote();
+    const first = await remote.getUpdate();
+    expect(first?.etag).toBeTruthy();
+
+    expect(await remote.getUpdate({ etag: first?.etag ?? undefined })).toBeNull();
+    expect(server.lastRequest?.headers.get('if-none-match')).toBe(first?.etag);
+  });
+
+  it('sends the update channel and receives what it serves', async () => {
+    const resp = await makeRemote().getUpdate({ channel: 'beta' });
+
+    expect(server.lastRequest?.headers.get('wvb-update-channel')).toBe('beta');
+    expect(resp?.update.metadata).toEqual({ channel: 'beta' });
+  });
+
+  it('carries the download url and integrity of every bundle', async () => {
+    server.bundles = [
       {
-        name: 'bundle1',
+        name: 'app',
         version: '1.0.0',
+        data: buildBundleData('app', '1.0.0'),
+        downloadUrl: 'https://cdn.example.com/app.wvb',
+        integrity: 'sha256:AAAA',
+        metadata: { channel: 'beta' },
+      },
+    ];
+
+    const resp = await makeRemote().getUpdate();
+    expect(resp?.update.bundles).toEqual([
+      {
+        name: 'app',
+        version: '1.0.0',
+        downloadUrl: 'https://cdn.example.com/app.wvb',
+        integrity: 'sha256:AAAA',
+        metadata: { channel: 'beta' },
       },
     ]);
   });
-  // GET /bundles/{name}
-  app.get('/bundles/:name', async c => {
-    const bundleName = c.req.param('name');
-    if (bundleName === 'bundle1') {
-      return makeBundleResponse(bundleName, '1.0.0');
-    }
-    return c.notFound();
-  });
-  // GET /bundles/{name}/{version}
-  app.get('/bundles/:name/:version', async c => {
-    if (allowOnlyLatest) {
-      return c.json({}, { status: 403 });
-    }
-    const bundleName = c.req.param('name');
-    const version = c.req.param('version');
-    if (bundleName === 'bundle1' && version === '1.0.0') {
-      return makeBundleResponse(bundleName, version);
-    }
-    return c.notFound();
-  });
-  server = serve({ fetch: app.fetch, port });
-});
 
-afterAll(() => {
-  allowOnlyLatest = false;
-  return new Promise<void>((resolve, reject) => {
-    if (server == null) {
-      return;
-    }
-    server.close(e => {
-      if (e != null) {
-        reject(e);
-      } else {
-        resolve();
-      }
-    });
-  });
-});
+  it('downloads a bundle into the given filepath and reports progress', async () => {
+    const events: RemoteOnDownloadData[] = [];
+    const remote = makeRemote(data => events.push(data));
+    const filepath = path.join(tmpdir, 'app.wvb');
 
-describe('remote', () => {
-  it('list bundles', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    const resp = await remote.listBundles();
-    expect(resp).toEqual([{ name: 'bundle1', version: '1.0.0' }]);
+    await remote.download(`${server.baseUrl}/bundles/app/1.0.0`, filepath);
+
+    expect(await fs.readFile(filepath)).toEqual(server.bundles[0]?.data);
+    await vi.waitFor(() => expect(events.length).toBeGreaterThan(0));
+    expect(events.at(-1)?.downloadedBytes).toBe(server.bundles[0]?.data.length);
+    expect(events.at(-1)?.url).toBe(`${server.baseUrl}/bundles/app/1.0.0`);
   });
 
-  it('get bundle info', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    const resp = await remote.getInfo('bundle1');
-    expect(resp).toEqual({ name: 'bundle1', version: '1.0.0' });
+  it('cancels a download', async () => {
+    const cancellation = new Cancellation();
+    cancellation.cancel();
+    expect(cancellation.isCancelled()).toBe(true);
+
+    const error = await makeRemote()
+      .download(`${server.baseUrl}/bundles/app/1.0.0`, path.join(tmpdir, 'app.wvb'), cancellation)
+      .catch(e => e);
+    expect(errorCode(error)).toBe<ErrorCode>('core.cancelled');
   });
 
-  it('download bundle', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    const [info, bundle] = await remote.download('bundle1');
-    expect(info).toEqual({ name: 'bundle1', version: '1.0.0' });
-    expect(bundle.getData('/index.html')).toEqual(Buffer.from('<h1>Hello World</h1>', 'utf8'));
+  it('reports the message of a failing remote response', async () => {
+    server.failWith = { status: 503, message: 'maintenance' };
+
+    const error = await makeRemote()
+      .getUpdate()
+      .catch(e => e);
+    expect(isWebviewBundleError(error)).toBe(true);
+    expect(errorCode(error)).toBe<ErrorCode>('core.remote_http');
+    expect(getWebviewBundleError(error)?.message).toContain('503');
+    expect(getWebviewBundleError(error)?.message).toContain('maintenance');
+    expect(getWebviewBundleError(error)?.message).not.toMatch(/^\[/);
   });
 
-  it('download bundle with specific version', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    const [info, bundle] = await remote.downloadVersion('bundle1', '1.0.0');
-    expect(info).toEqual({ name: 'bundle1', version: '1.0.0' });
-    expect(bundle.getData('/index.html')).toEqual(Buffer.from('<h1>Hello World</h1>', 'utf8'));
+  it('rejects a download of a bundle the server does not have', async () => {
+    const error = await makeRemote()
+      .download(`${server.baseUrl}/bundles/app/9.9.9`, path.join(tmpdir, 'app.wvb'))
+      .catch(e => e);
+    expect(errorCode(error)).toBe<ErrorCode>('core.remote_http');
+  });
 
-    allowOnlyLatest = true;
-    await expect(remote.downloadVersion('bundle1', '1.0.0')).rejects.toThrow(
-      expect.objectContaining({
-        name: 'WebviewBundleError',
-        code: 'core.remote_forbidden',
-        message: 'remote forbidden',
-      })
+  it('rejects an invalid base url from the constructor', () => {
+    expect(errorCode(caught(() => new Remote({ baseUrl: '' })))).toBe<ErrorCode>(
+      'core.invalid_remote_config'
     );
-  });
-
-  it('bundle not found', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    await expect(remote.download('not_found')).rejects.toThrow(
-      expect.objectContaining({ code: 'core.remote_bundle_not_found' })
+    expect(errorCode(caught(() => new Remote({ baseUrl: 'not a url' })))).toBe<ErrorCode>(
+      'core.invalid_remote_config'
     );
-  });
-
-  it('reject with WebviewBundleError', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    const error = await remote.download('not_found').catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(WebviewBundleError);
-    expect((error as WebviewBundleError).message).not.toMatch(/^\[/);
-  });
-
-  it('an invalid endpoint rejects from the constructor', () => {
-    expect(() => new Remote('')).toThrow(
-      expect.objectContaining({ code: 'core.invalid_remote_config' })
-    );
-  });
-
-  it('sends the fetch channel as a query parameter', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    await remote.listBundles({ channel: 'beta' });
-    expect(new URL(lastRequestUrl as string).searchParams.get('channel')).toBe('beta');
-  });
-
-  // Callers pass `{ channel }` straight through, so an undefined channel has to behave exactly
-  // like passing no options at all rather than sending an empty channel.
-  it('an undefined channel is identical to passing no options', async () => {
-    const remote = new Remote(`http://localhost:${port}`);
-    await remote.listBundles();
-    const withoutOptions = lastRequestUrl;
-
-    await remote.listBundles({ channel: undefined });
-    expect(lastRequestUrl).toBe(withoutOptions);
-    expect(new URL(lastRequestUrl as string).searchParams.has('channel')).toBe(false);
   });
 
   it('sends the configured http options on every request', async () => {
-    const remote = new Remote(`http://localhost:${port}`, {
+    const remote = new Remote({
+      baseUrl: server.baseUrl,
       http: {
         defaultHeaders: { authorization: 'Bearer tok-123', 'x-tenant': 'acme' },
         userAgent: 'wvb-test/1.0',
       },
     });
-    await remote.listBundles();
+    await remote.getUpdate();
 
-    expect(lastRequestHeaders?.get('authorization')).toBe('Bearer tok-123');
-    expect(lastRequestHeaders?.get('x-tenant')).toBe('acme');
-    expect(lastRequestHeaders?.get('user-agent')).toBe('wvb-test/1.0');
+    expect(server.lastRequest?.headers.get('authorization')).toBe('Bearer tok-123');
+    expect(server.lastRequest?.headers.get('x-tenant')).toBe('acme');
+    expect(server.lastRequest?.headers.get('user-agent')).toBe('wvb-test/1.0');
+  });
+
+  it('rejects a body that is not an update', async () => {
+    server.bundles = [];
+    server.failWith = undefined;
+    const remote = makeRemote();
+    const resp = await remote.getUpdate();
+    expect(resp?.update.bundles).toEqual([]);
+
+    server.failWith = { status: 200, message: 'not an update' };
+    const error = await remote.getUpdate().catch(e => e);
+    expect(errorCode(error)).toBe<ErrorCode>('core.serde_json');
+  });
+
+  it('passes a buffer of the exact bundle bytes through to disk', async () => {
+    const filepath = path.join(tmpdir, 'docs.wvb');
+    await makeRemote().download(`${server.baseUrl}/bundles/docs/2.0.0`, filepath);
+    expect(Buffer.compare(await fs.readFile(filepath), server.bundles[1]!.data)).toBe(0);
   });
 });

@@ -30,17 +30,6 @@ impl UpdateFile {
     Ok(())
   }
 
-  pub async fn remove(&self) -> crate::Result<()> {
-    let mut data = self.load().await?.lock().await;
-    match tokio::fs::remove_file(&self.filepath).await {
-      Ok(()) => {}
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-      Err(e) => return Err(e.into()),
-    }
-    *data = None;
-    Ok(())
-  }
-
   async fn load(&self) -> crate::Result<&Mutex<Option<RemoteUpdateResponse>>> {
     let data = self
       .data
@@ -68,7 +57,6 @@ mod tests {
       update: Update {
         id: id.to_owned(),
         created_at: "2026-08-08T00:00:00Z".to_owned(),
-        expires_at: None,
         runtime_version: 1,
         bundles: vec![],
         metadata: HashMap::new(),
@@ -122,40 +110,5 @@ mod tests {
     assert_eq!(file.read().await.unwrap(), Some(response("u2")));
     let read = UpdateFile::new(&filepath).read().await.unwrap();
     assert_eq!(read, Some(response("u2")));
-  }
-
-  #[tokio::test]
-  async fn removes_file() {
-    let temp = TempDir::new();
-    let filepath = temp.dir().join("update.json");
-    let file = UpdateFile::new(&filepath);
-    file.write(&response("u1")).await.unwrap();
-
-    file.remove().await.unwrap();
-
-    assert!(!filepath.exists());
-    assert_eq!(file.read().await.unwrap(), None);
-  }
-
-  #[tokio::test]
-  async fn writes_after_remove() {
-    let temp = TempDir::new();
-    let filepath = temp.dir().join("update.json");
-    let file = UpdateFile::new(&filepath);
-    file.write(&response("u1")).await.unwrap();
-    file.remove().await.unwrap();
-
-    file.write(&response("u2")).await.unwrap();
-
-    assert!(filepath.exists());
-    assert_eq!(file.read().await.unwrap(), Some(response("u2")));
-  }
-
-  #[tokio::test]
-  async fn removes_file_not_exists() {
-    let temp = TempDir::new();
-    let file = UpdateFile::new(&temp.dir().join("update.json"));
-
-    file.remove().await.unwrap();
   }
 }

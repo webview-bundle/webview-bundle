@@ -1,10 +1,14 @@
-use crate::remote::{BundleUpdate, Remote, RemoteGetUpdateOptions, Update};
-use crate::source::{BundleManifestVersionData, BundleSource};
+use crate::remote::{BundleUpdate, Remote, RemoteGetUpdateOptions, RemoteUpdateResponse, Update};
+use crate::source::{
+  ManifestBundleItemStatus, ManifestSetCurrentVersionResultKind, ManifestStageData,
+  ManifestVersionData, Source, SourceKind, SourceListItem,
+};
 use crate::updater::tmp_file::TmpFile;
 use crate::updater::update_file::UpdateFile;
 use crate::updater::{
-  UpdaterDownloadOptions, UpdaterDownloadResult, UpdaterGetUpdateOptions,
-  UpdaterInstallBundleTarget, UpdaterInstallResult, UpdaterOptions,
+  UpdaterDownloadOptions, UpdaterDownloadResult, UpdaterDownloadResultInner,
+  UpdaterGetUpdateOptions, UpdaterInstallResult, UpdaterInstallResultKind, UpdaterInstallTarget,
+  UpdaterOptions, UpdaterRollbackResult, UpdaterRollbackResultKind, UpdaterRollbackTarget,
 };
 use crate::util::cancellation::Cancellation;
 use crate::util::fs::rename_with_retry;
@@ -15,11 +19,13 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use time::OffsetDateTime;
+use time::format_description::well_known::{Iso8601, Rfc3339};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 #[derive(Default, Clone)]
 pub struct UpdaterBuilder {
-  source: Option<Arc<BundleSource>>,
+  source: Option<Arc<Source>>,
   remote: Option<Arc<Remote>>,
   update_filepath: Option<PathBuf>,
   options: UpdaterOptions,
@@ -27,14 +33,14 @@ pub struct UpdaterBuilder {
 
 impl UpdaterBuilder {
   #[must_use]
-  pub fn source(mut self, source: Arc<BundleSource>) -> Self {
-    self.source = Some(source);
+  pub fn source(mut self, source: impl Into<Arc<Source>>) -> Self {
+    self.source = Some(source.into());
     self
   }
 
   #[must_use]
-  pub fn remote(mut self, remote: Arc<Remote>) -> Self {
-    self.remote = Some(remote);
+  pub fn remote(mut self, remote: impl Into<Arc<Remote>>) -> Self {
+    self.remote = Some(remote.into());
     self
   }
 
@@ -79,14 +85,12 @@ impl UpdaterBuilder {
 static DOWNLOAD_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub struct Updater {
-  source: Arc<BundleSource>,
+  source: Arc<Source>,
   remote: Arc<Remote>,
   options: UpdaterOptions,
   file: UpdateFile,
   // Jobs that result in actual changes to the file on disk acquire a lock to ensure they are
   // executed serially.
-  // Note that, the reason individual locks are not maintained for each bundle is that installation
-  // atomicity must be guaranteed for bundles with interdependencies (e.g., Micro-Frontends).
   lock: Arc<Mutex<()>>,
 }
 
@@ -119,7 +123,7 @@ impl Updater {
         match self
           .options
           .signature
-          .key_sets
+          .keys
           .as_ref()
           .and_then(|x| x.iter().find(|key_set| &key_set.id == key_id))
         {
@@ -133,7 +137,15 @@ impl Updater {
       }
     }
 
-    let resp = match self.remote.get_update(Some(opts)).await? {
+    // An update older than the stored one would take the client back to a version it has
+    // already moved past, so it is refused and what is stored stays in place.
+    let next = self
+      .remote
+      .get_update(Some(opts))
+      .await?
+      .filter(|next| prev.as_ref().is_none_or(|prev| !is_rollback(next, prev)));
+
+    let resp = match next {
       Some(next) => {
         let changed = prev
           .as_ref()
@@ -143,23 +155,30 @@ impl Updater {
         }
         next
       }
-      // Not modified: whatever was stored is still the current update.
+      // Not modified, or refused: whatever was stored is still the current update.
       None => match prev {
         Some(prev) => prev,
         None => return Ok(None),
       },
     };
 
-    if resp.update.runtime_version > crate::UPDATE_RUNTIME_VERSION {
+    if resp.update.runtime_version > crate::RUNTIME_VERSION {
       return Ok(None);
     }
 
-    let mut bundles = vec![];
-    for bundle in resp.update.bundles.iter() {
-      if self.is_update_needed(bundle).await? {
-        bundles.push(bundle.clone());
-      }
-    }
+    let locals = self.source.list_bundles().await?;
+    let current_versions = current_versions(&locals);
+    let bundles = resp
+      .update
+      .bundles
+      .iter()
+      .filter(|bundle| {
+        current_versions
+          .get(bundle.name.as_str())
+          .is_none_or(|current| *current != bundle.version)
+      })
+      .cloned()
+      .collect::<Vec<_>>();
     if bundles.is_empty() {
       return Ok(None);
     }
@@ -168,16 +187,6 @@ impl Updater {
       bundles,
       ..resp.update
     }))
-  }
-
-  /// Whether `bundle` names a version other than the one the source resolves for it today,
-  /// with a remote version taking precedence over the builtin one.
-  async fn is_update_needed(&self, bundle: &BundleUpdate) -> crate::Result<bool> {
-    let current = self.source.get_version(&bundle.name).await?;
-    Ok(match current {
-      Some(current) => current.version != bundle.version,
-      None => true,
-    })
   }
 
   /// Download a new version of a bundle and save into disk.
@@ -197,15 +206,12 @@ impl Updater {
     let concurrency = options.concurrency.unwrap_or(3).max(1);
     let seq = DOWNLOAD_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-    // The jobs own their `BundleUpdate` rather than borrowing from `bundle_updates`: a
-    // closure returning a future that borrows its argument is not general enough over
-    // lifetimes to survive `tokio::spawn`, which is exactly where downloads are driven from.
     let jobs = bundle_updates.to_vec();
     let results = futures_util::stream::iter(jobs.into_iter().map(|bundle_update| {
       let cancellation = cancellation.clone();
       async move {
         let result = self.download_one(seq, &bundle_update, cancellation).await;
-        Ok::<UpdaterDownloadResult, crate::Error>(UpdaterDownloadResult {
+        Ok::<UpdaterDownloadResultInner, crate::Error>(UpdaterDownloadResultInner {
           update: bundle_update,
           result,
         })
@@ -221,17 +227,19 @@ impl Updater {
       .map(|x| {
         (
           x.update.name.to_owned(),
-          x.update.version.to_owned(),
-          BundleManifestVersionData {
-            integrity: x.update.integrity.to_owned(),
-            metadata: x.update.metadata.to_owned(),
+          ManifestStageData {
+            version: x.update.version.to_owned(),
+            data: Some(ManifestVersionData {
+              integrity: x.update.integrity.to_owned(),
+              metadata: x.update.metadata.to_owned(),
+            }),
           },
         )
       })
-      .collect::<Vec<_>>();
-    self.source.stage_remote_bundles(&staged).await?;
+      .collect::<HashMap<_, _>>();
+    self.source.stage_remote_bundles(staged).await?;
 
-    Ok(results)
+    Ok(results.into_iter().map(Into::into).collect::<Vec<_>>())
   }
 
   async fn download_one(
@@ -264,61 +272,46 @@ impl Updater {
     Ok(())
   }
 
-  /// Activates downloaded versions so the protocol begins serving them.
   pub async fn install(
     &self,
-    targets: &[UpdaterInstallBundleTarget],
+    targets: &[UpdaterInstallTarget],
   ) -> crate::Result<Vec<UpdaterInstallResult>> {
     let _guard = self.lock(&None).await?;
 
-    let groups = group_atomic_targets(targets);
-    let mut errors = targets.iter().map(|_| None).collect::<Vec<_>>();
-    let mut failed_groups: HashMap<usize, (String, String)> = HashMap::new();
-
-    for (index, target) in targets.iter().enumerate() {
-      if failed_groups.contains_key(&groups[index]) {
-        continue;
-      }
-      if let Err(e) = self.verify_install_target(target).await {
-        failed_groups.insert(groups[index], (target.name.clone(), target.version.clone()));
-        errors[index] = Some(e);
-      }
+    let mut outcomes = Vec::with_capacity(targets.len());
+    for target in targets {
+      outcomes.push(self.install_one(target).await);
     }
 
-    let installed = targets
+    let versions = targets
       .iter()
-      .enumerate()
-      .filter(|(index, _)| !failed_groups.contains_key(&groups[*index]))
-      .map(|(_, target)| (target.name.clone(), target.version.clone()))
-      .collect::<Vec<_>>();
-
-    self.source.update_remote_versions(&installed).await?;
-
-    let bundle_names = installed
-      .into_iter()
-      .map(|(bundle_name, _)| {
-        self.source.unload(&bundle_name);
-        bundle_name
+      .zip(&outcomes)
+      .filter_map(|(target, outcome)| {
+        Some((target.name.to_owned(), outcome.as_ref().ok()?.to_owned()))
       })
-      .collect::<Vec<_>>();
-    let _ = self.source.prune_remote_bundles(&bundle_names).await;
+      .collect::<HashMap<_, _>>();
+    let activated = self.activate(versions).await?;
 
     let results = targets
       .iter()
-      .zip(errors)
-      .enumerate()
-      .map(|(index, (target, error))| {
-        let result = match error {
-          Some(error) => Err(error),
-          None => match failed_groups.get(&groups[index]) {
-            Some((bundle_name, version)) => {
-              Err(crate::Error::install_atomic_failed(bundle_name, version))
+      .zip(outcomes)
+      .map(|(target, outcome)| {
+        let (install_version, result) = match outcome {
+          Ok(version) => match activated.get(&target.name) {
+            Some(ManifestSetCurrentVersionResultKind::Settled) => {
+              (Some(version), UpdaterInstallResultKind::Installed)
             }
-            None => Ok(()),
+            Some(ManifestSetCurrentVersionResultKind::VersionNotExists) => {
+              (None, UpdaterInstallResultKind::StagedVersionNotMatched)
+            }
+            _ => (None, UpdaterInstallResultKind::StagedBundleNotExists),
           },
+          Err(kind) => (None, kind),
         };
         UpdaterInstallResult {
-          target: target.clone(),
+          name: target.name.to_owned(),
+          target_version: target.version.to_owned(),
+          install_version,
           result,
         }
       })
@@ -327,39 +320,134 @@ impl Updater {
     Ok(results)
   }
 
-  async fn verify_install_target(&self, target: &UpdaterInstallBundleTarget) -> crate::Result<()> {
-    let staged = self
-      .source
-      .get_remote_staged_version(&target.name)
-      .await?
-      .filter(|x| x == &target.version);
-    if staged.is_none() {
-      return Err(crate::Error::bundle_entry_not_exists(
-        &target.name,
-        &target.version,
-      ));
+  async fn install_one(
+    &self,
+    target: &UpdaterInstallTarget,
+  ) -> Result<String, UpdaterInstallResultKind> {
+    let Some(staged) = self.source.get_remote_staged_version(&target.name).await? else {
+      return Err(UpdaterInstallResultKind::StagedBundleNotExists);
+    };
+    if target.version.as_ref().is_some_and(|x| x != &staged) {
+      return Err(UpdaterInstallResultKind::StagedVersionNotMatched);
+    }
+    self.verify_bundle(&target.name, &staged).await?;
+    Ok(staged)
+  }
+
+  pub async fn rollback(
+    &self,
+    targets: &[UpdaterRollbackTarget],
+  ) -> crate::Result<Vec<UpdaterRollbackResult>> {
+    let _guard = self.lock(&None).await?;
+
+    let mut outcomes = Vec::with_capacity(targets.len());
+    for target in targets {
+      outcomes.push(self.rollback_one(target).await);
     }
 
+    let versions = targets
+      .iter()
+      .zip(&outcomes)
+      .filter_map(|(target, outcome)| {
+        Some((target.name.to_owned(), outcome.as_ref().ok()?.to_owned()))
+      })
+      .collect::<HashMap<_, _>>();
+    let activated = self.activate(versions).await?;
+
+    let results = targets
+      .iter()
+      .zip(outcomes)
+      .map(|(target, outcome)| {
+        let (rollback_version, result) = match outcome {
+          Ok(version) => match activated.get(&target.name) {
+            Some(ManifestSetCurrentVersionResultKind::Settled) => {
+              (Some(version), UpdaterRollbackResultKind::RolledBack)
+            }
+            Some(ManifestSetCurrentVersionResultKind::VersionNotExists) => {
+              (None, UpdaterRollbackResultKind::PreviousVersionNotMatched)
+            }
+            _ => (None, UpdaterRollbackResultKind::PreviousBundleNotExists),
+          },
+          Err(kind) => (None, kind),
+        };
+        UpdaterRollbackResult {
+          name: target.name.to_owned(),
+          target_version: target.version.to_owned(),
+          rollback_version,
+          result,
+        }
+      })
+      .collect();
+
+    Ok(results)
+  }
+
+  async fn rollback_one(
+    &self,
+    target: &UpdaterRollbackTarget,
+  ) -> Result<String, UpdaterRollbackResultKind> {
+    let Some(previous) = self
+      .source
+      .get_remote_previous_version(&target.name)
+      .await?
+    else {
+      return Err(UpdaterRollbackResultKind::PreviousBundleNotExists);
+    };
+    if target.version.as_ref().is_some_and(|x| x != &previous) {
+      return Err(UpdaterRollbackResultKind::PreviousVersionNotMatched);
+    }
+    self.verify_bundle(&target.name, &previous).await?;
+    Ok(previous)
+  }
+
+  async fn activate(
+    &self,
+    versions: HashMap<String, String>,
+  ) -> crate::Result<HashMap<String, ManifestSetCurrentVersionResultKind>> {
+    let results = self.source.update_remote_versions(versions).await?;
+
+    let bundle_names = results
+      .iter()
+      .filter(|x| x.kind == ManifestSetCurrentVersionResultKind::Settled)
+      .map(|x| {
+        self.source.unload(&x.name);
+        x.name.to_owned()
+      })
+      .collect::<Vec<_>>();
+    let _ = self.source.prune_remote_bundles(&bundle_names).await;
+
+    Ok(results.into_iter().map(|x| (x.name, x.kind)).collect())
+  }
+
+  async fn verify_bundle(&self, bundle_name: &str, version: &str) -> Result<(), VerifyFailure> {
     let filepath = self
       .source
-      .get_remote_bundle_filepath(&target.name, &target.version)?;
-    let data = tokio::fs::read(&filepath).await?;
+      .get_remote_bundle_filepath(bundle_name, version)?;
+    let data = match tokio::fs::read(&filepath).await {
+      Ok(data) => data,
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(VerifyFailure::NotExists),
+      Err(e) => return Err(VerifyFailure::Error(e.into())),
+    };
 
     // Read bundle data to expect the file is webview bundle formatted.
-    Reader::<BundleDescriptor>::read(&mut BundleReader::new(Cursor::new(&data)))?;
+    Reader::<BundleDescriptor>::read(&mut BundleReader::new(Cursor::new(&data)))
+      .map_err(|_| VerifyFailure::Failed)?;
 
     #[cfg(feature = "integrity")]
     {
-      let version_data = self
+      let Some(version_data) = self
         .source
-        .get_remote_version_data(&target.name, &target.version)
+        .get_remote_version_data(bundle_name, version)
         .await?
-        .ok_or_else(|| crate::Error::bundle_entry_not_exists(&target.name, &target.version))?;
+      else {
+        return Err(VerifyFailure::NotExists);
+      };
       crate::integrity::verify_integrity(
         &self.options.integrity.policy,
         version_data.integrity.as_deref(),
         &data,
-      )?;
+      )
+      .map_err(|_| VerifyFailure::Failed)?;
     }
 
     Ok(())
@@ -379,55 +467,76 @@ impl Updater {
   }
 }
 
-/// Assigns each target the id of the atomic group it belongs to.
-///
-/// A target is grouped with every target it names in `atomic`, and grouping is transitive:
-/// `a -> [b]` and `b -> [c]` puts all three in one group. Names that match no target act as a
-/// shared label, so `a -> [ui]` and `b -> [ui]` are grouped as well.
-fn group_atomic_targets(targets: &[UpdaterInstallBundleTarget]) -> Vec<usize> {
-  let mut parents = (0..targets.len()).collect::<Vec<_>>();
-  let mut groups_by_name: HashMap<&str, usize> = HashMap::new();
+enum VerifyFailure {
+  NotExists,
+  Failed,
+  Error(crate::Error),
+}
 
-  for (index, target) in targets.iter().enumerate() {
-    if let Some(prev) = groups_by_name.insert(target.name.as_str(), index) {
-      union_group(&mut parents, prev, index);
+impl From<crate::Error> for VerifyFailure {
+  fn from(error: crate::Error) -> Self {
+    Self::Error(error)
+  }
+}
+
+impl From<VerifyFailure> for UpdaterInstallResultKind {
+  fn from(failure: VerifyFailure) -> Self {
+    match failure {
+      VerifyFailure::NotExists => Self::StagedBundleNotExists,
+      VerifyFailure::Failed => Self::VerifyFailed,
+      VerifyFailure::Error(error) => Self::Error(error),
     }
   }
+}
 
-  for (index, target) in targets.iter().enumerate() {
-    let Some(atomic) = &target.atomic else {
-      continue;
-    };
-    for name in atomic {
-      match groups_by_name.get(name.as_str()).copied() {
-        Some(other) => union_group(&mut parents, other, index),
-        None => {
-          groups_by_name.insert(name.as_str(), index);
-        }
+impl From<VerifyFailure> for UpdaterRollbackResultKind {
+  fn from(failure: VerifyFailure) -> Self {
+    match failure {
+      VerifyFailure::NotExists => Self::PreviousBundleNotExists,
+      VerifyFailure::Failed => Self::VerifyFailed,
+      VerifyFailure::Error(error) => Self::Error(error),
+    }
+  }
+}
+
+/// Whether `next` was created before the update already stored as `prev`.
+///
+/// A `created_at` which cannot be read as a datetime counts as a rollback when it comes from
+/// the server, so a malformed field is not a way around this check, while an unreadable stored
+/// one does not lock the client out of updating for good.
+fn is_rollback(next: &RemoteUpdateResponse, prev: &RemoteUpdateResponse) -> bool {
+  let Ok(next) = parse_datetime(&next.update.created_at) else {
+    return true;
+  };
+  let Ok(prev) = parse_datetime(&prev.update.created_at) else {
+    return false;
+  };
+  next < prev
+}
+
+fn parse_datetime(value: &str) -> Result<OffsetDateTime, time::error::Parse> {
+  OffsetDateTime::parse(value, &Rfc3339)
+    .or_else(|_| OffsetDateTime::parse(value, &Iso8601::DEFAULT))
+}
+
+fn current_versions(items: &[SourceListItem]) -> HashMap<&str, &str> {
+  let mut versions: HashMap<&str, &str> = HashMap::new();
+  for item in items
+    .iter()
+    .filter(|x| x.item.status == ManifestBundleItemStatus::Current)
+  {
+    match item.source {
+      SourceKind::Remote => {
+        versions.insert(&item.item.name, &item.item.version);
+      }
+      SourceKind::Builtin => {
+        versions
+          .entry(&item.item.name)
+          .or_insert(&item.item.version);
       }
     }
   }
-
-  (0..targets.len())
-    .map(|index| find_group(&mut parents, index))
-    .collect()
-}
-
-fn find_group(parents: &mut [usize], index: usize) -> usize {
-  let mut index = index;
-  while parents[index] != index {
-    parents[index] = parents[parents[index]];
-    index = parents[index];
-  }
-  index
-}
-
-fn union_group(parents: &mut [usize], a: usize, b: usize) {
-  let a = find_group(parents, a);
-  let b = find_group(parents, b);
-  if a != b {
-    parents[b] = a;
-  }
+  versions
 }
 
 #[cfg(all(test, feature = "testing"))]
@@ -436,6 +545,7 @@ mod tests {
   use crate::ErrorCode;
   use crate::remote::RemoteUpdateResponse;
   use crate::testing::{TempDir, TestingBundle, TestingRemoteServer, TestingSourceBuilder};
+  use crate::updater::UpdaterDownloadResultKind;
 
   const OFFLINE_URL: &str = "http://127.0.0.1:1";
 
@@ -444,7 +554,7 @@ mod tests {
   }
 
   fn build_updater(
-    source: &Arc<BundleSource>,
+    source: &Arc<Source>,
     base_url: &str,
     update_filepath: &Path,
     options: UpdaterOptions,
@@ -460,7 +570,7 @@ mod tests {
       .unwrap()
   }
 
-  fn updater(source: &Arc<BundleSource>, base_url: &str) -> Updater {
+  fn updater(source: &Arc<Source>, base_url: &str) -> Updater {
     build_updater(
       source,
       base_url,
@@ -477,7 +587,7 @@ mod tests {
     server
   }
 
-  fn builtin_source(bundles: &[(&str, &str)]) -> Arc<BundleSource> {
+  fn builtin_source(bundles: &[(&str, &str)]) -> Arc<Source> {
     let mut builder = TestingSourceBuilder::new();
     for (name, version) in bundles {
       builder.add_builtin_bundle(TestingBundle::new(*name, *version));
@@ -485,15 +595,28 @@ mod tests {
     Arc::new(builder.build().unwrap())
   }
 
-  fn empty_source() -> Arc<BundleSource> {
+  fn empty_source() -> Arc<Source> {
     Arc::new(TestingSourceBuilder::new().build().unwrap())
   }
 
-  fn staged_source(bundles: &[(&str, &str)]) -> Arc<BundleSource> {
+  fn staged_source(bundles: &[(&str, &str)]) -> Arc<Source> {
     let mut builder = TestingSourceBuilder::new();
     for (name, version) in bundles {
       builder.add_remote_bundle(TestingBundle::new(*name, *version));
       builder.set_remote_staged_version(*name, *version);
+    }
+    Arc::new(builder.build().unwrap())
+  }
+
+  /// A source serving `current`, with `previous` recorded as the version it was serving
+  /// before that.
+  fn previous_source(bundles: &[(&str, &str, &str)]) -> Arc<Source> {
+    let mut builder = TestingSourceBuilder::new();
+    for (name, current, previous) in bundles {
+      builder.add_remote_bundle(TestingBundle::new(*name, *current));
+      builder.add_remote_bundle(TestingBundle::new(*name, *previous));
+      builder.set_remote_current_version(*name, *current);
+      builder.set_remote_previous_version(*name, *previous);
     }
     Arc::new(builder.build().unwrap())
   }
@@ -508,15 +631,27 @@ mod tests {
     }
   }
 
-  fn install_target(
-    name: &str,
-    version: &str,
-    atomic: Option<&[&str]>,
-  ) -> UpdaterInstallBundleTarget {
-    UpdaterInstallBundleTarget {
+  /// Rewrites the stored update, so a test can put it in a state the server would not send.
+  async fn rewrite_stored_update(filepath: &Path, rewrite: impl FnOnce(&mut RemoteUpdateResponse)) {
+    let raw = tokio::fs::read(filepath).await.unwrap();
+    let mut stored = serde_json::from_slice::<RemoteUpdateResponse>(&raw).unwrap();
+    rewrite(&mut stored);
+    tokio::fs::write(filepath, serde_json::to_vec(&stored).unwrap())
+      .await
+      .unwrap();
+  }
+
+  fn install_target(name: &str, version: Option<&str>) -> UpdaterInstallTarget {
+    UpdaterInstallTarget {
       name: name.to_owned(),
-      version: version.to_owned(),
-      atomic: atomic.map(|x| x.iter().map(|y| (*y).to_owned()).collect()),
+      version: version.map(|x| x.to_owned()),
+    }
+  }
+
+  fn rollback_target(name: &str, version: Option<&str>) -> UpdaterRollbackTarget {
+    UpdaterRollbackTarget {
+      name: name.to_owned(),
+      version: version.map(|x| x.to_owned()),
     }
   }
 
@@ -528,7 +663,7 @@ mod tests {
       .collect()
   }
 
-  async fn current_version(source: &BundleSource, bundle_name: &str) -> Option<String> {
+  async fn current_version(source: &Source, bundle_name: &str) -> Option<String> {
     source
       .get_version(bundle_name)
       .await
@@ -540,10 +675,10 @@ mod tests {
   fn download_result<'a>(
     results: &'a [UpdaterDownloadResult],
     bundle_name: &str,
-  ) -> &'a crate::Result<()> {
+  ) -> &'a UpdaterDownloadResultKind {
     &results
       .iter()
-      .find(|x| x.update.name == bundle_name)
+      .find(|x| x.name == bundle_name)
       .unwrap()
       .result
   }
@@ -552,17 +687,32 @@ mod tests {
   fn install_result<'a>(
     results: &'a [UpdaterInstallResult],
     bundle_name: &str,
-  ) -> &'a crate::Result<()> {
+  ) -> &'a UpdaterInstallResultKind {
     &results
       .iter()
-      .find(|x| x.target.name == bundle_name)
+      .find(|x| x.name == bundle_name)
       .unwrap()
       .result
   }
 
   #[track_caller]
-  fn error_code(result: &crate::Result<()>) -> ErrorCode {
-    result.as_ref().unwrap_err().code()
+  fn rollback_result<'a>(
+    results: &'a [UpdaterRollbackResult],
+    bundle_name: &str,
+  ) -> &'a UpdaterRollbackResultKind {
+    &results
+      .iter()
+      .find(|x| x.name == bundle_name)
+      .unwrap()
+      .result
+  }
+
+  #[track_caller]
+  fn error_code(result: &UpdaterDownloadResultKind) -> ErrorCode {
+    match result {
+      UpdaterDownloadResultKind::Error(error) => error.code(),
+      UpdaterDownloadResultKind::Downloaded => panic!("the bundle was downloaded"),
+    }
   }
 
   #[tokio::test]
@@ -626,12 +776,10 @@ mod tests {
     .unwrap()
     .unwrap();
 
-    let raw = tokio::fs::read(&filepath).await.unwrap();
-    let mut stored = serde_json::from_slice::<RemoteUpdateResponse>(&raw).unwrap();
-    stored.update.bundles = vec![bundle_update("app", "1.2.0")];
-    tokio::fs::write(&filepath, serde_json::to_vec(&stored).unwrap())
-      .await
-      .unwrap();
+    rewrite_stored_update(&filepath, |stored| {
+      stored.update.bundles = vec![bundle_update("app", "1.2.0")];
+    })
+    .await;
 
     let update = build_updater(
       &source,
@@ -645,6 +793,119 @@ mod tests {
     .unwrap();
 
     assert_eq!(updated_bundles(&update), vec![("app", "1.2.0")]);
+  }
+
+  #[tokio::test]
+  async fn get_update_refuses_an_update_created_before_the_stored_one() {
+    let mut server = remote_server(&[("app", "1.1.0")]);
+    server.set_current_version("app", "1.1.0");
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let filepath = update_filepath();
+    build_updater(
+      &source,
+      &server.base_url(),
+      &filepath,
+      UpdaterOptions::default(),
+    )
+    .get_update(None)
+    .await
+    .unwrap()
+    .unwrap();
+
+    // Without an etag the server answers with the update it serves, which was created before
+    // the one stored here.
+    rewrite_stored_update(&filepath, |stored| {
+      stored.etag = None;
+      stored.update.created_at = "2030-01-01T00:00:00Z".to_owned();
+      stored.update.bundles = vec![bundle_update("app", "1.2.0")];
+    })
+    .await;
+
+    let update = build_updater(
+      &source,
+      &server.base_url(),
+      &filepath,
+      UpdaterOptions::default(),
+    )
+    .get_update(None)
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(updated_bundles(&update), vec![("app", "1.2.0")]);
+    let stored = tokio::fs::read(&filepath).await.unwrap();
+    let stored = serde_json::from_slice::<RemoteUpdateResponse>(&stored).unwrap();
+    assert_eq!(
+      stored.update.created_at, "2030-01-01T00:00:00Z",
+      "a refused update must not replace what is stored"
+    );
+  }
+
+  #[tokio::test]
+  async fn get_update_takes_an_update_created_after_the_stored_one() {
+    let mut server = remote_server(&[("app", "1.1.0")]);
+    server.set_current_version("app", "1.1.0");
+    let source = builtin_source(&[("app", "1.0.0")]);
+    let filepath = update_filepath();
+    build_updater(
+      &source,
+      &server.base_url(),
+      &filepath,
+      UpdaterOptions::default(),
+    )
+    .get_update(None)
+    .await
+    .unwrap()
+    .unwrap();
+
+    rewrite_stored_update(&filepath, |stored| {
+      stored.etag = None;
+      stored.update.created_at = "2000-01-01T00:00:00Z".to_owned();
+      stored.update.bundles = vec![bundle_update("app", "1.2.0")];
+    })
+    .await;
+
+    let update = build_updater(
+      &source,
+      &server.base_url(),
+      &filepath,
+      UpdaterOptions::default(),
+    )
+    .get_update(None)
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(updated_bundles(&update), vec![("app", "1.1.0")]);
+  }
+
+  #[test]
+  fn a_rollback_is_read_from_the_creation_times() {
+    let response = |created_at: &str| RemoteUpdateResponse {
+      update: Update {
+        id: "update".to_owned(),
+        created_at: created_at.to_owned(),
+        runtime_version: crate::RUNTIME_VERSION,
+        bundles: vec![],
+        metadata: HashMap::new(),
+      },
+      etag: None,
+      signature: None,
+    };
+    let stored = response("2026-01-01T00:00:00Z");
+
+    assert!(is_rollback(&response("2025-12-31T23:59:59Z"), &stored));
+    assert!(!is_rollback(&response("2026-01-01T00:00:01Z"), &stored));
+    assert!(!is_rollback(&response("2026-01-01T00:00:00Z"), &stored));
+    // The same instant written with an offset, and the ISO 8601 basic format.
+    assert!(!is_rollback(
+      &response("2026-01-01T09:00:00+09:00"),
+      &stored
+    ));
+    assert!(is_rollback(&response("20251231T235959Z"), &stored));
+    // A creation time the server made unreadable is refused, one already stored is not.
+    assert!(is_rollback(&response("not a datetime"), &stored));
+    assert!(!is_rollback(&stored, &response("not a datetime")));
   }
 
   #[tokio::test]
@@ -675,7 +936,7 @@ mod tests {
     server.insert_signature_key("default", [7u8; 32]);
     let source = builtin_source(&[("app", "1.0.0")]);
     let options = UpdaterOptions::default().signature(
-      UpdaterSignatureOptions::default().key_set(server.signature_key_set("default").unwrap()),
+      UpdaterSignatureOptions::default().add_key(server.signature_key_set("default").unwrap()),
     );
     let updater = build_updater(&source, &server.base_url(), &update_filepath(), options);
     let get_update_options = UpdaterGetUpdateOptions::default().expect_signature_key_id("default");
@@ -761,7 +1022,10 @@ mod tests {
       .await
       .unwrap();
 
-    assert!(download_result(&results, "app").is_ok());
+    assert!(matches!(
+      download_result(&results, "app"),
+      UpdaterDownloadResultKind::Downloaded
+    ));
     assert_eq!(
       error_code(download_result(&results, "admin")),
       ErrorCode::RemoteHttp
@@ -795,7 +1059,10 @@ mod tests {
 
     let results = updater.download(&[update], None).await.unwrap();
 
-    assert!(download_result(&results, "app").is_ok());
+    assert!(matches!(
+      download_result(&results, "app"),
+      UpdaterDownloadResultKind::Downloaded
+    ));
   }
 
   #[tokio::test]
@@ -804,11 +1071,38 @@ mod tests {
     let updater = updater(&source, OFFLINE_URL);
 
     let results = updater
-      .install(&[install_target("app", "1.0.0", None)])
+      .install(&[install_target("app", Some("1.0.0"))])
       .await
       .unwrap();
 
-    assert!(install_result(&results, "app").is_ok());
+    assert!(matches!(
+      install_result(&results, "app"),
+      UpdaterInstallResultKind::Installed
+    ));
+    assert_eq!(results[0].target_version.as_deref(), Some("1.0.0"));
+    assert_eq!(results[0].install_version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.0.0")
+    );
+  }
+
+  #[tokio::test]
+  async fn install_falls_back_to_the_staged_version_of_the_manifest() {
+    let source = staged_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .install(&[install_target("app", None)])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      install_result(&results, "app"),
+      UpdaterInstallResultKind::Installed
+    ));
+    assert_eq!(results[0].target_version, None);
+    assert_eq!(results[0].install_version.as_deref(), Some("1.0.0"));
     assert_eq!(
       current_version(&source, "app").await.as_deref(),
       Some("1.0.0")
@@ -821,15 +1115,33 @@ mod tests {
     let updater = updater(&source, OFFLINE_URL);
 
     let results = updater
-      .install(&[install_target("app", "9.9.9", None)])
+      .install(&[install_target("app", Some("9.9.9"))])
       .await
       .unwrap();
 
-    assert_eq!(
-      error_code(install_result(&results, "app")),
-      ErrorCode::BundleEntryNotExists
-    );
+    assert!(matches!(
+      install_result(&results, "app"),
+      UpdaterInstallResultKind::StagedVersionNotMatched
+    ));
+    assert_eq!(results[0].target_version.as_deref(), Some("9.9.9"));
+    assert_eq!(results[0].install_version, None);
     assert_eq!(current_version(&source, "app").await, None);
+  }
+
+  #[tokio::test]
+  async fn install_reports_a_bundle_which_has_nothing_staged() {
+    let source = staged_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .install(&[install_target("admin", None)])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      install_result(&results, "admin"),
+      UpdaterInstallResultKind::StagedBundleNotExists
+    ));
   }
 
   #[tokio::test]
@@ -840,14 +1152,15 @@ mod tests {
     tokio::fs::write(&filepath, b"not a bundle").await.unwrap();
 
     let results = updater
-      .install(&[install_target("app", "1.0.0", None)])
+      .install(&[install_target("app", Some("1.0.0"))])
       .await
       .unwrap();
 
-    assert_eq!(
-      error_code(install_result(&results, "app")),
-      ErrorCode::InvalidMagicNum
-    );
+    assert!(matches!(
+      install_result(&results, "app"),
+      UpdaterInstallResultKind::VerifyFailed
+    ));
+    assert_eq!(current_version(&source, "app").await, None);
   }
 
   #[cfg(feature = "integrity")]
@@ -874,56 +1187,181 @@ mod tests {
       .unwrap();
 
     let results = updater
-      .install(&[install_target("app", "1.0.0", None)])
+      .install(&[install_target("app", Some("1.0.0"))])
       .await
       .unwrap();
 
-    assert_eq!(
-      error_code(install_result(&results, "app")),
-      ErrorCode::IntegrityVerifyFailed
-    );
+    assert!(matches!(
+      install_result(&results, "app"),
+      UpdaterInstallResultKind::VerifyFailed
+    ));
   }
 
   #[tokio::test]
-  async fn install_fails_every_target_of_an_atomic_group() {
-    let source = staged_source(&[("app", "1.0.0")]);
-    let updater = updater(&source, OFFLINE_URL);
-
-    let results = updater
-      .install(&[
-        install_target("app", "1.0.0", Some(&["admin"])),
-        install_target("admin", "0.1.0", None),
-      ])
-      .await
-      .unwrap();
-
-    assert_eq!(
-      error_code(install_result(&results, "app")),
-      ErrorCode::InstallAtomicFailed
-    );
-    assert!(install_result(&results, "admin").is_err());
-    assert_eq!(current_version(&source, "app").await, None);
-  }
-
-  #[tokio::test]
-  async fn install_activates_the_targets_outside_a_failed_group() {
+  async fn install_activates_the_targets_which_did_not_fail() {
     let source = staged_source(&[("app", "1.0.0"), ("docs", "3.0.0")]);
     let updater = updater(&source, OFFLINE_URL);
 
     let results = updater
       .install(&[
-        install_target("app", "1.0.0", Some(&["admin"])),
-        install_target("admin", "0.1.0", None),
-        install_target("docs", "3.0.0", None),
+        install_target("app", Some("1.0.0")),
+        install_target("admin", Some("0.1.0")),
+        install_target("docs", Some("3.0.0")),
       ])
       .await
       .unwrap();
 
-    assert!(install_result(&results, "docs").is_ok());
+    assert!(matches!(
+      install_result(&results, "admin"),
+      UpdaterInstallResultKind::StagedBundleNotExists
+    ));
+    assert!(matches!(
+      install_result(&results, "app"),
+      UpdaterInstallResultKind::Installed
+    ));
+    assert!(matches!(
+      install_result(&results, "docs"),
+      UpdaterInstallResultKind::Installed
+    ));
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.0.0")
+    );
     assert_eq!(
       current_version(&source, "docs").await.as_deref(),
       Some("3.0.0")
     );
-    assert_eq!(current_version(&source, "app").await, None);
+  }
+
+  #[tokio::test]
+  async fn rollback_activates_the_previous_version() {
+    let source = previous_source(&[("app", "1.1.0", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .rollback(&[rollback_target("app", Some("1.0.0"))])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      rollback_result(&results, "app"),
+      UpdaterRollbackResultKind::RolledBack
+    ));
+    assert_eq!(results[0].target_version.as_deref(), Some("1.0.0"));
+    assert_eq!(results[0].rollback_version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.0.0")
+    );
+    assert_eq!(
+      source.get_remote_previous_version("app").await.unwrap(),
+      None
+    );
+  }
+
+  #[tokio::test]
+  async fn rollback_falls_back_to_the_previous_version_of_the_manifest() {
+    let source = previous_source(&[("app", "1.1.0", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .rollback(&[rollback_target("app", None)])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      rollback_result(&results, "app"),
+      UpdaterRollbackResultKind::RolledBack
+    ));
+    assert_eq!(results[0].target_version, None);
+    assert_eq!(results[0].rollback_version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.0.0")
+    );
+  }
+
+  #[tokio::test]
+  async fn rollback_rejects_a_version_which_is_not_the_previous_one() {
+    let source = previous_source(&[("app", "1.1.0", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .rollback(&[rollback_target("app", Some("0.9.0"))])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      rollback_result(&results, "app"),
+      UpdaterRollbackResultKind::PreviousVersionNotMatched
+    ));
+    assert_eq!(results[0].target_version.as_deref(), Some("0.9.0"));
+    assert_eq!(results[0].rollback_version, None);
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.1.0")
+    );
+  }
+
+  #[tokio::test]
+  async fn rollback_reports_a_bundle_which_has_no_previous_version() {
+    let source = staged_source(&[("app", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .rollback(&[rollback_target("app", None)])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      rollback_result(&results, "app"),
+      UpdaterRollbackResultKind::PreviousBundleNotExists
+    ));
+  }
+
+  #[tokio::test]
+  async fn rollback_rejects_a_file_which_is_not_a_bundle() {
+    let source = previous_source(&[("app", "1.1.0", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+    let filepath = source.get_remote_bundle_filepath("app", "1.0.0").unwrap();
+    tokio::fs::write(&filepath, b"not a bundle").await.unwrap();
+
+    let results = updater
+      .rollback(&[rollback_target("app", None)])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      rollback_result(&results, "app"),
+      UpdaterRollbackResultKind::VerifyFailed
+    ));
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.1.0")
+    );
+  }
+
+  #[tokio::test]
+  async fn rollback_activates_the_targets_which_did_not_fail() {
+    let source = previous_source(&[("app", "1.1.0", "1.0.0")]);
+    let updater = updater(&source, OFFLINE_URL);
+
+    let results = updater
+      .rollback(&[rollback_target("app", None), rollback_target("admin", None)])
+      .await
+      .unwrap();
+
+    assert!(matches!(
+      rollback_result(&results, "admin"),
+      UpdaterRollbackResultKind::PreviousBundleNotExists
+    ));
+    assert!(matches!(
+      rollback_result(&results, "app"),
+      UpdaterRollbackResultKind::RolledBack
+    ));
+    assert_eq!(
+      current_version(&source, "app").await.as_deref(),
+      Some("1.0.0")
+    );
   }
 }

@@ -3,10 +3,10 @@ mod common;
 use common::{bundle, corrupt, get, reload, remote_server, source_with_dirs, update_all, updater};
 use std::path::PathBuf;
 use wvb::protocol::{BundleProtocol, Protocol};
-use wvb::source::BundleSource;
+use wvb::source::Source;
 use wvb::testing::TempDir;
 
-fn builtin_filepath(source: &BundleSource, version: &str) -> PathBuf {
+fn builtin_filepath(source: &Source, version: &str) -> PathBuf {
   source.get_builtin_bundle_filepath("app", version).unwrap()
 }
 
@@ -125,7 +125,7 @@ async fn corrupt_manifest_errors() {
   )
   .unwrap();
 
-  let source = BundleSource::builder()
+  let source = Source::builder()
     .builtin_dir(&builtin_dir)
     .remote_dir(temp.dir().join("remote"))
     .build();
@@ -209,7 +209,7 @@ async fn orphan_bundle_not_visible() {
   )
   .unwrap();
 
-  let source = BundleSource::builder()
+  let source = Source::builder()
     .builtin_dir(temp.dir().join("builtin"))
     .remote_dir(&remote_dir)
     .build();

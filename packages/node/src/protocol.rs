@@ -2,7 +2,7 @@ use crate::http::HttpMethod;
 use crate::http::HttpResponse;
 use crate::http::request;
 use crate::js::{JsCallback, JsCallbackExt};
-use crate::source::BundleSource;
+use crate::source::Source;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use wvb::protocol::Protocol;
 /// A number can be given instead to pick the nth segment (0-based).
 ///
 /// @enum {string}
-#[napi(string_enum = "camelCase")]
+#[napi(string_enum = "snake_case")]
 pub enum HostnameSegment {
   /// First segment. (e.g. `app.mydomain.com` -> `app`)
   First,
@@ -36,13 +36,13 @@ pub enum HostnameSegment {
 /// @example
 /// ```typescript
 /// // `https://app.wvb/index.html` -> bundle "app"
-/// const byHostname: BundleResolverOptions = { type: 'hostname' };
+/// const byHostname: UriBundleResolver = { type: 'hostname' };
 ///
 /// // `https://cdn.example.com/my-app/index.html` -> bundle "my-app"
-/// const byPathname: BundleResolverOptions = { type: 'pathname', segmentIndex: 0 };
+/// const byPathname: UriBundleResolver = { type: 'pathname', segmentIndex: 0 };
 /// ```
-#[napi(discriminant_case = "camelCase", object_to_js = false)]
-pub enum BundleResolverOptions {
+#[napi(discriminant_case = "snake_case", object_to_js = false)]
+pub enum UriBundleResolver {
   Hostname {
     segment: Option<Either<HostnameSegment, u32>>,
     allow_wvb_suffix_only: Option<bool>,
@@ -52,10 +52,10 @@ pub enum BundleResolverOptions {
   },
 }
 
-impl From<BundleResolverOptions> for protocol::UriBundleResolver {
-  fn from(value: BundleResolverOptions) -> Self {
+impl From<UriBundleResolver> for protocol::UriBundleResolver {
+  fn from(value: UriBundleResolver) -> Self {
     match value {
-      BundleResolverOptions::Hostname {
+      UriBundleResolver::Hostname {
         segment,
         allow_wvb_suffix_only,
       } => {
@@ -67,7 +67,7 @@ impl From<BundleResolverOptions> for protocol::UriBundleResolver {
         });
         Self::hostname(segment, allow_wvb_suffix_only)
       }
-      BundleResolverOptions::Pathname { segment_index } => {
+      UriBundleResolver::Pathname { segment_index } => {
         Self::pathname(segment_index.map(|x| x as usize))
       }
     }
@@ -77,8 +77,8 @@ impl From<BundleResolverOptions> for protocol::UriBundleResolver {
 /// How the file path in the bundle is resolved from the request uri.
 ///
 /// @enum {string}
-#[napi(string_enum = "camelCase")]
-pub enum PathResolver {
+#[napi(string_enum = "snake_case")]
+pub enum UriPathResolver {
   /// Use the uri path as-is (only percent-decoded).
   Exact,
   /// Directory index: `/` -> `/index.html` and `/about` -> `/about/index.html`.
@@ -89,24 +89,24 @@ pub enum PathResolver {
   HtmlExtension,
 }
 
-impl From<PathResolver> for protocol::UriPathResolver {
-  fn from(value: PathResolver) -> Self {
+impl From<UriPathResolver> for protocol::UriPathResolver {
+  fn from(value: UriPathResolver) -> Self {
     match value {
-      PathResolver::Exact => Self::exact(),
-      PathResolver::DirectoryIndex => Self::directory_index(),
-      PathResolver::HtmlExtension => Self::html_extension(),
+      UriPathResolver::Exact => Self::exact(),
+      UriPathResolver::DirectoryIndex => Self::directory_index(),
+      UriPathResolver::HtmlExtension => Self::html_extension(),
     }
   }
 }
 
 /// Options for the bundle protocol.
 ///
-/// @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
-/// @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
+/// @property {UriBundleResolver} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
+/// @property {UriPathResolver} [pathResolver] - How the file path is resolved (default: 'directory_index')
 #[napi(object, object_to_js = false)]
 pub struct BundleProtocolOptions {
-  pub bundle_resolver: Option<BundleResolverOptions>,
-  pub path_resolver: Option<PathResolver>,
+  pub bundle_resolver: Option<UriBundleResolver>,
+  pub path_resolver: Option<UriPathResolver>,
 }
 
 /// Protocol handler for serving files from bundle sources.
@@ -118,7 +118,7 @@ pub struct BundleProtocolOptions {
 ///
 /// @example
 /// ```typescript
-/// const source = new BundleSource({
+/// const source = new Source({
 ///   builtinDir: './bundles/builtin',
 ///   remoteDir: './bundles/remote',
 /// });
@@ -139,12 +139,12 @@ pub struct BundleProtocol {
 impl BundleProtocol {
   /// Creates a new bundle protocol handler.
   ///
-  /// @param {BundleSource} source - Bundle source to serve files from
+  /// @param {Source} source - Bundle source to serve files from
   /// @param {BundleProtocolOptions} [options] - How the request uri is resolved
   ///
   /// @example
   /// ```typescript
-  /// const source = new BundleSource({
+  /// const source = new Source({
   ///   builtinDir: './bundles',
   ///   remoteDir: './remote',
   /// });
@@ -163,15 +163,15 @@ impl BundleProtocol {
   /// ```typescript
   /// // Entry checksum verification is inherited from the source's read options; to serve
   /// // without checking entry checksums, configure it on the source instead.
-  /// const source = new BundleSource({
+  /// const source = new Source({
   ///   builtinDir: './bundles',
   ///   remoteDir: './remote',
-  ///   dataReadOptions: { checksum: { verify: false } },
+  ///   options: { dataRead: { checksum: { verify: false } } },
   /// });
   /// const protocol = new BundleProtocol(source);
   /// ```
   #[napi(constructor)]
-  pub fn new(source: &BundleSource, options: Option<BundleProtocolOptions>) -> BundleProtocol {
+  pub fn new(source: &Source, options: Option<BundleProtocolOptions>) -> BundleProtocol {
     let mut inner = protocol::BundleProtocol::new(source.inner.clone());
     if let Some(options) = options {
       if let Some(bundle_resolver) = options.bundle_resolver {

@@ -7,7 +7,7 @@ use common::{
 use std::sync::Arc;
 use std::time::Duration;
 use wvb::protocol::{BundleProtocol, Protocol};
-use wvb::updater::Updater;
+use wvb::updater::{Updater, UpdaterInstallResultKind};
 
 // Concurrent installs of different bundles share one manifest file; without serialized saves an
 // older snapshot could rename last and drop a bundle's current_version. A reloaded source must
@@ -39,7 +39,7 @@ async fn concurrent_installs_all_persist() {
   }
   for handle in handles {
     for item in handle.await.unwrap().unwrap() {
-      item.result.unwrap();
+      common::expect_installed(&item.name, &item.result);
     }
   }
 
@@ -183,7 +183,7 @@ async fn concurrent_reload_no_partial_manifest() {
     let name = name.clone();
     writers.push(tokio::spawn(async move {
       for item in updater.install(&[target(&name, "1.0.0")]).await.unwrap() {
-        item.result.unwrap();
+        common::expect_installed(&item.name, &item.result);
       }
     }));
   }
@@ -363,7 +363,8 @@ async fn concurrent_installs_stay_consistent() {
 
   let mut succeeded = 0;
   for install in installs {
-    if install.await.unwrap().unwrap()[0].result.is_ok() {
+    let results = install.await.unwrap().unwrap();
+    if matches!(results[0].result, UpdaterInstallResultKind::Installed) {
       succeeded += 1;
     }
   }

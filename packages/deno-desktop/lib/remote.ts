@@ -1,8 +1,8 @@
 // remote — construct a @wvb/deno Remote (mirrors @wvb/electron's remote.ts).
-import { Remote, type RemoteOptions as RemoteBindingOptions } from '@wvb/deno';
+import { Remote, type RemoteConfig } from '@wvb/deno';
 
-export interface RemoteOptions extends RemoteBindingOptions {}
+export type { RemoteConfig };
 
-export function remote(endpoint: string, options?: RemoteOptions): Remote {
-  return new Remote(endpoint, options);
+export function remote(config: RemoteConfig): Remote {
+  return new Remote(config);
 }

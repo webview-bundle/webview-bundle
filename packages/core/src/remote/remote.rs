@@ -96,7 +96,7 @@ impl Remote {
       )
       .header(
         header::HeaderName::from_static("wvb-runtime-version"),
-        crate::UPDATE_RUNTIME_VERSION.to_string(),
+        crate::RUNTIME_VERSION.to_string(),
       );
 
     if let Some(options) = &options {
@@ -159,7 +159,7 @@ impl Remote {
         && let Some(sig) = &options.expect_signature
       {
         if let Some(sig_from_server) = &signature {
-          sig.key.verify(&bytes, &sig_from_server.sig).await?;
+          sig.verify.verify(&bytes, &sig_from_server.sig).await?;
         } else {
           return Err(crate::Error::expect_signature_not_found(&sig.id));
         }
@@ -238,7 +238,7 @@ mod tests {
   use std::sync::Mutex;
 
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
-  use crate::signature::{Ed25519, SignatureKey, SignatureKeySet};
+  use crate::signature::{Ed25519, SignatureVerify, SignatureVerifyKey};
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
   use base64ct::{Base64, Encoding};
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
@@ -323,11 +323,11 @@ mod tests {
   }
 
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
-  fn key_set(id: &str) -> SignatureKeySet {
+  fn key_set(id: &str) -> SignatureVerifyKey {
     let key = Ed25519::from_public_key_bytes(&signing_key().verifying_key().to_bytes()).unwrap();
-    SignatureKeySet {
+    SignatureVerifyKey {
       id: id.to_owned(),
-      key: SignatureKey::Ed25519(key),
+      verify: SignatureVerify::Ed25519(key),
     }
   }
 
@@ -404,7 +404,6 @@ mod tests {
     Update {
       id: "u1".to_owned(),
       created_at: "2026-08-08T00:00:00Z".to_owned(),
-      expires_at: None,
       runtime_version: 1,
       bundles: vec![BundleUpdate {
         name: "app".to_owned(),

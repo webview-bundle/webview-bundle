@@ -50,11 +50,6 @@ error_codes! {
   InvalidIndexChecksum => "invalid_index_checksum",
   ChecksumMismatch => "checksum_mismatch",
   BundleNotFound => "bundle_not_found",
-  #[cfg(feature = "source")]
-  BundleEntryNotExists => "bundle_entry_not_exists",
-  #[cfg(feature = "source")]
-  BundleCannotBeRemoved => "bundle_cannot_be_removed",
-  #[cfg(feature = "source")]
   InvalidFilepath => "invalid_filepath",
   #[cfg(feature = "_serde")]
   SerdeJson => "serde_json",
@@ -65,15 +60,11 @@ error_codes! {
   #[cfg(feature = "remote")]
   RemoteHttp => "remote_http",
   #[cfg(feature = "remote")]
-  BadRemoteRequest => "bad_remote_request",
-  #[cfg(feature = "remote")]
   BadRemoteResponse => "bad_remote_response",
   #[cfg(feature = "remote")]
   InvalidRemoteConfig => "invalid_remote_config",
   #[cfg(feature = "updater")]
   InvalidUpdaterConfig => "invalid_updater_config",
-  #[cfg(feature = "updater")]
-  InstallAtomicFailed => "install_atomic_failed",
   #[cfg(feature = "integrity")]
   InvalidIntegrity => "invalid_integrity",
   #[cfg(feature = "integrity")]
@@ -137,19 +128,6 @@ pub enum Error {
   ChecksumMismatch,
   #[error("bundle not found")]
   BundleNotFound,
-  #[cfg(feature = "source")]
-  #[error("bundle entry not exists (bundle_name: {bundle_name}, version: {version})")]
-  BundleEntryNotExists {
-    bundle_name: String,
-    version: String,
-  },
-  #[cfg(feature = "source")]
-  #[error("bundle cannot be removed (bundle_name: {bundle_name}, version: {version})")]
-  BundleCannotBeRemoved {
-    bundle_name: String,
-    version: String,
-  },
-  #[cfg(feature = "source")]
   #[error("invalid filepath: {0:?}")]
   InvalidFilepath(String),
   #[cfg(feature = "_serde")]
@@ -168,9 +146,6 @@ pub enum Error {
     message: Option<String>,
   },
   #[cfg(feature = "remote")]
-  #[error("bad remote request: {0}")]
-  BadRemoteRequest(String),
-  #[cfg(feature = "remote")]
   #[error("bad remote response: {0}")]
   BadRemoteResponse(String),
   #[cfg(feature = "remote")]
@@ -179,12 +154,6 @@ pub enum Error {
   #[cfg(feature = "updater")]
   #[error("invalid updater config: {0}")]
   InvalidUpdaterConfig(String),
-  #[cfg(feature = "updater")]
-  #[error("install failed atomically (bundle_name: {bundle_name}, version: {version})")]
-  InstallAtomicFailed {
-    bundle_name: String,
-    version: String,
-  },
   #[cfg(feature = "integrity")]
   #[error("invalid integrity: {0}")]
   InvalidIntegrity(String),
@@ -211,29 +180,6 @@ pub enum Error {
 }
 
 impl Error {
-  #[cfg(feature = "source")]
-  pub(crate) fn bundle_entry_not_exists(
-    bundle_name: impl Into<String>,
-    version: impl Into<String>,
-  ) -> Self {
-    Self::BundleEntryNotExists {
-      bundle_name: bundle_name.into(),
-      version: version.into(),
-    }
-  }
-
-  #[cfg(feature = "source")]
-  pub(crate) fn bundle_cannot_be_removed(
-    bundle_name: impl Into<String>,
-    version: impl Into<String>,
-  ) -> Self {
-    Self::BundleCannotBeRemoved {
-      bundle_name: bundle_name.into(),
-      version: version.into(),
-    }
-  }
-
-  #[cfg(feature = "source")]
   pub(crate) fn invalid_filepath(filepath: impl Into<String>) -> Self {
     Self::InvalidFilepath(filepath.into())
   }
@@ -252,11 +198,6 @@ impl Error {
   }
 
   #[cfg(feature = "remote")]
-  pub(crate) fn bad_remote_request(message: impl Into<String>) -> Self {
-    Self::BadRemoteRequest(message.into())
-  }
-
-  #[cfg(feature = "remote")]
   pub(crate) fn bad_remote_response(message: impl Into<String>) -> Self {
     Self::BadRemoteResponse(message.into())
   }
@@ -264,17 +205,6 @@ impl Error {
   #[cfg(feature = "updater")]
   pub(crate) fn invalid_updater_config(message: impl Into<String>) -> Self {
     Self::InvalidUpdaterConfig(message.into())
-  }
-
-  #[cfg(feature = "updater")]
-  pub(crate) fn install_atomic_failed(
-    bundle_name: impl Into<String>,
-    version: impl Into<String>,
-  ) -> Self {
-    Self::InstallAtomicFailed {
-      bundle_name: bundle_name.into(),
-      version: version.into(),
-    }
   }
 
   #[cfg(feature = "integrity")]

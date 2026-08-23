@@ -1,38 +1,95 @@
-use crate::bundle::{BundleFormatVersion, BundleHeader, IndexEntry};
+use crate::bundle::{BundleHeader, IndexEntry, Version};
 use crate::integrity::{IntegrityAlgorithm, IntegrityPolicy};
-use crate::protocol::{HostnameSegment, HttpMethod, PathResolver};
-use crate::remote::{ListRemoteBundleInfo, RemoteBundleInfo};
-use crate::signature::{SignatureAlgorithm, VerifyingKeyFormat};
-use crate::source::{
-  BundleManifestMetadata, BundleSourceType, BundleSourceVerifyMode, BundleSourceVersion,
-  ListBundleItem,
+use crate::options::{
+  BundleBuilderOptions, ChecksumReadOptions, ChecksumWriteOptions, DataReadOptions,
+  HeaderReadOptions, HeaderWriterOptions, IndexReadOptions, IndexWriterOptions,
 };
-use crate::updater::BundleUpdateInfo;
+use crate::protocol::{HostnameSegment, HttpMethod, UriPathResolver};
+use crate::remote::{
+  BundleUpdate, HttpOptions, RemoteConfig, RemoteUpdateResponse, Update, UpdateSignature,
+};
+use crate::signature::{SignatureAlgorithm, SignatureKeyFormat};
+use crate::source::{
+  BundleSourceVersion, ManifestBundleItem, ManifestBundleItemStatus, ManifestPruneResult,
+  ManifestRemoveData, ManifestRemoveResult, ManifestRemoveResultKind,
+  ManifestSetCurrentVersionResult, ManifestSetCurrentVersionResultKind, ManifestStageData,
+  ManifestStageResult, ManifestStageResultKind, ManifestVersionData, SourceConfig,
+  SourceIntegrityCheckMode, SourceIntegrityOptions, SourceKind, SourceListItem, SourceOptions,
+};
+use crate::updater::{
+  UpdaterDownloadOptions, UpdaterGetUpdateOptions, UpdaterInstallTarget, UpdaterIntegrityOptions,
+  UpdaterRollbackTarget,
+};
 use specta::TypeCollection;
 use specta_typescript::Typescript;
 use std::path::PathBuf;
 
+/// Write `contents` to `path` only when it differs. A generator rewriting a source file on every
+/// run churns its mtime, which retriggers watchers (`deno task test --watch`, editors) for nothing.
+fn write_if_changed(path: PathBuf, contents: &str) {
+  if std::fs::read_to_string(&path).ok().as_deref() != Some(contents) {
+    std::fs::write(&path, contents)
+      .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
+  }
+}
+
+fn lib_path(filename: &str) -> PathBuf {
+  PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("lib")
+    .join(filename)
+}
+
 #[test]
 fn export_bindings() {
   let mut types = TypeCollection::default();
-  types.register::<IntegrityAlgorithm>();
-  types.register::<IntegrityPolicy>();
-  types.register::<BundleSourceVerifyMode>();
-  types.register::<BundleSourceType>();
-  types.register::<SignatureAlgorithm>();
-  types.register::<VerifyingKeyFormat>();
-  types.register::<HostnameSegment>();
-  types.register::<PathResolver>();
-  types.register::<HttpMethod>();
-  types.register::<ListRemoteBundleInfo>();
-  types.register::<RemoteBundleInfo>();
-  types.register::<BundleManifestMetadata>();
-  types.register::<BundleSourceVersion>();
-  types.register::<ListBundleItem>();
-  types.register::<BundleUpdateInfo>();
-  types.register::<BundleFormatVersion>();
+  types.register::<Version>();
   types.register::<BundleHeader>();
   types.register::<IndexEntry>();
+  types.register::<ChecksumReadOptions>();
+  types.register::<ChecksumWriteOptions>();
+  types.register::<HeaderReadOptions>();
+  types.register::<IndexReadOptions>();
+  types.register::<DataReadOptions>();
+  types.register::<HeaderWriterOptions>();
+  types.register::<IndexWriterOptions>();
+  types.register::<BundleBuilderOptions>();
+  types.register::<IntegrityAlgorithm>();
+  types.register::<IntegrityPolicy>();
+  types.register::<HostnameSegment>();
+  types.register::<UriPathResolver>();
+  types.register::<HttpMethod>();
+  types.register::<SignatureAlgorithm>();
+  types.register::<SignatureKeyFormat>();
+  types.register::<SourceKind>();
+  types.register::<BundleSourceVersion>();
+  types.register::<ManifestVersionData>();
+  types.register::<ManifestBundleItemStatus>();
+  types.register::<ManifestBundleItem>();
+  types.register::<SourceListItem>();
+  types.register::<ManifestSetCurrentVersionResultKind>();
+  types.register::<ManifestSetCurrentVersionResult>();
+  types.register::<ManifestStageData>();
+  types.register::<ManifestStageResultKind>();
+  types.register::<ManifestStageResult>();
+  types.register::<ManifestRemoveData>();
+  types.register::<ManifestRemoveResultKind>();
+  types.register::<ManifestRemoveResult>();
+  types.register::<ManifestPruneResult>();
+  types.register::<SourceIntegrityCheckMode>();
+  types.register::<SourceIntegrityOptions>();
+  types.register::<SourceOptions>();
+  types.register::<SourceConfig>();
+  types.register::<HttpOptions>();
+  types.register::<RemoteConfig>();
+  types.register::<BundleUpdate>();
+  types.register::<Update>();
+  types.register::<UpdateSignature>();
+  types.register::<RemoteUpdateResponse>();
+  types.register::<UpdaterIntegrityOptions>();
+  types.register::<UpdaterGetUpdateOptions>();
+  types.register::<UpdaterDownloadOptions>();
+  types.register::<UpdaterInstallTarget>();
+  types.register::<UpdaterRollbackTarget>();
 
   let body = Typescript::default()
     .export(&types)
@@ -43,10 +100,27 @@ fn export_bindings() {
       .strip_prefix("// This file has been generated by Specta. DO NOT EDIT.\n\n")
       .unwrap_or(&body)
   );
+  write_if_changed(lib_path("bindings.ts"), &rendered);
+}
 
-  let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("lib/bindings.ts");
-  if std::fs::read_to_string(&path).ok().as_deref() != Some(rendered.as_str()) {
-    std::fs::write(&path, &rendered)
-      .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
-  }
+/// The core's constants, mirrored into TypeScript so `@wvb/deno` exposes the same values as
+/// `@wvb/node` without a runtime FFI call.
+#[test]
+fn export_consts() {
+  let rendered = format!(
+    "// @generated from `wvb`'s constants by `cargo test` — do not edit.\n\n\
+     /** File extension of a bundle file. */\n\
+     export const EXTENSION = '{extension}';\n\n\
+     /** MIME type of a bundle file. */\n\
+     export const MIME_TYPE = '{mime_type}';\n\n\
+     /** The version of the update model this client understands. */\n\
+     export const RUNTIME_VERSION = {runtime_version};\n\n\
+     /** The update protocol version sent to the remote server. */\n\
+     export const UPDATE_PROTOCOL_VERSION = '{update_protocol_version}';\n",
+    extension = wvb::EXTENSION,
+    mime_type = wvb::MIME_TYPE,
+    runtime_version = wvb::RUNTIME_VERSION,
+    update_protocol_version = wvb::remote::UPDATE_PROTOCOL_VERSION,
+  );
+  write_if_changed(lib_path("consts.ts"), &rendered);
 }

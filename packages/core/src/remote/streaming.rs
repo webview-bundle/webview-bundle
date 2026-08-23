@@ -30,6 +30,7 @@ async fn write_stream(
   cancel: Option<Cancellation>,
   on_download: Option<Arc<RemoteOnDownload>>,
 ) -> crate::Result<()> {
+  let url = resp.url().to_string();
   let total_size = resp.content_length();
   let mut file = tokio::fs::File::create(filepath).await?;
   let mut stream = resp.bytes_stream();
@@ -50,7 +51,7 @@ async fn write_stream(
     downloaded_bytes += chunk.len() as u64;
 
     if let Some(ref on_download) = on_download {
-      on_download(downloaded_bytes, total_size, "".to_string());
+      on_download(downloaded_bytes, total_size, url.to_owned());
     }
   }
 

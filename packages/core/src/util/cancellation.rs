@@ -1,6 +1,6 @@
 use tokio_util::sync::CancellationToken;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct Cancellation(CancellationToken);
 
 impl From<CancellationToken> for Cancellation {

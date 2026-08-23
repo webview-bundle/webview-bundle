@@ -1,8 +1,24 @@
-import type { BundleFormatVersion, BundleHeader, IndexEntry } from './bindings.ts';
+import type {
+  BundleBuilderOptions,
+  BundleHeader,
+  ChecksumWriteOptions,
+  HeaderWriterOptions,
+  IndexEntry,
+  IndexWriterOptions,
+  Version,
+} from './bindings.ts';
 import { WebviewBundleError } from './error.ts';
 import { cstr, getLib, readHandle, readResult } from './ffi.ts';
 
-export type { BundleFormatVersion, BundleHeader, IndexEntry };
+export type {
+  BundleBuilderOptions,
+  BundleHeader,
+  ChecksumWriteOptions,
+  HeaderWriterOptions,
+  IndexEntry,
+  IndexWriterOptions,
+  Version,
+};
 
 /** A bundle index: file path → its {@link IndexEntry} metadata. */
 export type BundleIndex = Record<string, IndexEntry>;
@@ -54,7 +70,7 @@ export function contentTypeForPath(path: string): string {
 export class Bundle {
   #ptr: Deno.PointerValue;
 
-  /** @internal Use {@link readBundle}, {@link readBundleFromBytes}, {@link BundleBuilder.build}, or a {@link BundleSource} fetch. */
+  /** @internal Use {@link readBundle}, {@link readBundleFromBytes}, {@link BundleBuilder.build}, or a {@link Source} fetch. */
   constructor(ptr: Deno.PointerValue) {
     this.#ptr = ptr;
   }
@@ -106,13 +122,6 @@ export class Bundle {
   [Symbol.dispose](): void {
     this.free();
   }
-}
-
-/** Options for {@link BundleBuilder.build}. Seeds the xxHash checksums written into each section. */
-export interface BuildOptions {
-  header?: { checksum?: { seed?: number } };
-  index?: { checksum?: { seed?: number } };
-  dataChecksum?: { seed?: number };
 }
 
 /**
@@ -180,7 +189,7 @@ export class BundleBuilder {
   }
 
   /** Builds the bundle from the current entries. */
-  build(options?: BuildOptions): Bundle {
+  build(options?: BundleBuilderOptions): Bundle {
     const lib = getLib();
     const ptr = lib.symbols.wvb_bundle_builder_build(
       this.#handle,
@@ -209,7 +218,7 @@ export class BundleBuilder {
 export class BundleDescriptor {
   #ptr: Deno.PointerValue;
 
-  /** @internal Use {@link BundleSource.fetchDescriptor}. */
+  /** @internal Use {@link Source.fetchDescriptor}. */
   constructor(ptr: Deno.PointerValue) {
     this.#ptr = ptr;
   }
@@ -265,14 +274,14 @@ export class BundleDescriptor {
 }
 
 /**
- * A cached descriptor from {@link BundleSource.loadDescriptor}, pinned to a specific bundle file and
+ * A cached descriptor from {@link Source.load}, pinned to a specific bundle file and
  * its read options. Its {@link LoadedDescriptor.getData} needs no filepath (it remembers one) and
  * keeps working across active-version swaps. Owns a native handle — call {@link LoadedDescriptor.free}.
  */
 export class LoadedDescriptor {
   #ptr: Deno.PointerValue;
 
-  /** @internal Use {@link BundleSource.loadDescriptor}. */
+  /** @internal Use {@link Source.load}. */
   constructor(ptr: Deno.PointerValue) {
     this.#ptr = ptr;
   }

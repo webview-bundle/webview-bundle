@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-source-get-remote-previous-version"
+description = "Enables the source_get_remote_previous_version command without any pre-configured scope."
+commands.allow = ["source_get_remote_previous_version"]
+
+[[permission]]
+identifier = "deny-source-get-remote-previous-version"
+description = "Denies the source_get_remote_previous_version command without any pre-configured scope."
+commands.deny = ["source_get_remote_previous_version"]

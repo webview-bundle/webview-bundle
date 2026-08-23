@@ -28,9 +28,9 @@
 //! ```no_run
 //! # #[cfg(feature = "source")]
 //! # async {
-//! use wvb::source::BundleSource;
+//! use wvb::source::Source;
 //!
-//! let source = BundleSource::builder()
+//! let source = Source::builder()
 //!     .builtin_dir("./builtin")
 //!     .remote_dir("./remote")
 //!     .build();
@@ -68,11 +68,13 @@
 //! ```
 
 mod manifest;
+mod manifest_data;
 mod source;
 mod types;
 mod version;
 
 pub use manifest::*;
+pub use manifest_data::*;
 pub use source::*;
 pub use types::*;
 pub use version::*;

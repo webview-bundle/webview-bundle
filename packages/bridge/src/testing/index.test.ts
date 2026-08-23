@@ -9,29 +9,66 @@ import { clearInvokeMocks, mockBridge, mockInvoke, mockPlatform } from './index.
 afterEach(clearInvokeMocks);
 
 test('infers params and result, then answers the invoke', async () => {
-  mockInvoke('source.loadVersion', bundleName => {
+  mockInvoke('source.getVersion', bundleName => {
     expect(bundleName).toBe('app');
-    return { type: 'remote', version: '1.0.0' };
+    return { source: 'remote', version: '1.0.0' };
   });
-  await expect(source.loadVersion('app')).resolves.toEqual({ type: 'remote', version: '1.0.0' });
+  await expect(source.getVersion('app')).resolves.toEqual({ source: 'remote', version: '1.0.0' });
 });
 
 test('supports async handlers', async () => {
-  mockInvoke('remote.download', async bundleName => ({ name: bundleName, version: '2.0.0' }));
-  await expect(remote.download('app')).resolves.toEqual({ name: 'app', version: '2.0.0' });
+  mockInvoke('remote.getUpdate', async options => {
+    expect(options).toEqual({ channel: 'beta' });
+    return {
+      update: {
+        id: 'u1',
+        createdAt: '2026-01-01T00:00:00Z',
+        runtimeVersion: 1,
+        bundles: [{ name: 'app', version: '2.0.0' }],
+        metadata: {},
+      },
+      etag: '"v1"',
+    };
+  });
+  const response = await remote.getUpdate({ channel: 'beta' });
+  expect(response?.update.bundles).toEqual([{ name: 'app', version: '2.0.0' }]);
+});
+
+test('passes every parameter through, in order', async () => {
+  mockInvoke('source.removeRemoteBundle', (bundleName, version, force) => {
+    expect([bundleName, version, force]).toEqual(['app', '1.0.0', true]);
+    return { name: bundleName, version, kind: 'removed' };
+  });
+  await expect(source.removeRemoteBundle('app', '1.0.0', true)).resolves.toEqual({
+    name: 'app',
+    version: '1.0.0',
+    kind: 'removed',
+  });
+
+  mockInvoke('updater.download', (bundleUpdates, options) => {
+    expect(options).toEqual({ concurrency: 1 });
+    return bundleUpdates.map(({ name, version }) => ({
+      name,
+      version,
+      result: { type: 'downloaded' as const },
+    }));
+  });
+  await expect(
+    updater.download([{ name: 'app', version: '2.0.0' }], { concurrency: 1 })
+  ).resolves.toEqual([{ name: 'app', version: '2.0.0', result: { type: 'downloaded' } }]);
 });
 
 test('rejects when no handler is registered', async () => {
-  await expect(updater.listRemotes()).rejects.toThrow();
+  await expect(updater.getUpdate()).rejects.toThrow();
 });
 
 test('normalizes a rejected invoke into a BridgeError, preserving the code', async () => {
-  mockInvoke('source.loadVersion', () => {
+  mockInvoke('source.getVersion', () => {
     throw BridgeError.of('remote_not_initialized');
   });
-  const error = await source.loadVersion('app').catch(e => e);
+  const error = await source.getVersion('app').catch((e: unknown) => e);
   expect(error).toBeInstanceOf(BridgeError);
-  expect(error.code).toBe('remote_not_initialized');
+  expect((error as BridgeError).code).toBe('remote_not_initialized');
 });
 
 test('clearInvokeMocks resets the ambient store', async () => {

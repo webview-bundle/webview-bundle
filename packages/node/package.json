@@ -23,7 +23,7 @@
     "binding.d.cts",
     "README.md",
     "CHANGELOG.md",
-    "*.node",
+    "!*.node",
     "!artifacts/**/*",
     "!npm/**/*"
   ],

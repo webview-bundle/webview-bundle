@@ -1,76 +1,80 @@
-use crate::signature::key::SignatureKey;
+use crate::signature::alg::SignatureAlgorithm;
+use std::pin::Pin;
+use std::sync::Arc;
 
-/// Trait for implementing signature verification algorithms.
-///
-/// Implement this trait to create custom signature verifiers that can be
-/// used with the `SignatureKey::Custom` variant.
-pub trait SignatureVerifier: Send + Sync + 'static {
-  /// Verifies a signature.
-  ///
-  /// # Arguments
-  ///
-  /// * `message` - The signed message data
-  /// * `signature` - The signature string to verify
-  fn verify(&self, message: &[u8], signature: &str) -> impl Future<Output = crate::Result<()>>;
+/// Type alias for custom verification functions.
+pub type CustomVerify = dyn Fn(
+    &[u8],
+    &str,
+  ) -> Pin<
+    Box<
+      dyn Future<Output = Result<bool, Box<dyn std::error::Error + Send + Sync + 'static>>>
+        + Send
+        + 'static,
+    >,
+  > + Send
+  + Sync;
+
+#[derive(Debug, Clone)]
+pub struct SignatureVerifyKey {
+  pub id: String,
+  pub verify: SignatureVerify,
 }
 
-impl SignatureVerifier for SignatureKey {
-  async fn verify(&self, message: &[u8], signature: &str) -> crate::Result<()> {
+impl SignatureVerifyKey {
+  pub fn algorithm(&self) -> SignatureAlgorithm {
+    self.verify.algorithm()
+  }
+}
+
+#[derive(Clone)]
+pub enum SignatureVerify {
+  #[cfg(feature = "signature-rsa-pkcs1-v1_5-sha256")]
+  RsaPkcs1V1_5Sha256(crate::signature::RsaPkcs1V15Sha256),
+  #[cfg(feature = "signature-rsa-pss-sha256")]
+  RsaPssSha256(crate::signature::RsaPssSha256),
+  #[cfg(feature = "signature-ecdsa-secp256r1")]
+  EcdsaSecp256r1(crate::signature::EcdsaSecp256r1),
+  #[cfg(feature = "signature-ecdsa-secp384r1")]
+  EcdsaSecp384r1(crate::signature::EcdsaSecp384r1),
+  #[cfg(feature = "signature-ed25519")]
+  Ed25519(crate::signature::Ed25519),
+  Custom(Arc<CustomVerify>),
+}
+
+impl SignatureVerify {
+  pub fn algorithm(&self) -> SignatureAlgorithm {
     match self {
       #[cfg(feature = "signature-rsa-pkcs1-v1_5-sha256")]
-      Self::RsaPkcs1V1_5Sha256(key) => key.verify(message, signature).await,
+      SignatureVerify::RsaPkcs1V1_5Sha256(_) => SignatureAlgorithm::RsaPkcs1V1_5Sha256,
       #[cfg(feature = "signature-rsa-pss-sha256")]
-      Self::RsaPssSha256(key) => key.verify(message, signature).await,
+      SignatureVerify::RsaPssSha256(_) => SignatureAlgorithm::RsaPssSha256,
       #[cfg(feature = "signature-ecdsa-secp256r1")]
-      Self::EcdsaSecp256r1(key) => key.verify(message, signature).await,
+      SignatureVerify::EcdsaSecp256r1(_) => SignatureAlgorithm::EcdsaSecp256r1,
       #[cfg(feature = "signature-ecdsa-secp384r1")]
-      Self::EcdsaSecp384r1(key) => key.verify(message, signature).await,
+      SignatureVerify::EcdsaSecp384r1(_) => SignatureAlgorithm::EcdsaSecp384r1,
       #[cfg(feature = "signature-ed25519")]
-      Self::Ed25519(key) => key.verify(message, signature).await,
-      Self::Custom(verify) => {
-        match verify(message, signature)
-          .await
-          .map_err(crate::Error::generic)?
-        {
-          true => Ok(()),
-          false => Err(crate::Error::SignatureVerifyFailed),
-        }
-      }
+      SignatureVerify::Ed25519(_) => SignatureAlgorithm::Ed25519,
+      SignatureVerify::Custom(_) => SignatureAlgorithm::Custom,
     }
   }
 }
 
-#[cfg(all(test, feature = "signature-ed25519"))]
-mod tests {
-  use super::*;
-  use crate::signature::Ed25519;
-  use base64ct::{Base64, Encoding};
-  use ed25519_dalek::{Signer, SigningKey};
-
-  fn verifier_and_sign(message: &str) -> (SignatureKey, String) {
-    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
-    let signature = Base64::encode_string(&signing_key.sign(message.as_bytes()).to_bytes());
-    let ed25519 = Ed25519::from_public_key_bytes(&signing_key.verifying_key().to_bytes()).unwrap();
-    (SignatureKey::Ed25519(ed25519), signature)
-  }
-
-  #[tokio::test]
-  async fn verify() {
-    let message = "this_is_message";
-    let (key, signature) = verifier_and_sign(message);
-    assert!(key.verify(message.as_bytes(), &signature).await.is_ok());
-  }
-
-  #[tokio::test]
-  async fn verify_failed() {
-    let (key, signature) = verifier_and_sign("original_message");
-    assert_eq!(
-      key
-        .verify("different_message".as_bytes(), &signature)
-        .await
-        .unwrap_err()
-        .code(),
-      crate::ErrorCode::SignatureVerifyFailed,
-    );
+impl std::fmt::Debug for SignatureVerify {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    let name = match self {
+      #[cfg(feature = "signature-rsa-pkcs1-v1_5-sha256")]
+      Self::RsaPkcs1V1_5Sha256(_) => "RsaPkcs1V15Sha256",
+      #[cfg(feature = "signature-rsa-pss-sha256")]
+      Self::RsaPssSha256(_) => "RsaPssSha256",
+      #[cfg(feature = "signature-ecdsa-secp256r1")]
+      Self::EcdsaSecp256r1(_) => "EcdsaSecp256r1",
+      #[cfg(feature = "signature-ecdsa-secp384r1")]
+      Self::EcdsaSecp384r1(_) => "EcdsaSecp384r1",
+      #[cfg(feature = "signature-ed25519")]
+      Self::Ed25519(_) => "Ed25519",
+      Self::Custom(_) => "Custom",
+    };
+    write!(f, "SignatureKey::{name}")
   }
 }

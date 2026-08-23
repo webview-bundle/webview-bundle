@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::error::ErrorCode;
-use crate::result::{WvbResult, core_err, err_result, null_handle_err, ok_result};
+use crate::result::{WvbResult, core_err, err_result, null_handle_err, ok_handle, ok_result};
 use crate::source::WvbSource;
 use crate::{cstr, runtime};
 use serde::{Deserialize, Serialize};
@@ -12,25 +12,97 @@ use std::sync::Arc;
 use wvb::http;
 use wvb::protocol::{
   BundleProtocol, HostnameSegment as CoreHostnameSegment, Protocol, ProxyProtocol, ProxyResolver,
-  UriBundleResolver, UriPathResolver,
+  UriBundleResolver as CoreUriBundleResolver, UriPathResolver as CoreUriPathResolver,
 };
 
-/// Which hostname segment is used as the bundle name.
+/// Which hostname segment names the bundle.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum HostnameSegment {
   First,
   Full,
   StripSuffix,
 }
 
+impl From<HostnameSegment> for CoreHostnameSegment {
+  fn from(value: HostnameSegment) -> Self {
+    match value {
+      HostnameSegment::First => Self::First,
+      HostnameSegment::Full => Self::Full,
+      HostnameSegment::StripSuffix => Self::StripSuffix,
+    }
+  }
+}
+
+/// A named hostname segment, or the nth one.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(untagged)]
+pub enum HostnameSegmentSelector {
+  Named(HostnameSegment),
+  Nth(u32),
+}
+
+impl From<HostnameSegmentSelector> for CoreHostnameSegment {
+  fn from(value: HostnameSegmentSelector) -> Self {
+    match value {
+      HostnameSegmentSelector::Named(segment) => segment.into(),
+      HostnameSegmentSelector::Nth(index) => Self::Nth(index as usize),
+    }
+  }
+}
+
+/// How the bundle name is resolved from the request uri. The TypeScript counterpart is hand-written
+/// in `lib/protocol.ts`, because `segment` is a union `HostnameSegment | number`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum UriBundleResolver {
+  #[serde(rename_all = "camelCase")]
+  Hostname {
+    segment: Option<HostnameSegmentSelector>,
+    allow_wvb_suffix_only: Option<bool>,
+  },
+  #[serde(rename_all = "camelCase")]
+  Pathname { segment_index: Option<u32> },
+}
+
+impl From<UriBundleResolver> for CoreUriBundleResolver {
+  fn from(value: UriBundleResolver) -> Self {
+    match value {
+      UriBundleResolver::Hostname {
+        segment,
+        allow_wvb_suffix_only,
+      } => Self::hostname(segment.map(Into::into), allow_wvb_suffix_only),
+      UriBundleResolver::Pathname { segment_index } => {
+        Self::pathname(segment_index.map(|index| index as usize))
+      }
+    }
+  }
+}
+
 /// How the file path in the bundle is resolved from the request uri.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum PathResolver {
+#[serde(rename_all = "snake_case")]
+pub enum UriPathResolver {
   Exact,
   DirectoryIndex,
   HtmlExtension,
+}
+
+impl From<UriPathResolver> for CoreUriPathResolver {
+  fn from(value: UriPathResolver) -> Self {
+    match value {
+      UriPathResolver::Exact => Self::exact(),
+      UriPathResolver::DirectoryIndex => Self::directory_index(),
+      UriPathResolver::HtmlExtension => Self::html_extension(),
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BundleProtocolOptions {
+  pub bundle_resolver: Option<UriBundleResolver>,
+  pub path_resolver: Option<UriPathResolver>,
 }
 
 /// HTTP method accepted by a protocol handler (case-insensitive on the wire).
@@ -44,125 +116,78 @@ pub enum HttpMethod {
   Put,
   Patch,
   Delete,
+  Trace,
+  Connect,
 }
 
 pub struct WvbProtocol {
   inner: Arc<dyn Protocol>,
 }
 
-/// Parse a `bundleResolver` JSON object (camelCase, mirroring `@wvb/node`'s
-/// `BundleResolverOptions`): `{ "type": "hostname", "segment"?: "first" | "full" | "stripSuffix" |
-/// number, "allowWvbSuffixOnly"?: boolean }` or `{ "type": "pathname", "segmentIndex"?: number }`.
-/// Returns `None` for an unknown discriminant or value, so the caller can fail closed.
-fn parse_bundle_resolver(value: &serde_json::Value) -> Option<UriBundleResolver> {
-  match value.get("type")?.as_str()? {
-    "hostname" => {
-      let segment = match value.get("segment") {
-        None | Some(serde_json::Value::Null) => None,
-        Some(serde_json::Value::String(s)) => Some(match s.as_str() {
-          "first" => CoreHostnameSegment::First,
-          "full" => CoreHostnameSegment::Full,
-          "stripSuffix" => CoreHostnameSegment::StripSuffix,
-          _ => return None,
-        }),
-        Some(serde_json::Value::Number(n)) => Some(CoreHostnameSegment::Nth(n.as_u64()? as usize)),
-        Some(_) => return None,
-      };
-      let allow_wvb_suffix_only = match value.get("allowWvbSuffixOnly") {
-        None | Some(serde_json::Value::Null) => None,
-        Some(x) => Some(x.as_bool()?),
-      };
-      Some(UriBundleResolver::hostname(segment, allow_wvb_suffix_only))
-    }
-    "pathname" => {
-      let segment_index = match value.get("segmentIndex") {
-        None | Some(serde_json::Value::Null) => None,
-        Some(x) => Some(x.as_u64()? as usize),
-      };
-      Some(UriBundleResolver::pathname(segment_index))
-    }
-    _ => None,
-  }
-}
-
-/// Parse a `pathResolver` value: `"exact" | "directoryIndex" | "htmlExtension"`.
-fn parse_path_resolver(value: &serde_json::Value) -> Option<UriPathResolver> {
-  match value.as_str()? {
-    "exact" => Some(UriPathResolver::exact()),
-    "directoryIndex" => Some(UriPathResolver::directory_index()),
-    "htmlExtension" => Some(UriPathResolver::html_extension()),
-    _ => None,
-  }
-}
-
-/// Create a bundle protocol handler serving from `source`. `options_json` is null/empty or a JSON
-/// object with `bundleResolver` and/or `pathResolver`; an unparsable option returns null rather than
-/// silently serving with the default resolvers. Entries are served with the read options the
-/// `source` was configured with.
+/// Create a bundle protocol over a source. `options_json` is null/empty or a
+/// `BundleProtocolOptions` object; an unknown or ill-typed option fails the call rather than
+/// serving requests with a setting the caller did not ask for.
 ///
 /// # Safety
-/// `source` must be a valid pointer returned by `wvb_source_new`; `options_json` must be null or a
-/// valid C string.
+/// `source` must be a valid `WvbSource`; `options_json` null or a valid C string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wvb_bundle_protocol_new(
   source: *const WvbSource,
   options_json: *const c_char,
-) -> *mut WvbProtocol {
+) -> *mut WvbResult {
   let Some(source) = (unsafe { source.as_ref() }) else {
-    return std::ptr::null_mut();
+    return null_handle_err("source");
   };
   let mut protocol = BundleProtocol::new(source.inner.clone());
   let raw = unsafe { cstr(options_json) };
   if !raw.is_empty() {
-    // A scalar or array would read as "no options given" below — fail closed instead.
-    let Ok(options) = serde_json::from_str::<serde_json::Value>(&raw) else {
-      return std::ptr::null_mut();
+    let options: BundleProtocolOptions = match serde_json::from_str(&raw) {
+      Ok(options) => options,
+      Err(e) => {
+        return err_result(
+          ErrorCode::InvalidRequest,
+          format!("invalid bundle protocol options: {e}"),
+        );
+      }
     };
-    if !options.is_object() {
-      return std::ptr::null_mut();
+    if let Some(bundle_resolver) = options.bundle_resolver {
+      protocol = protocol.set_bundle_resolver(bundle_resolver.into());
     }
-    match options.get("bundleResolver") {
-      None | Some(serde_json::Value::Null) => {}
-      Some(value) => match parse_bundle_resolver(value) {
-        Some(resolver) => protocol = protocol.set_bundle_resolver(resolver),
-        None => return std::ptr::null_mut(),
-      },
-    }
-    match options.get("pathResolver") {
-      None | Some(serde_json::Value::Null) => {}
-      Some(value) => match parse_path_resolver(value) {
-        Some(resolver) => protocol = protocol.set_path_resolver(resolver),
-        None => return std::ptr::null_mut(),
-      },
+    if let Some(path_resolver) = options.path_resolver {
+      protocol = protocol.set_path_resolver(path_resolver.into());
     }
   }
   let protocol: Arc<dyn Protocol> = Arc::new(protocol);
-  Box::into_raw(Box::new(WvbProtocol { inner: protocol }))
+  ok_handle(Box::into_raw(Box::new(WvbProtocol { inner: protocol })))
 }
 
-/// Create a proxy protocol handler that proxies requests to another server (for dev servers).
-/// An unparsable host mapping returns null rather than silently proxying nothing.
+/// `hosts_json` maps a custom host to the base url it is proxied to.
 ///
 /// # Safety
-/// `hosts_json` must be null or a JSON object string mapping host -> URL.
+/// `hosts_json` must be null or a valid C string.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wvb_proxy_protocol_new(hosts_json: *const c_char) -> *mut WvbProtocol {
+pub unsafe extern "C" fn wvb_proxy_protocol_new(hosts_json: *const c_char) -> *mut WvbResult {
   let raw = unsafe { cstr(hosts_json) };
   let hosts: HashMap<String, String> = if raw.is_empty() {
     HashMap::new()
   } else {
     match serde_json::from_str(&raw) {
       Ok(hosts) => hosts,
-      Err(_) => return std::ptr::null_mut(),
+      Err(e) => {
+        return err_result(
+          ErrorCode::InvalidRequest,
+          format!("invalid proxy hosts: {e}"),
+        );
+      }
     }
   };
   let protocol: Arc<dyn Protocol> =
     Arc::new(ProxyProtocol::new(ProxyResolver::host_mapping(hosts)));
-  Box::into_raw(Box::new(WvbProtocol { inner: protocol }))
+  ok_handle(Box::into_raw(Box::new(WvbProtocol { inner: protocol })))
 }
 
 /// # Safety
-/// `handle` must be null or a pointer previously returned by a `*_protocol_new`.
+/// `handle` must be null or a pointer previously returned by a protocol constructor.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wvb_protocol_free(handle: *mut WvbProtocol) {
   if !handle.is_null() {

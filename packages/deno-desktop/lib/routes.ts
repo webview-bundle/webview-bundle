@@ -1,10 +1,10 @@
 import {
   BundleProtocol,
-  type BundleSource,
   type HttpMethod,
   type HttpResponse,
-  type PathResolver,
   ProxyProtocol,
+  type Source,
+  type UriPathResolver,
 } from '@wvb/deno';
 import { toResponse } from './http.ts';
 
@@ -15,16 +15,16 @@ export type ErrorResponse = (e: Error) => Response;
  * Serves a bundle from the source.
  *
  * Data-checksum verification is not configured per route; it comes from the read options the shared
- * {@link BundleSource} was built with (`dataReadOptions`).
+ * {@link Source} was built with (`options.dataRead`).
  */
 export interface BundleRoute {
   /** Name of the bundle in the source. */
   bundle: string;
   /**
-   * How a request path maps to a file inside the bundle (default: `'directoryIndex'`, i.e.
+   * How a request path maps to a file inside the bundle (default: `'directory_index'`, i.e.
    * `/about` → `/about/index.html`).
    */
-  pathResolver?: PathResolver;
+  pathResolver?: UriPathResolver;
   errorResponse?: ErrorResponse;
 }
 
@@ -43,7 +43,7 @@ export type Route = BundleRoute | ProxyRoute;
  * ```ts
  * routes: {
  *   '/': { bundle: 'app' },
- *   '/docs': { bundle: 'docs', pathResolver: 'htmlExtension' },
+ *   '/docs': { bundle: 'docs', pathResolver: 'html_extension' },
  *   '/api': { proxy: 'http://localhost:8080' },
  * }
  * ```
@@ -62,6 +62,8 @@ const HTTP_METHODS: ReadonlySet<string> = new Set([
   'put',
   'patch',
   'delete',
+  'trace',
+  'connect',
 ]);
 
 // The bundle name travels to the core as the uri host (`bundle://<name>/<path>`), and hosts are
@@ -148,7 +150,7 @@ async function readBody(req: Request): Promise<Uint8Array<ArrayBuffer> | undefin
   return body.byteLength > 0 ? body : undefined;
 }
 
-function toHandler({ mountPath, route }: Mount, source: BundleSource): Handler {
+function toHandler({ mountPath, route }: Mount, source: Source): Handler {
   const { errorResponse } = route;
   if ('proxy' in route) {
     const protocol = new ProxyProtocol({ [PROXY_HOST]: route.proxy });
@@ -180,7 +182,7 @@ const defaultErrorResponse: ErrorResponse = e => new Response(e.message, { statu
 /** Builds the `Deno.serve` handler that serves each request from the route mounted at its path. */
 export function createHandler(
   mounts: Mount[],
-  source: BundleSource
+  source: Source
 ): (req: Request) => Promise<Response> {
   const handlers = mounts.map(mount => toHandler(mount, source));
   return async (req: Request): Promise<Response> => {

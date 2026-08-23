@@ -7,6 +7,7 @@ use common::{
 use std::sync::Arc;
 use wvb::ErrorCode;
 use wvb::protocol::{BundleProtocol, Protocol};
+use wvb::updater::{UpdaterDownloadResultKind, UpdaterInstallResultKind};
 
 #[tokio::test]
 async fn updates_every_bundle_of_one_update() {
@@ -145,10 +146,10 @@ async fn download_of_an_unserved_bundle_errors() {
     .await
     .unwrap();
 
-  assert_eq!(
-    results[0].result.as_ref().unwrap_err().code(),
-    ErrorCode::RemoteHttp
-  );
+  let UpdaterDownloadResultKind::Error(error) = &results[0].result else {
+    panic!("the download must fail");
+  };
+  assert_eq!(error.code(), ErrorCode::RemoteHttp);
 }
 
 // A failed download must leave the source in its previous state.
@@ -172,18 +173,18 @@ async fn failed_download_preserves_source() {
   assert_eq!(resp.body().as_ref(), b"<h1>stable</h1>");
 }
 
-// Installing a version that was never downloaded (no manifest entry) must error.
+// Installing a version that was never downloaded (no manifest entry) must be rejected.
 #[tokio::test]
-async fn install_of_an_unstaged_version_errors() {
+async fn install_of_an_unstaged_version_is_rejected() {
   let source = builtin_source(vec![bundle("app", "1.0.0", b"<h1>builtin</h1>")]);
   let updater = updater(&source, common::OFFLINE_URL);
 
   let results = updater.install(&[target("app", "9.9.9")]).await.unwrap();
 
-  assert_eq!(
-    results[0].result.as_ref().unwrap_err().code(),
-    ErrorCode::BundleEntryNotExists
-  );
+  assert!(matches!(
+    results[0].result,
+    UpdaterInstallResultKind::StagedBundleNotExists
+  ));
 }
 
 // Each install keeps {current, previous} and prunes the versions no longer referenced; the
@@ -250,7 +251,10 @@ async fn install_rejects_a_corrupt_staged_bundle() {
 
   let results = updater.install(&[target("app", "2.0.0")]).await.unwrap();
 
-  assert!(results[0].result.is_err());
+  assert!(matches!(
+    results[0].result,
+    UpdaterInstallResultKind::VerifyFailed
+  ));
   let resp = protocol
     .handle(get("https://app.wvb/index.html"))
     .await

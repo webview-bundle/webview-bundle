@@ -1,5 +1,5 @@
 use crate::integrity::IntegrityAlgorithm;
-use crate::source::{BundleManifestData, BundleManifestEntry, BundleSource, BundleSourceOptions};
+use crate::source::{ManifestBundleSet, ManifestData, Source, SourceOptions};
 use crate::testing::{TempDir, TestingBundle, TestingBundleCollection};
 use std::collections::HashMap;
 use std::fs;
@@ -114,18 +114,15 @@ impl TestingSourceBuilder {
     self
   }
 
-  pub fn build(self) -> anyhow::Result<BundleSource> {
+  pub fn build(self) -> anyhow::Result<Source> {
     self.build_with_options(None)
   }
 
-  pub fn build_with_options(
-    self,
-    options: Option<BundleSourceOptions>,
-  ) -> anyhow::Result<BundleSource> {
+  pub fn build_with_options(self, options: Option<SourceOptions>) -> anyhow::Result<Source> {
     fs::create_dir_all(&self.builtin_dir)?;
     fs::create_dir_all(&self.remote_dir)?;
 
-    let mut builder = BundleSource::builder()
+    let mut builder = Source::builder()
       .builtin_dir(&self.builtin_dir)
       .remote_dir(&self.remote_dir);
     if let Some(options) = options {
@@ -133,21 +130,21 @@ impl TestingSourceBuilder {
     }
 
     let source = builder.build();
-    let mut builtin_manifest = BundleManifestData::default();
+    let mut builtin_manifest = ManifestData::default();
 
     for bundle in &self.builtin_bundles {
       let filepath = source.get_builtin_bundle_filepath(bundle.name(), bundle.version())?;
       let data = bundle.make_bundle_data()?;
       write_bundle_file(&filepath, &data)?;
 
-      let mut entry = BundleManifestEntry::default();
+      let mut entry = ManifestBundleSet::default();
       entry.versions.insert(
         bundle.version().to_string(),
         bundle.make_version_data(self.integrity_alg)?,
       );
       entry.current_version = Some(bundle.version().to_string());
       builtin_manifest
-        .entries
+        .bundles
         .insert(bundle.name().to_string(), entry);
     }
 
@@ -156,7 +153,7 @@ impl TestingSourceBuilder {
       serde_json::to_string(&builtin_manifest)?,
     )?;
 
-    let mut remote_manifest = BundleManifestData::default();
+    let mut remote_manifest = ManifestData::default();
 
     for bundle in &self.remote_bundles {
       let filepath = source.get_remote_bundle_filepath(bundle.name(), bundle.version())?;
@@ -166,14 +163,14 @@ impl TestingSourceBuilder {
       write_bundle_file(&filepath, &data)?;
 
       remote_manifest
-        .entries
+        .bundles
         .entry(bundle.name().to_string())
         .and_modify(|entry| {
           entry
             .versions
             .insert(bundle.version().to_string(), version_data.clone());
         })
-        .or_insert_with(|| BundleManifestEntry {
+        .or_insert_with(|| ManifestBundleSet {
           versions: HashMap::from([(bundle.version().to_string(), version_data)]),
           current_version: None,
           previous_version: None,
@@ -183,7 +180,7 @@ impl TestingSourceBuilder {
 
     for ((bundle_name, version), kind) in self.remote_versions.into_iter() {
       remote_manifest
-        .entries
+        .bundles
         .entry(bundle_name)
         .and_modify(|entry| match kind {
           VersionKind::Current => {
@@ -199,7 +196,7 @@ impl TestingSourceBuilder {
     }
 
     fs::write(
-      source.remote_manifest.filepath(),
+      self.remote_dir.join(crate::MANIFEST_FILENAME),
       serde_json::to_string(&remote_manifest)?,
     )?;
 

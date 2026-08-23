@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "bundles": {
+    "vite": {
+      "versions": { "1.0.0": { "integrity": null, "metadata": null } },
+      "currentVersion": "1.0.0"
+    }
+  }
+}

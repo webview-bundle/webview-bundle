@@ -1,5 +1,5 @@
 use crate::http::{HttpMethod, HttpResponse, request};
-use crate::source::BundleSource;
+use crate::source::Source;
 use std::collections::HashMap;
 use std::sync::Arc;
 use wvb::protocol;
@@ -94,7 +94,7 @@ pub struct BundleProtocolOptions {
   pub path_resolver: Option<PathResolver>,
 }
 
-/// Handles HTTP-like requests by serving bundle entries from a [`BundleSource`].
+/// Handles HTTP-like requests by serving bundle entries from a [`Source`].
 ///
 /// By default the host portion of the URI identifies the bundle by name
 /// (e.g. `https://app.wvb/index.html` → bundle `"app"`, path `"/index.html"`);
@@ -110,7 +110,7 @@ pub struct BundleProtocolHandler {
 impl BundleProtocolHandler {
   #[uniffi::constructor(default(options = None))]
   pub fn new(
-    source: Arc<BundleSource>,
+    source: Arc<Source>,
     options: Option<BundleProtocolOptions>,
   ) -> Arc<BundleProtocolHandler> {
     let mut inner = protocol::BundleProtocol::new(source.inner.clone());

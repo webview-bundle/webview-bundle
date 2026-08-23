@@ -32,39 +32,34 @@ error_codes! {
   CoreEncode => "core.encode",
   CoreDecode => "core.decode",
   CoreHttp => "core.http",
+  CoreHttpInvalidUri => "core.http_invalid_uri",
+  CoreCancelled => "core.cancelled",
+  CoreTimeout => "core.timeout",
   CoreInvalidMagicNum => "core.invalid_magic_num",
   CoreInvalidVersion => "core.invalid_version",
   CoreInvalidHeaderChecksum => "core.invalid_header_checksum",
   CoreInvalidIndexChecksum => "core.invalid_index_checksum",
   CoreChecksumMismatch => "core.checksum_mismatch",
   CoreBundleNotFound => "core.bundle_not_found",
-  CoreBundleEntryNotExists => "core.bundle_entry_not_exists",
-  CoreBundleCannotBeRemoved => "core.bundle_cannot_be_removed",
   CoreInvalidFilepath => "core.invalid_filepath",
   CoreSerdeJson => "core.serde_json",
   CoreCannotResolveProxyServer => "core.cannot_resolve_proxy_server",
-  CoreReqwest => "core.reqwest",
-  CoreInvalidRemoteUrl => "core.invalid_remote_url",
-  CoreInvalidRemoteBundle => "core.invalid_remote_bundle",
-  CoreRemoteBundleNotFound => "core.remote_bundle_not_found",
-  CoreRemoteForbidden => "core.remote_forbidden",
+  CoreHttpClient => "core.http_client",
   CoreRemoteHttp => "core.remote_http",
+  CoreBadRemoteResponse => "core.bad_remote_response",
   CoreInvalidRemoteConfig => "core.invalid_remote_config",
+  CoreInvalidUpdaterConfig => "core.invalid_updater_config",
   CoreInvalidIntegrity => "core.invalid_integrity",
   CoreIntegrityRequired => "core.integrity_required",
   CoreIntegrityVerifyFailed => "core.integrity_verify_failed",
   CoreInvalidSignature => "core.invalid_signature",
-  CoreInvalidSigningKey => "core.invalid_signing_key",
-  CoreSignatureSignFailed => "core.signature_sign_failed",
-  CoreInvalidVerifyingKey => "core.invalid_verifying_key",
-  CoreSignatureNotExists => "core.signature_not_exists",
+  CoreInvalidSignatureKey => "core.invalid_signature_key",
+  CoreExpectSignatureNotFound => "core.expect_signature_not_found",
   CoreSignatureVerifyFailed => "core.signature_verify_failed",
   CoreGeneric => "core.generic",
   InvalidHeaderName => "invalid_header_name",
   InvalidHeaderValue => "invalid_header_value",
-  InvalidSignatureOptions => "invalid_signature_options",
-  /// A binding-side validation failure with no more specific code, e.g. an unknown option key.
-  Unknown => "unknown",
+  InvalidSignatureKey => "invalid_signature_key",
   Napi => "napi",
 }
 
@@ -78,32 +73,29 @@ impl From<wvb::ErrorCode> for ErrorCode {
       wvb::ErrorCode::Encode => Self::CoreEncode,
       wvb::ErrorCode::Decode => Self::CoreDecode,
       wvb::ErrorCode::Http => Self::CoreHttp,
+      wvb::ErrorCode::HttpInvalidUri => Self::CoreHttpInvalidUri,
+      wvb::ErrorCode::Cancelled => Self::CoreCancelled,
+      wvb::ErrorCode::Timeout => Self::CoreTimeout,
       wvb::ErrorCode::InvalidMagicNum => Self::CoreInvalidMagicNum,
       wvb::ErrorCode::InvalidVersion => Self::CoreInvalidVersion,
       wvb::ErrorCode::InvalidHeaderChecksum => Self::CoreInvalidHeaderChecksum,
       wvb::ErrorCode::InvalidIndexChecksum => Self::CoreInvalidIndexChecksum,
       wvb::ErrorCode::ChecksumMismatch => Self::CoreChecksumMismatch,
       wvb::ErrorCode::BundleNotFound => Self::CoreBundleNotFound,
-      wvb::ErrorCode::BundleEntryNotExists => Self::CoreBundleEntryNotExists,
-      wvb::ErrorCode::BundleCannotBeRemoved => Self::CoreBundleCannotBeRemoved,
       wvb::ErrorCode::InvalidFilepath => Self::CoreInvalidFilepath,
       wvb::ErrorCode::SerdeJson => Self::CoreSerdeJson,
       wvb::ErrorCode::CannotResolveProxyServer => Self::CoreCannotResolveProxyServer,
-      wvb::ErrorCode::Reqwest => Self::CoreReqwest,
-      wvb::ErrorCode::InvalidRemoteUrl => Self::CoreInvalidRemoteUrl,
-      wvb::ErrorCode::InvalidRemoteBundle => Self::CoreInvalidRemoteBundle,
-      wvb::ErrorCode::RemoteBundleNotFound => Self::CoreRemoteBundleNotFound,
-      wvb::ErrorCode::RemoteForbidden => Self::CoreRemoteForbidden,
+      wvb::ErrorCode::HttpClient => Self::CoreHttpClient,
       wvb::ErrorCode::RemoteHttp => Self::CoreRemoteHttp,
+      wvb::ErrorCode::BadRemoteResponse => Self::CoreBadRemoteResponse,
       wvb::ErrorCode::InvalidRemoteConfig => Self::CoreInvalidRemoteConfig,
+      wvb::ErrorCode::InvalidUpdaterConfig => Self::CoreInvalidUpdaterConfig,
       wvb::ErrorCode::InvalidIntegrity => Self::CoreInvalidIntegrity,
       wvb::ErrorCode::IntegrityRequired => Self::CoreIntegrityRequired,
       wvb::ErrorCode::IntegrityVerifyFailed => Self::CoreIntegrityVerifyFailed,
       wvb::ErrorCode::InvalidSignature => Self::CoreInvalidSignature,
-      wvb::ErrorCode::InvalidSigningKey => Self::CoreInvalidSigningKey,
-      wvb::ErrorCode::SignatureSignFailed => Self::CoreSignatureSignFailed,
-      wvb::ErrorCode::InvalidVerifyingKey => Self::CoreInvalidVerifyingKey,
-      wvb::ErrorCode::SignatureNotExists => Self::CoreSignatureNotExists,
+      wvb::ErrorCode::InvalidSignatureKey => Self::CoreInvalidSignatureKey,
+      wvb::ErrorCode::ExpectSignatureNotFound => Self::CoreExpectSignatureNotFound,
       wvb::ErrorCode::SignatureVerifyFailed => Self::CoreSignatureVerifyFailed,
       wvb::ErrorCode::Generic => Self::CoreGeneric,
     }
@@ -119,14 +111,14 @@ pub enum Error {
   #[error(transparent)]
   InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
   #[error("{0}")]
-  InvalidSignatureOptions(String),
+  InvalidSignatureKey(String),
   #[error(transparent)]
   Napi(#[from] napi::Error),
 }
 
 impl Error {
-  pub(crate) fn invalid_signature_options(message: impl Into<String>) -> Self {
-    Self::InvalidSignatureOptions(message.into())
+  pub(crate) fn invalid_signature_key(message: impl Into<String>) -> Self {
+    Self::InvalidSignatureKey(message.into())
   }
 
   pub(crate) fn code(&self) -> ErrorCode {
@@ -134,7 +126,7 @@ impl Error {
       Self::Core(e) => e.code().into(),
       Self::InvalidHeaderName(_) => ErrorCode::InvalidHeaderName,
       Self::InvalidHeaderValue(_) => ErrorCode::InvalidHeaderValue,
-      Self::InvalidSignatureOptions(_) => ErrorCode::InvalidSignatureOptions,
+      Self::InvalidSignatureKey(_) => ErrorCode::InvalidSignatureKey,
       Self::Napi(_) => ErrorCode::Napi,
     }
   }
@@ -148,7 +140,7 @@ impl From<Error> for napi::Error {
       Error::Core(_) => napi::Error::new(napi::Status::GenericFailure, message),
       Error::InvalidHeaderName(_)
       | Error::InvalidHeaderValue(_)
-      | Error::InvalidSignatureOptions(_) => napi::Error::new(napi::Status::InvalidArg, message),
+      | Error::InvalidSignatureKey(_) => napi::Error::new(napi::Status::InvalidArg, message),
       // Already a napi error: it keeps its own status and message.
       Error::Napi(e) => e,
     }

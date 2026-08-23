@@ -3,7 +3,7 @@ use crate::integrity::IntegrityAlgorithm;
 use crate::remote::sfv::parse_string_dict;
 use crate::remote::{BundleUpdate, Remote, Update};
 #[cfg(feature = "signature-ed25519")]
-use crate::signature::{Ed25519, SignatureAlgorithm, SignatureKey, SignatureKeySet};
+use crate::signature::{Ed25519, SignatureAlgorithm, SignatureVerify, SignatureVerifyKey};
 use crate::testing::bundle::TestingBundle;
 use crate::testing::bundle_collection::TestingBundleCollection;
 use httpmock::{HttpMockRequest, HttpMockResponse, MockExt, MockServer};
@@ -205,13 +205,13 @@ impl TestingRemoteServer {
   /// The public half of a registered key, ready to be handed to
   /// `RemoteGetUpdateOptions::expect_signature`.
   #[cfg(feature = "signature-ed25519")]
-  pub fn signature_key_set(&self, key_id: &str) -> Option<SignatureKeySet> {
+  pub fn signature_key_set(&self, key_id: &str) -> Option<SignatureVerifyKey> {
     let keys = self.signature_keys.lock().unwrap();
     let signing_key = keys.get(key_id)?;
     let key = Ed25519::from_public_key_bytes(&signing_key.verifying_key().to_bytes()).ok()?;
-    Some(SignatureKeySet {
+    Some(SignatureVerifyKey {
       id: key_id.to_owned(),
-      key: SignatureKey::Ed25519(key),
+      verify: SignatureVerify::Ed25519(key),
     })
   }
 
@@ -247,8 +247,7 @@ impl TestingRemoteServer {
         let update = Update {
           id: update_id(channel.as_deref(), &versions),
           created_at: created_at.clone(),
-          expires_at: None,
-          runtime_version: crate::UPDATE_RUNTIME_VERSION,
+          runtime_version: crate::RUNTIME_VERSION,
           bundles: bundle_updates(&bundles, &versions),
           metadata: match &channel {
             Some(channel) => HashMap::from([("channel".to_owned(), channel.to_owned())]),

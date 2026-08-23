@@ -13,19 +13,18 @@ use wvb::http;
 use wvb::source;
 use wvb::{
   AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, Bundle as CoreBundle,
-  BundleBuilder as CoreBundleBuilder, BundleBuilderOptions,
-  BundleDescriptor as CoreBundleDescriptor, BundleEntry, BundleReader, BundleWriter,
-  ChecksumWriteOptions, HeaderWriterOptions, Index, IndexWriterOptions, Reader, Writer,
+  BundleBuilder as CoreBundleBuilder, BundleDescriptor as CoreBundleDescriptor, BundleEntry,
+  BundleReader, BundleWriter, Index, Reader, Writer,
 };
 
 /// The `.wvb` bundle format version.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
-pub enum BundleFormatVersion {
+pub enum Version {
   V1,
 }
 
-impl From<wvb::Version> for BundleFormatVersion {
+impl From<wvb::Version> for Version {
   fn from(v: wvb::Version) -> Self {
     match v {
       wvb::Version::V1 => Self::V1,
@@ -37,7 +36,7 @@ impl From<wvb::Version> for BundleFormatVersion {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BundleHeader {
-  pub version: BundleFormatVersion,
+  pub version: Version,
   /// Byte offset where the index section ends (the start of the data section).
   pub index_end_offset: u32,
   /// Size of the index section in bytes.
@@ -133,57 +132,13 @@ fn parse_header_map(raw: &str) -> Option<http::HeaderMap> {
   Some(headers)
 }
 
-/// Parse `{ header?, index?, dataChecksum? }` build options — each a `{ checksum?: { seed? } }`
-/// (or `{ seed? }` for `dataChecksum`). Returns `None` on any unknown or ill-typed value.
-fn parse_build_options(raw: &str) -> Option<BundleBuilderOptions> {
-  let value: serde_json::Value = serde_json::from_str(raw).ok()?;
-  let object = value.as_object()?;
-  for key in object.keys() {
-    if key != "header" && key != "index" && key != "dataChecksum" {
-      return None;
-    }
-  }
-  let mut options = BundleBuilderOptions::default();
-  if let Some(h) = object.get("header") {
-    options = options.header(HeaderWriterOptions::default().checksum(parse_nested_checksum(h)?));
-  }
-  if let Some(i) = object.get("index") {
-    options = options.index(IndexWriterOptions::default().checksum(parse_nested_checksum(i)?));
-  }
-  if let Some(c) = object.get("dataChecksum") {
-    options = options.data_checksum(parse_checksum_write(c)?);
-  }
-  Some(options)
-}
-
-/// A `{ checksum?: { seed? } }` group → its [`ChecksumWriteOptions`] (default when absent).
-fn parse_nested_checksum(value: &serde_json::Value) -> Option<ChecksumWriteOptions> {
-  let object = value.as_object()?;
-  for key in object.keys() {
-    if key != "checksum" {
-      return None;
-    }
-  }
-  match object.get("checksum") {
-    None | Some(serde_json::Value::Null) => Some(ChecksumWriteOptions::default()),
-    Some(c) => parse_checksum_write(c),
-  }
-}
-
-/// A `{ seed? }` write-checksum object → [`ChecksumWriteOptions`].
-fn parse_checksum_write(value: &serde_json::Value) -> Option<ChecksumWriteOptions> {
-  let object = value.as_object()?;
-  for key in object.keys() {
-    if key != "seed" {
-      return None;
-    }
-  }
-  let mut checksum = ChecksumWriteOptions::default();
-  match object.get("seed") {
-    None | Some(serde_json::Value::Null) => {}
-    Some(s) => checksum = checksum.seed(u32::try_from(s.as_u64()?).ok()?),
-  }
-  Some(checksum)
+/// Parse `{ header?, index?, dataChecksum? }` build options. Unknown or ill-typed keys are
+/// rejected (serde's `deny_unknown_fields`), so a misspelled option cannot silently change how the
+/// bundle is written; the returned message names the offending key.
+fn parse_build_options(raw: &str) -> Result<wvb::BundleBuilderOptions, String> {
+  serde_json::from_str::<crate::options::BundleBuilderOptions>(raw)
+    .map(Into::into)
+    .map_err(|e| e.to_string())
 }
 
 /// Read a bundle from a `.wvb` file into an in-memory [`WvbBundle`] handle (freed by
@@ -476,15 +431,10 @@ pub unsafe extern "C" fn wvb_bundle_builder_build(
   };
   if !raw.is_empty() {
     match parse_build_options(&raw) {
-      Some(options) => {
+      Ok(options) => {
         guard.set_options(options);
       }
-      None => {
-        return err_result(
-          ErrorCode::InvalidRequest,
-          "invalid build options".to_string(),
-        );
-      }
+      Err(message) => return err_result(ErrorCode::InvalidRequest, message),
     }
   }
   match guard.build() {

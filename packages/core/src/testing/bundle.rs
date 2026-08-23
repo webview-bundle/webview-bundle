@@ -1,5 +1,5 @@
 use crate::integrity::{Integrity, IntegrityAlgorithm};
-use crate::source::BundleManifestVersionData;
+use crate::source::ManifestVersionData;
 use crate::{
   Bundle, BundleBuilderOptions, BundleDescriptor, BundleEntry, BundleReader, BundleWriter, Reader,
   Writer,
@@ -71,12 +71,12 @@ impl TestingBundle {
   pub fn make_version_data(
     &self,
     integrity_alg: Option<IntegrityAlgorithm>,
-  ) -> anyhow::Result<BundleManifestVersionData> {
+  ) -> anyhow::Result<ManifestVersionData> {
     let integrity = match integrity_alg {
       Some(alg) => Some(self.make_integrity(alg)?.serialize()),
       None => None,
     };
-    Ok(BundleManifestVersionData {
+    Ok(ManifestVersionData {
       integrity,
       metadata: self.metadata.clone(),
     })

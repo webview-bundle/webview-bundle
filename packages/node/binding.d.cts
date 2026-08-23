@@ -166,7 +166,7 @@ export declare class BundleBuilder {
    * This consumes the builder's entries and creates a complete bundle with
    * compressed data.
    *
-   * @param {BuildOptions} [options] - Build options
+   * @param {BundleBuilderOptions} [options] - Build options
    * @returns {Bundle} The built bundle
    *
    * @example
@@ -175,7 +175,7 @@ export declare class BundleBuilder {
    * await writeBundle(bundle, 'output.wvb');
    * ```
    */
-  build(options?: BuildOptions | undefined | null): Bundle
+  build(options?: BundleBuilderOptions | undefined | null): Bundle
 }
 
 /**
@@ -249,7 +249,7 @@ export declare class BundleDescriptor {
  *
  * @example
  * ```typescript
- * const source = new BundleSource({
+ * const source = new Source({
  *   builtinDir: './bundles/builtin',
  *   remoteDir: './bundles/remote',
  * });
@@ -266,12 +266,12 @@ export declare class BundleProtocol {
   /**
    * Creates a new bundle protocol handler.
    *
-   * @param {BundleSource} source - Bundle source to serve files from
+   * @param {Source} source - Bundle source to serve files from
    * @param {BundleProtocolOptions} [options] - How the request uri is resolved
    *
    * @example
    * ```typescript
-   * const source = new BundleSource({
+   * const source = new Source({
    *   builtinDir: './bundles',
    *   remoteDir: './remote',
    * });
@@ -290,15 +290,15 @@ export declare class BundleProtocol {
    * ```typescript
    * // Entry checksum verification is inherited from the source's read options; to serve
    * // without checking entry checksums, configure it on the source instead.
-   * const source = new BundleSource({
+   * const source = new Source({
    *   builtinDir: './bundles',
    *   remoteDir: './remote',
-   *   dataReadOptions: { checksum: { verify: false } },
+   *   options: { dataRead: { checksum: { verify: false } } },
    * });
    * const protocol = new BundleProtocol(source);
    * ```
    */
-  constructor(source: BundleSource, options?: BundleProtocolOptions | undefined | null)
+  constructor(source: Source, options?: BundleProtocolOptions | undefined | null)
   /**
    * Handles an HTTP request and returns a response.
    *
@@ -329,261 +329,10 @@ export declare class BundleProtocol {
   handle(method: HttpMethod, uri: string, headers?: Record<string, string> | undefined | null, body?: Buffer | undefined | null): Promise<HttpResponse>
 }
 
-/**
- * Bundle source for managing multiple bundle versions.
- *
- * A source manages bundles in two directories:
- * - **builtin**: Bundles shipped with the app (read-only, fallback)
- * - **remote**: Downloaded bundles (takes priority)
- *
- * The source automatically handles version selection, with remote bundles
- * taking priority over builtin ones.
- *
- * @example
- * ```typescript
- * const source = new BundleSource({
- *   builtinDir: './bundles/builtin',
- *   remoteDir: './bundles/remote',
- * });
- *
- * // List all bundles
- * const bundles = await source.listBundles();
- *
- * // Load current version
- * const version = await source.loadVersion('app');
- *
- * // Fetch bundle
- * const bundle = await source.fetch('app');
- * ```
- */
-export declare class BundleSource {
-  /**
-   * Creates a new bundle source.
-   *
-   * @param {BundleSourceConfig} config - Source configuration
-   *
-   * @example
-   * ```typescript
-   * const source = new BundleSource({
-   *   builtinDir: './builtin',
-   *   remoteDir: './remote',
-   * });
-   * ```
-   */
-  constructor(config: BundleSourceConfig)
-  /**
-   * Lists all available bundles from both sources.
-   *
-   * Returns bundles from both builtin and remote directories, including
-   * all versions and metadata.
-   *
-   * @returns {Promise<ListBundleItem[]>} List of bundle items
-   *
-   * @example
-   * ```typescript
-   * const bundles = await source.listBundles();
-   * for (const bundle of bundles) {
-   *   console.log(`${bundle.name}@${bundle.version} (${bundle.type})`);
-   * }
-   * ```
-   */
-  listBundles(): Promise<Array<ListBundleItem>>
-  /**
-   * Loads the current version for a bundle.
-   *
-   * Returns the version from remote if available, otherwise from builtin.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<BundleSourceVersion | null>} Version info or null if not found
-   *
-   * @example
-   * ```typescript
-   * const version = await source.loadVersion('app');
-   * if (version) {
-   *   console.log(`Current version: ${version.version} (${version.type})`);
-   * }
-   * ```
-   */
-  loadVersion(bundleName: string): Promise<BundleSourceVersion | null>
-  /**
-   * Updates the current version for a remote bundle.
-   *
-   * Changes which version is considered "current" in the manifest.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version to set as current
-   *
-   * @example
-   * ```typescript
-   * await source.updateRemoteVersion('app', '1.2.0');
-   * ```
-   */
-  updateRemoteVersion(bundleName: string, version: string): Promise<void>
-  /**
-   * Gets the file path for a bundle.
-   *
-   * Returns the path to the `.wvb` file for the current version,
-   * preferring remote over builtin.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<string>} Absolute file path
-   *
-   * @example
-   * ```typescript
-   * const path = await source.resolveFilepath('app');
-   * console.log(`Bundle at: ${path}`);
-   * ```
-   */
-  resolveFilepath(bundleName: string): Promise<string>
-  /**
-   * Get the file path for a builtin bundle.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version of the bundle
-   * @returns {string} Absolute file path
-   */
-  getBuiltinBundleFilepath(bundleName: string, version: string): string
-  /**
-   * Get the file path for a remote bundle.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version of the bundle
-   * @returns {string} Absolute file path
-   */
-  getRemoteBundleFilepath(bundleName: string, version: string): string
-  /**
-   * Fetches a bundle.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<Bundle>} Fetched bundle
-   *
-   * @example
-   * ```typescript
-   * const bundle = await source.fetchBundle('app');
-   * const html = bundle.getData('/index.html');
-   * ```
-   */
-  fetchBundle(bundleName: string): Promise<Bundle>
-  /**
-   * Fetches a builtin bundle.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version of the bundle
-   * @returns {Promise<Bundle>} Fetched bundle
-   */
-  fetchBuiltinBundle(bundleName: string, version: string): Promise<Bundle>
-  /**
-   * Fetches a remote bundle.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version of the bundle
-   * @returns {Promise<Bundle>} Fetched bundle
-   */
-  fetchRemoteBundle(bundleName: string, version: string): Promise<Bundle>
-  /**
-   * Fetches only the bundle descriptor.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<BundleDescriptor>} Bundle descriptor
-   *
-   * @example
-   * ```typescript
-   * const descriptor = await source.fetchDescriptor('app');
-   * const index = descriptor.index();
-   * console.log(`Files: ${Object.keys(index.entries()).length}`);
-   * ```
-   */
-  fetchDescriptor(bundleName: string): Promise<BundleDescriptor>
-  /**
-   * Load builtin bundle metadata.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version of the bundle
-   * @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
-   */
-  loadBuiltinMetadata(bundleName: string, version: string): Promise<BundleManifestMetadata | null>
-  /**
-   * Load remote bundle metadata.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version of the bundle
-   * @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
-   */
-  loadRemoteMetadata(bundleName: string, version: string): Promise<BundleManifestMetadata | null>
-  /**
-   * Writes a bundle to the remote directory.
-   *
-   * Installs a new bundle version to the remote directory and updates
-   * the manifest.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version string
-   * @param {Bundle} bundle - Bundle to write
-   * @param {BundleManifestMetadata} metadata - Bundle metadata
-   *
-   * @example
-   * ```typescript
-   * await source.writeRemoteBundle('app', '1.2.0', bundle, {
-   *   integrity: 'sha3-384-...',
-   *   etag: 'abc123',
-   * });
-   * ```
-   */
-  writeRemoteBundle(bundleName: string, version: string, bundle: Bundle, metadata: BundleManifestMetadata): Promise<void>
-  /**
-   * Loads (and caches) the descriptor for the current version of a bundle.
-   *
-   * The descriptor reads entry data lazily from disk via
-   * {@link LoadedDescriptor.getData}, avoiding loading the full bundle into memory.
-   * Concurrent calls for the same bundle share a single load (single-flight) and
-   * return the cached descriptor until the active version changes or
-   * {@link BundleSource.unloadDescriptor} is called.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<LoadedDescriptor>} Loaded descriptor
-   *
-   * @example
-   * ```typescript
-   * const loaded = await source.loadDescriptor('app');
-   * const html = await loaded.getData('/index.html');
-   * ```
-   */
-  loadDescriptor(bundleName: string): Promise<LoadedDescriptor>
-  /**
-   * Drops the cached descriptor for a bundle, if present.
-   *
-   * Already-returned {@link LoadedDescriptor} handles keep working; they hold their
-   * own reference and are unaffected. The next {@link BundleSource.loadDescriptor}
-   * reloads from disk.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {boolean} True if a cached descriptor was removed
-   */
-  unloadDescriptor(bundleName: string): boolean
-  /**
-   * Removes a single staged remote bundle version.
-   *
-   * Drops its manifest entry and deletes its file from disk.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Version to remove
-   * @returns {Promise<boolean>} True if the entry existed and was removed
-   */
-  removeRemoteBundle(bundleName: string, version: string): Promise<boolean>
-  /**
-   * Returns the remote versions that pruning retains (the current and previous versions).
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<string[]>} Retained version strings
-   */
-  remoteRetainedVersions(bundleName: string): Promise<Array<string>>
-  /**
-   * Removes every staged remote version except the retained set (current and previous).
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @returns {Promise<string[]>} Versions that were removed
-   */
-  pruneRemoteBundles(bundleName: string): Promise<Array<string>>
+export declare class Cancellation {
+  constructor()
+  cancel(): void
+  isCancelled(): boolean
 }
 
 /**
@@ -704,63 +453,9 @@ export declare class Integrity {
   serialize(): string
 }
 
-/**
- * A descriptor loaded (and cached) by a [`BundleSource`].
- *
- * Holds the parsed header/index together with the filepath it was loaded from, so
- * reading entry data always targets the exact bundle version that produced this
- * descriptor — even if the source's active version is swapped concurrently.
- *
- * The instance owns a reference-counted handle to the cached descriptor. When the
- * JavaScript object is garbage-collected, the handle is released automatically; the
- * underlying descriptor stays alive only while the source cache (see
- * {@link BundleSource.loadDescriptor}) or another `LoadedDescriptor` references it.
- * No manual disposal is required and no memory is leaked.
- */
 export declare class LoadedDescriptor {
-  /**
-   * Returns the bundle descriptor
-   *
-   * The returned descriptor shares the same in-memory metadata and carries no
-   * reference back to the source, so it can outlive this `LoadedDescriptor`.
-   *
-   * @returns {BundleDescriptor} Bundle metadata
-   *
-   * @example
-   * ```typescript
-   * const loaded = await source.loadDescriptor('app');
-   * const index = loaded.descriptor().index();
-   * console.log(index.containsPath('/index.html'));
-   * ```
-   */
   descriptor(): BundleDescriptor
-  /**
-   * Reads file data for `path`, loading it lazily from disk.
-   *
-   * The read targets the bundle file this descriptor was loaded from, so the data
-   * is always consistent with {@link LoadedDescriptor.descriptor} even if the
-   * source's active version changes meanwhile. Returns `null` if the path does not
-   * exist in the bundle.
-   *
-   * @param {string} path - File path in the bundle (e.g., "/index.html")
-   * @returns {Promise<Buffer | null>} File contents or null if not found
-   *
-   * @example
-   * ```typescript
-   * const loaded = await source.loadDescriptor('app');
-   * const html = await loaded.getData('/index.html');
-   * if (html) {
-   *   console.log(html.toString('utf-8'));
-   * }
-   * ```
-   */
   getData(path: string): Promise<Buffer | null>
-  /**
-   * Reads the checksum of file data for `path`, loading it lazily from disk.
-   *
-   * @param {string} path - File path in the bundle
-   * @returns {Promise<number | null>} xxHash-32 checksum or null if not found
-   */
   getDataChecksum(path: string): Promise<number | null>
 }
 
@@ -840,45 +535,30 @@ export declare class ProxyProtocol {
 }
 
 /**
- * HTTP client for downloading bundles from a remote server.
- *
- * The remote client implements the bundle HTTP protocol, allowing you to:
- * - List available bundles
- * - Get bundle metadata
- * - Download specific versions
- * - Track download progress
+ * HTTP client for getting updates and downloading bundles from a remote server.
  *
  * @example
  * ```typescript
- * const remote = new Remote('https://updates.example.com');
+ * const remote = new Remote({ baseUrl: 'https://updates.example.com' });
  *
- * // List all bundles
- * const bundles = await remote.listBundles();
- *
- * // Get current version info
- * const info = await remote.getInfo('app');
- * console.log(`Latest version: ${info.version}`);
- *
- * // Download bundle
- * const [bundleInfo, bundle, data] = await remote.download('app');
+ * const response = await remote.getUpdate();
+ * if (response != null) {
+ *   for (const bundle of response.update.bundles) {
+ *     await remote.download(bundle.downloadUrl, `./remote/${bundle.name}/${bundle.version}.wvb`);
+ *   }
+ * }
  * ```
  */
 export declare class Remote {
   /**
    * Creates a new remote client.
    *
-   * @param {string} endpoint - Base URL of the remote server
-   * @param {RemoteOptions} [options] - Client options
+   * @param {RemoteConfig} config - Client config
    *
    * @example
    * ```typescript
-   * const remote = new Remote('https://updates.example.com');
-   * ```
-   *
-   * @example
-   * ```typescript
-   * // With options
-   * const remote = new Remote('https://updates.example.com', {
+   * const remote = new Remote({
+   *   baseUrl: 'https://updates.example.com',
    *   http: { timeout: 60000 },
    *   onDownload: data => {
    *     const percent = (data.downloadedBytes / data.totalBytes) * 100;
@@ -887,487 +567,96 @@ export declare class Remote {
    * });
    * ```
    */
-  constructor(endpoint: string, options?: RemoteOptions | undefined | null)
+  constructor(config: RemoteConfig)
   /**
-   * Lists all available bundles on the server.
+   * Gets update information from the remote server.
    *
-   * @param {RemoteFetchOptions} [options] - Options for fetching
-   * @returns {Promise<ListRemoteBundleInfo[]>} List of bundles
-   *
-   * @example
-   * ```typescript
-   * const bundles = await remote.listBundles();
-   * for (const bundle of bundles) {
-   *   console.log(`${bundle.name}@${bundle.version}`);
-   * }
-   * ```
+   * @param {RemoteGetUpdateOptions} [options] - Request options
+   * @returns {Promise<RemoteUpdateResponse | null>} Update response, or null when not modified
    */
-  listBundles(options?: RemoteFetchOptions | undefined | null): Promise<Array<ListRemoteBundleInfo>>
+  getUpdate(options?: RemoteGetUpdateOptions | undefined | null): Promise<RemoteUpdateResponse | null>
   /**
-   * Gets bundle metadata for the current version.
+   * Downloads a bundle into the given file path.
    *
-   * Fetches metadata without downloading the bundle itself.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {RemoteFetchOptions} [options] - Options for fetching
-   * @returns {Promise<RemoteBundleInfo>} Bundle information
-   *
-   * @example
-   * ```typescript
-   * const info = await remote.getInfo('app');
-   * console.log(`Current version: ${info.version}`);
-   * if (info.integrity) {
-   *   console.log(`Integrity: ${info.integrity}`);
-   * }
-   * ```
+   * @param {string} url - URL to download from
+   * @param {string} filepath - Destination file path
+   * @param {Cancellation} [cancellation] - Cancels the download when triggered
    */
-  getInfo(bundleName: string, options?: RemoteFetchOptions | undefined | null): Promise<RemoteBundleInfo>
-  /**
-   * Downloads the current version of a bundle.
-   *
-   * Returns bundle info, parsed bundle, and raw data.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {RemoteFetchOptions} [options] - Options for fetching
-   * @returns {Promise<[RemoteBundleInfo, Bundle, Buffer]>} Tuple of info, bundle, and data
-   *
-   * @example
-   * ```typescript
-   * const [info, bundle, data] = await remote.download('app');
-   * console.log(`Downloaded ${info.name}@${info.version}`);
-   * console.log(`Size: ${data.length} bytes`);
-   *
-   * // Save to file
-   * await writeBundle(bundle, 'app.wvb');
-   * ```
-   */
-  download(bundleName: string, channel?: string | undefined | null): Promise<[RemoteBundleInfo, Bundle, Buffer]>
-  /**
-   * Downloads a specific version of a bundle.
-   *
-   * @param {string} bundleName - Name of the bundle
-   * @param {string} version - Specific version to download
-   * @returns {Promise<[RemoteBundleInfo, Bundle, Buffer]>} Tuple of info, bundle, and data
-   *
-   * @example
-   * ```typescript
-   * const [info, bundle, data] = await remote.downloadVersion('app', '1.0.0');
-   * console.log(`Downloaded specific version: ${info.version}`);
-   * ```
-   */
-  downloadVersion(bundleName: string, version: string): Promise<[RemoteBundleInfo, Bundle, Buffer]>
+  download(url: string, filepath: string, cancellation?: Cancellation | undefined | null): Promise<void>
 }
 
-/**
- * Bundle updater for managing updates from a remote server.
- *
- * The updater coordinates between a local bundle source and remote server,
- * handling update checks, downloads, integrity verification, and signature validation.
- *
- * Integrity and signature are verified independently; because a signature signs the
- * integrity string rather than the bundle bytes, keep `integrityPolicy` enabled so the
- * signature also authenticates the downloaded bytes.
- *
- * @example
- * ```typescript
- * import { Updater, BundleSource, Remote } from '@wvb/node';
- *
- * const source = new BundleSource({
- *   builtinDir: './bundles/builtin',
- *   remoteDir: './bundles/remote',
- * });
- *
- * const remote = new Remote('https://updates.example.com');
- *
- * const updater = new Updater(source, remote, {
- *   channel: 'stable',
- *   integrityPolicy: 'strict',
- *   signatureVerifier: {
- *     algorithm: 'ed25519',
- *     key: {
- *       format: 'spkiPem',
- *       data: publicKeyPem,
- *     },
- *   },
- * });
- *
- * // Check for updates
- * const updateInfo = await updater.getUpdate('app');
- * if (updateInfo.isAvailable) {
- *   console.log(`Update available: ${updateInfo.version}`);
- *   await updater.download('app');
- *   await updater.install('app', updateInfo.version);
- * }
- * ```
- */
+export declare class Source {
+  constructor(config: SourceConfig)
+  listBundles(): Promise<Array<SourceListItem>>
+  listBuiltinBundles(): Promise<Array<SourceListItem>>
+  listRemoteBundles(): Promise<Array<SourceListItem>>
+  getVersion(bundleName: string): Promise<BundleSourceVersion | null>
+  getRemoteStagedVersion(bundleName: string): Promise<string | null>
+  getRemotePreviousVersion(bundleName: string): Promise<string | null>
+  updateRemoteVersion(bundleName: string, version: string): Promise<ManifestSetCurrentVersionResult>
+  updateRemoteVersions(items: Record<string, string>): Promise<Array<ManifestSetCurrentVersionResult>>
+  stageRemoteBundle(bundleName: string, data: ManifestStageData): Promise<ManifestStageResult>
+  stageRemoteBundles(items: Record<string, ManifestStageData>): Promise<Array<ManifestStageResult>>
+  resolveFilepath(bundleName: string): Promise<string>
+  getBuiltinBundleFilepath(bundleName: string, version: string): string
+  getRemoteBundleFilepath(bundleName: string, version: string): string
+  fetchBundle(bundleName: string): Promise<Bundle>
+  fetchBuiltinBundle(bundleName: string, version: string): Promise<Bundle>
+  fetchRemoteBundle(bundleName: string, version: string): Promise<Bundle>
+  fetchDescriptor(bundleName: string): Promise<BundleDescriptor>
+  getBuiltinVersionData(bundleName: string, version: string): Promise<ManifestVersionData | null>
+  getRemoteVersionData(bundleName: string, version: string): Promise<ManifestVersionData | null>
+  load(bundleName: string): Promise<LoadedDescriptor>
+  unload(bundleName: string): boolean
+  removeRemoteBundle(bundleName: string, version: string, force?: boolean | undefined | null): Promise<ManifestRemoveResult>
+  removeRemoteBundles(items: Record<string, ManifestRemoveData>): Promise<Array<ManifestRemoveResult>>
+  pruneRemoteBundle(bundleName: string): Promise<ManifestPruneResult>
+  pruneRemoteBundles(bundleNames: Array<string>): Promise<Array<ManifestPruneResult>>
+}
+
 export declare class Updater {
-  /**
-   * Creates a new updater instance.
-   *
-   * @param {BundleSource} source - Bundle source for storing downloaded bundles
-   * @param {Remote} remote - Remote client for fetching bundles
-   * @param {UpdaterOptions} [options] - Optional updater configuration
-   *
-   * @example
-   * ```typescript
-   * const updater = new Updater(source, remote, {
-   *   channel: 'stable',
-   *   integrityPolicy: 'strict',
-   * });
-   * ```
-   */
-  constructor(source: BundleSource, remote: Remote, options?: UpdaterOptions | undefined | null)
-  /**
-   * Lists all available bundles on the remote server.
-   *
-   * @returns {Promise<ListRemoteBundleInfo[]>} Array of remote bundle information
-   *
-   * @example
-   * ```typescript
-   * const remotes = await updater.listRemotes();
-   * for (const bundle of remotes) {
-   *   console.log(`${bundle.name}: ${bundle.version}`);
-   * }
-   * ```
-   */
-  listRemotes(): Promise<Array<ListRemoteBundleInfo>>
-  /**
-   * Checks if an update is available for a specific bundle.
-   *
-   * Compares the local version with the remote version to determine if an update exists.
-   *
-   * @param {string} bundleName - Name of the bundle to check
-   * @returns {Promise<BundleUpdateInfo>} Update information
-   *
-   * @example
-   * ```typescript
-   * const updateInfo = await updater.getUpdate('app');
-   * if (updateInfo.isAvailable) {
-   *   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
-   * } else {
-   *   console.log('Already up to date');
-   * }
-   * ```
-   */
-  getUpdate(bundleName: string): Promise<BundleUpdateInfo>
-  /**
-   * Downloads a bundle update from remote server.
-   *
-   * Downloads the specified bundle version (or the latest if not specified),
-   * verifies integrity and signature if configured, and download it to the remote directory.
-   *
-   * @param {string} bundleName - Name of the bundle to download
-   * @param {string} [version] - Specific version to download (defaults to latest)
-   * @returns {Promise<RemoteBundleInfo>} Information about the downloaded bundle
-   *
-   * @example
-   * ```typescript
-   * // Download latest version
-   * const info = await updater.download('app');
-   * console.log(`Downloaded ${info.name} v${info.version}`);
-   * ```
-   *
-   * @example
-   * ```typescript
-   * // Download specific version
-   * const info = await updater.download('app', '1.2.3');
-   * console.log(`Downloaded ${info.name} v${info.version}`);
-   * ```
-   */
-  download(bundleName: string, version?: string | undefined | null): Promise<RemoteBundleInfo>
-  /**
-   * Activates a previously downloaded bundle version.
-   *
-   * The version must already be staged in the remote source (via
-   * {@link Updater.download}). When integrity/signature verification is
-   * configured, the staged bundle is verified before activation. On success the
-   * current version is updated so the protocol begins serving it, the cached
-   * descriptor is dropped, and stale staged versions are pruned.
-   *
-   * Concurrent `install`/`download` calls for the same bundle are serialized,
-   * so this never races a download or another install of the same bundle.
-   *
-   * @param {string} bundleName - Name of the bundle to activate
-   * @param {string} version - The downloaded version to activate
-   *
-   * @example
-   * ```typescript
-   * await updater.download('app', '1.2.0');
-   * // ...later, active the latest version:
-   * await updater.install('app', '1.2.0');
-   * ```
-   */
-  install(bundleName: string, version: string): Promise<void>
-}
-
-/**
- * Options for bundle header generation.
- *
- * @property {ChecksumWriteOptions} [checksum] - Checksum generation for the header section
- */
-export interface BuildHeaderOptions {
-  checksum?: ChecksumWriteOptions
-}
-
-/**
- * Options for bundle index generation.
- *
- * @property {ChecksumWriteOptions} [checksum] - Checksum generation for the index section
- */
-export interface BuildIndexOptions {
-  checksum?: ChecksumWriteOptions
+  constructor(source: Source, remote: Remote, updateFilepath: string, options?: UpdaterOptions | undefined | null)
+  getUpdate(options?: UpdaterGetUpdateOptions | undefined | null): Promise<Update | null>
+  download(bundleUpdates: Array<BundleUpdate>, options?: UpdaterDownloadOptions | undefined | null, cancellation?: Cancellation | undefined | null): Promise<Array<UpdaterDownloadResult>>
+  install(targets: Array<UpdaterInstallTarget>): Promise<Array<UpdaterInstallResult>>
+  rollback(targets: Array<UpdaterRollbackTarget>): Promise<Array<UpdaterRollbackResult>>
 }
 
 /**
  * Options for building a bundle.
  *
- * @property {BuildHeaderOptions} [header] - Header generation options
- * @property {BuildIndexOptions} [index] - Index generation options
+ * @property {HeaderWriterOptions} [header] - Header generation options
+ * @property {IndexWriterOptions} [index] - Index generation options
  * @property {ChecksumWriteOptions} [dataChecksum] - Checksum generation for the data section
  */
-export interface BuildOptions {
-  header?: BuildHeaderOptions
-  index?: BuildIndexOptions
+export interface BundleBuilderOptions {
+  header?: HeaderWriterOptions
+  index?: IndexWriterOptions
   dataChecksum?: ChecksumWriteOptions
-}
-
-/**
- * Complete manifest data structure.
- *
- * The manifest tracks all bundle versions and metadata.
- *
- * @property {1} manifestVersion - Manifest format version (always 1)
- * @property {Record<string, BundleManifestEntry>} entries - Bundle entries by name
- */
-export interface BundleManifestData {
-  manifestVersion: 1
-  entries: Record<string, BundleManifestEntry>
-}
-
-/**
- * Entry for a single bundle in the manifest.
- *
- * Contains all versions and the current active version.
- *
- * @property {Record<string, BundleManifestMetadata>} versions - Available versions
- * @property {string} currentVersion - Currently active version
- */
-export interface BundleManifestEntry {
-  versions: Record<string, BundleManifestMetadata>
-  currentVersion: string
-}
-
-/**
- * Metadata for a bundle version in the manifest.
- *
- * Contains cache validation and integrity information.
- *
- * @property {string} [etag] - HTTP ETag for cache validation
- * @property {string} [integrity] - SHA3 integrity hash for verification
- * @property {string} [signature] - Digital signature for authentication
- * @property {string} [lastModified] - HTTP Last-Modified timestamp
- */
-export interface BundleManifestMetadata {
-  etag?: string
-  integrity?: string
-  signature?: string
-  lastModified?: string
-}
-
-/**
- * Manifest format version.
- *
- * @enum {number}
- */
-export declare enum BundleManifestVersion {
-  V1 = 1
 }
 
 /**
  * Options for the bundle protocol.
  *
- * @property {BundleResolverOptions} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
- * @property {PathResolver} [pathResolver] - How the file path is resolved (default: 'directoryIndex')
+ * @property {UriBundleResolver} [bundleResolver] - How the bundle name is resolved (default: first hostname segment)
+ * @property {UriPathResolver} [pathResolver] - How the file path is resolved (default: 'directory_index')
  */
 export interface BundleProtocolOptions {
-  bundleResolver?: BundleResolverOptions
-  pathResolver?: PathResolver
+  bundleResolver?: UriBundleResolver
+  pathResolver?: UriPathResolver
 }
 
-/**
- * Options for resolving the bundle name from the request uri.
- *
- * - `hostname`: from the uri hostname.
- *   - `segment` - Hostname segment to use, or the nth segment (default: 'first')
- *   - `allowWvbSuffixOnly` - Only resolve hosts ending in `.wvb` (default: false)
- * - `pathname`: from the uri pathname.
- *   - `segmentIndex` - Path segment index, 0-based over non-empty segments (default: 0)
- *
- * @example
- * ```typescript
- * // `https://app.wvb/index.html` -> bundle "app"
- * const byHostname: BundleResolverOptions = { type: 'hostname' };
- *
- * // `https://cdn.example.com/my-app/index.html` -> bundle "my-app"
- * const byPathname: BundleResolverOptions = { type: 'pathname', segmentIndex: 0 };
- * ```
- */
-export type BundleResolverOptions =
-  | { type: 'hostname', segment?: HostnameSegment | number, allowWvbSuffixOnly?: boolean }
-  | { type: 'pathname', segmentIndex?: number }
-
-/**
- * Configuration for creating a bundle source.
- *
- * @property {string} builtinDir - Directory containing builtin bundles
- * @property {string} remoteDir - Directory containing remote bundles
- * @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
- * @property {string} [remoteManifestFilepath] - Custom manifest path for remote
- * @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
- * @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
- * @property {DataReadOptions} [dataReadOptions] - Verify each entry's checksum when its data is read
- * @property {HeaderReadOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded
- * @property {IndexReadOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded
- *
- * @example
- * ```typescript
- * const config = {
- *   builtinDir: './bundles/builtin',
- *   remoteDir: './bundles/remote',
- * };
- * const source = new BundleSource(config);
- * ```
- *
- * @example
- * ```typescript
- * // Require downloaded bundles to match the integrity recorded in the manifest.
- * const source = new BundleSource({
- *   builtinDir: './bundles/builtin',
- *   remoteDir: './bundles/remote',
- *   integrity: { policy: 'strict' },
- * });
- * ```
- *
- * @example
- * ```typescript
- * // Turn off data checksum verification and seed the index checksum.
- * const source = new BundleSource({
- *   builtinDir: './bundles/builtin',
- *   remoteDir: './bundles/remote',
- *   dataReadOptions: { checksum: { verify: false } },
- *   indexReadOptions: { checksum: { seed: 42 } },
- * });
- * ```
- */
-export interface BundleSourceConfig {
-  builtinDir: string
-  remoteDir: string
-  builtinManifestFilepath?: string
-  remoteManifestFilepath?: string
-  integrity?: BundleSourceIntegrityOptions
-  signature?: BundleSourceSignatureOptions
-  dataReadOptions?: DataReadOptions
-  headerReadOptions?: HeaderReadOptions
-  indexReadOptions?: IndexReadOptions
-}
-
-/**
- * How bundles are checked against the integrity recorded for them in the manifest when
- * they are loaded from disk.
- *
- * @property {IntegrityPolicy} [policy] - How a bundle's integrity metadata is treated (default: 'optional'; 'off' disables the check)
- * @property {Function} [check] - Custom checker that validates bundle bytes against an integrity string
- * @property {BundleSourceVerifyMode} [checkMode] - Which bundles are checked on load (default: 'onlyRemote')
- */
-export interface BundleSourceIntegrityOptions {
-  policy?: IntegrityPolicy
-  check?: (data: Uint8Array, integrity: string) => Promise<boolean>
-  checkMode?: BundleSourceVerifyMode
-}
-
-/**
- * The type of bundle source: builtin or remote.
- *
- * @enum {string}
- */
-export type BundleSourceKind = /** Bundles shipped with the application (read-only| fallback) */
-'builtin'|
-/** Downloaded bundles (takes priority over builtin) */
-'remote';
-
-/**
- * How bundle signatures are verified when bundles are loaded from disk.
- *
- * A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
- * bundle bytes; verifying it proves the integrity string is authentic. It is verified
- * independently of the integrity check, so pair it with an enabled integrity policy to
- * also authenticate the bytes — signature verification alone does not read them.
- *
- * @property {SignatureVerifierOptions | Function} [verify] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
- * @property {BundleSourceVerifyMode} [verifyMode] - Which bundles have their signature verified on load (default: 'onlyRemote')
- */
-export interface BundleSourceSignatureOptions {
-  verify?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
-  verifyMode?: BundleSourceVerifyMode
-}
-
-/**
- * Which bundles a load-time verification applies to.
- *
- * @enum {string}
- */
-export type BundleSourceVerifyMode = /**
- * Verify both builtin and remote bundles. Builtin bundles ship inside the application|
- * so the builtin manifest must carry the metadata being verified for the check to have
- * anything to work with.
- */
-'all'|
-/** Verify downloaded (remote) bundles only. */
-'onlyRemote';
-
-/**
- * Bundle version with source kind information.
- *
- * Indicates which source (builtin or remote) provides a bundle version.
- *
- * @property {BundleSourceKind} type - The source kind
- * @property {string} version - The version string (e.g., "1.0.0")
- */
 export interface BundleSourceVersion {
-  type: BundleSourceKind
+  source: SourceKind
   version: string
 }
 
-/**
- * Information about a bundle update.
- *
- * @property {string} name - Bundle name
- * @property {string} version - Remote version available
- * @property {string} [localVersion] - Currently installed version
- * @property {boolean} isAvailable - Whether an update is available
- * @property {string} [etag] - ETag for caching
- * @property {string} [integrity] - Integrity hash (e.g., "sha384-...")
- * @property {string} [signature] - Digital signature
- * @property {string} [lastModified] - Last modified timestamp
- *
- * @example
- * ```typescript
- * const updateInfo = await updater.getUpdate('app');
- * if (updateInfo.isAvailable) {
- *   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
- *   await updater.download('app');
- * }
- * ```
- */
-export interface BundleUpdateInfo {
+export interface BundleUpdate {
   name: string
   version: string
-  localVersion?: string
-  isAvailable: boolean
-  etag?: string
+  downloadUrl?: string
   integrity?: string
-  signature?: string
-  lastModified?: string
+  metadata?: Record<string, string>
 }
 
 /**
@@ -1426,40 +715,37 @@ export type ErrorCode =  'core.io'|
 'core.encode'|
 'core.decode'|
 'core.http'|
+'core.http_invalid_uri'|
+'core.cancelled'|
+'core.timeout'|
 'core.invalid_magic_num'|
 'core.invalid_version'|
 'core.invalid_header_checksum'|
 'core.invalid_index_checksum'|
 'core.checksum_mismatch'|
 'core.bundle_not_found'|
-'core.bundle_entry_not_exists'|
-'core.bundle_cannot_be_removed'|
 'core.invalid_filepath'|
 'core.serde_json'|
 'core.cannot_resolve_proxy_server'|
-'core.reqwest'|
-'core.invalid_remote_url'|
-'core.invalid_remote_bundle'|
-'core.remote_bundle_not_found'|
-'core.remote_forbidden'|
+'core.http_client'|
 'core.remote_http'|
+'core.bad_remote_response'|
 'core.invalid_remote_config'|
+'core.invalid_updater_config'|
 'core.invalid_integrity'|
 'core.integrity_required'|
 'core.integrity_verify_failed'|
 'core.invalid_signature'|
-'core.invalid_signing_key'|
-'core.signature_sign_failed'|
-'core.invalid_verifying_key'|
-'core.signature_not_exists'|
+'core.invalid_signature_key'|
+'core.expect_signature_not_found'|
 'core.signature_verify_failed'|
 'core.generic'|
 'invalid_header_name'|
 'invalid_header_value'|
-'invalid_signature_options'|
-/** r" A binding-side validation failure with no more specific code| e.g. an unknown option key. */
-'unknown'|
+'invalid_signature_key'|
 'napi';
+
+export const EXTENSION: string
 
 /**
  * How a bundle's header is read.
@@ -1468,6 +754,15 @@ export type ErrorCode =  'core.io'|
  */
 export interface HeaderReadOptions {
   checksum?: ChecksumReadOptions
+}
+
+/**
+ * Options for bundle header generation.
+ *
+ * @property {ChecksumWriteOptions} [checksum] - Checksum generation for the header section
+ */
+export interface HeaderWriterOptions {
+  checksum?: ChecksumWriteOptions
 }
 
 /**
@@ -1482,7 +777,7 @@ export type HostnameSegment = /** First segment. (e.g. `app.mydomain.com` -> `ap
 /** Full hostname. (e.g. `app.wvb` -> `app.wvb`) */
 'full'|
 /** Strip the last segment. (e.g. `a.b.wvb` -> `a.b`) */
-'stripSuffix';
+'strip_suffix';
 
 export type HttpMethod =  'get'|
 'head'|
@@ -1504,7 +799,6 @@ export interface HttpOptions {
   poolMaxIdlePerHost?: number
   referer?: boolean
   tcpNodelay?: boolean
-  hickoryDns?: boolean
 }
 
 export interface HttpResponse {
@@ -1544,6 +838,15 @@ export interface IndexReadOptions {
 }
 
 /**
+ * Options for bundle index generation.
+ *
+ * @property {ChecksumWriteOptions} [checksum] - Checksum generation for the index section
+ */
+export interface IndexWriterOptions {
+  checksum?: ChecksumWriteOptions
+}
+
+/**
  * Hash algorithm for bundle integrity verification.
  *
  * Supports SHA-2 family hash algorithms for cryptographic verification.
@@ -1567,21 +870,6 @@ export type IntegrityAlgorithm = /** SHA-256 (256-bit hash) */
  * Policy for enforcing integrity verification during bundle operations.
  *
  * Controls when integrity hashes are required and how missing hashes are handled.
- *
- * @example
- * ```typescript
- * import { Updater } from '@wvb/node';
- *
- * // Require integrity for all bundles
- * const updater = new Updater(source, remote, {
- *   integrityPolicy: 'strict',
- * });
- *
- * // Optional integrity (warn if missing)
- * const updater2 = new Updater(source, remote, {
- *   integrityPolicy: 'optional',
- * });
- * ```
  */
 export type IntegrityPolicy = /** Require integrity verification for all bundles. Operations fail if integrity is missing or invalid. */
 'strict'|
@@ -1590,33 +878,85 @@ export type IntegrityPolicy = /** Require integrity verification for all bundles
 /** Skip integrity verification entirely. */
 'off';
 
-/**
- * Information about a bundle from list operations.
- *
- * @property {BundleSourceKind} type - Source kind (builtin or remote)
- * @property {string} name - Bundle name
- * @property {string} version - Version string
- * @property {boolean} current - Whether this is the current active version
- * @property {BundleManifestMetadata} metadata - Bundle metadata
- */
-export interface ListBundleItem {
-  type: BundleSourceKind
+export interface ManifestBundleItem {
   name: string
   version: string
-  current: boolean
-  metadata: BundleManifestMetadata
+  status: ManifestBundleItemStatus
+  data: ManifestVersionData
 }
 
-/**
- * Bundle information from list operations.
- *
- * @property {string} name - Bundle name
- * @property {string} version - Version string
- */
-export interface ListRemoteBundleInfo {
+export type ManifestBundleItemStatus =  'current'|
+'previous'|
+'staged'|
+'orphan';
+
+export interface ManifestBundleSet {
+  versions: Record<string, ManifestVersionData>
+  currentVersion?: string
+  previousVersion?: string
+  stagedVersion?: string
+}
+
+export interface ManifestData {
+  manifestVersion: ManifestVersion
+  bundles: Record<string, ManifestBundleSet>
+}
+
+export interface ManifestPruneResult {
+  name: string
+  prunedVersions: Array<string>
+}
+
+export interface ManifestRemoveData {
+  versions: Array<string>
+  force?: boolean
+}
+
+export interface ManifestRemoveResult {
   name: string
   version: string
+  kind: ManifestRemoveResultKind
 }
+
+export type ManifestRemoveResultKind =  'removed'|
+'not_exists'|
+'version_not_exists'|
+'in_use';
+
+export interface ManifestSetCurrentVersionResult {
+  name: string
+  version: string
+  kind: ManifestSetCurrentVersionResultKind
+}
+
+export type ManifestSetCurrentVersionResultKind =  'settled'|
+'not_exists'|
+'version_not_exists';
+
+export interface ManifestStageData {
+  version: string
+  data?: ManifestVersionData
+}
+
+export interface ManifestStageResult {
+  name: string
+  version: string
+  kind: ManifestStageResultKind
+}
+
+export type ManifestStageResultKind =  'staged'|
+'in_use';
+
+export declare enum ManifestVersion {
+  V1 = 1
+}
+
+export interface ManifestVersionData {
+  integrity?: string
+  metadata?: Record<string, string>
+}
+
+export const MIME_TYPE: string
 
 /**
  * Parses a serialized integrity string (e.g. `"sha256:n4bQ..."`).
@@ -1632,24 +972,6 @@ export interface ListRemoteBundleInfo {
  * ```
  */
 export declare function parseIntegrity(integrity: string): Integrity
-
-/**
- * How the file path in the bundle is resolved from the request uri.
- *
- * @enum {string}
- */
-export type PathResolver = /** Use the uri path as-is (only percent-decoded). */
-'exact'|
-/**
- * Directory index: `/` -> `/index.html` and `/about` -> `/about/index.html`.
- * (static-site / MPA style; e.g. Astro `format: 'directory'` / Next `trailingSlash: true`)
- */
-'directoryIndex'|
-/**
- * `.html` extension: `/` -> `/index.html` and `/about` -> `/about.html`.
- * (flat-file style; e.g. Astro `format: 'file'` / GitHub Pages / Next `trailingSlash: false`)
- */
-'htmlExtension';
 
 /**
  * Reads a bundle from a file asynchronously.
@@ -1682,34 +1004,16 @@ export declare function readBundle(filepath: string): Promise<Bundle>
  */
 export declare function readBundleFromBuffer(buffer: Buffer): Bundle
 
-/**
- * Complete bundle information from remote server.
- *
- * Contains version, cache validation, and integrity data.
- *
- * @property {string} name - Bundle name
- * @property {string} version - Version string
- * @property {string} [etag] - HTTP ETag for cache validation
- * @property {string} [integrity] - SHA3 integrity hash
- * @property {string} [signature] - Digital signature
- * @property {string} [lastModified] - Last-Modified timestamp
- */
-export interface RemoteBundleInfo {
-  name: string
-  version: string
-  etag?: string
-  integrity?: string
-  signature?: string
-  lastModified?: string
+export interface RemoteConfig {
+  baseUrl: string
+  http?: HttpOptions
+  onDownload?: (data: RemoteOnDownloadData) => void
 }
 
-/**
- * Remote fetch options.
- *
- * @property {string} [channel] - Channel to use for fetching bundles.
- */
-export interface RemoteFetchOptions {
+export interface RemoteGetUpdateOptions {
+  etag?: string
   channel?: string
+  expectSignature?: SignatureVerifyKey
 }
 
 /**
@@ -1717,87 +1021,47 @@ export interface RemoteFetchOptions {
  *
  * @property {number} downloadedBytes - Bytes downloaded so far
  * @property {number} totalBytes - Total bytes to download
- * @property {string} endpoint - Endpoint being downloaded from
+ * @property {string} url - URL being downloaded from
  */
 export interface RemoteOnDownloadData {
   downloadedBytes: number
   totalBytes?: number
-  endpoint: string
+  url: string
 }
 
-/**
- * Options for creating a remote client.
- *
- * @property {HttpOptions} [http] - HTTP client configuration
- * @property {(data: RemoteOnDownloadData) => void} [onDownload] - Download progress callback
- *
- * @example
- * ```typescript
- * const options = {
- *   http: { timeout: 30000 },
- *   onDownload: data => {
- *     console.log(`Downloaded ${data.downloadedBytes}/${data.totalBytes}`);
- *   },
- * };
- * const remote = new Remote('https://updates.example.com', options);
- * ```
- */
-export interface RemoteOptions {
-  http?: HttpOptions
-  onDownload?: (data: RemoteOnDownloadData) => void
+export interface RemoteUpdateResponse {
+  update: Update
+  etag?: string
+  signature?: UpdateSignature
 }
+
+export const RUNTIME_VERSION: number
 
 /**
  * Digital signature algorithm for bundle verification.
  *
  * Supports multiple signature schemes for cryptographic verification of bundle authenticity.
- *
- * @example
- * ```typescript
- * import { Updater } from '@wvb/node';
- *
- * const updater = new Updater(source, remote, {
- *   signatureVerifier: {
- *     algorithm: 'ed25519',
- *     key: {
- *       format: 'spkiPem',
- *       data: publicKeyPem,
- *     },
- *   },
- * });
- * ```
  */
-export type SignatureAlgorithm = /** ECDSA with P-256 curve (secp256r1) */
-'ecdsaSecp256R1'|
-/** ECDSA with P-384 curve (secp384r1) */
-'ecdsaSecp384R1'|
-/** Ed25519 */
-'ed25519'|
-/** RSA PKCS#1 v1.5 signature scheme */
-'rsaPkcs1V15'|
+export type SignatureAlgorithm = /** RSA PKCS#1 v1.5 signature scheme */
+'rsa-pkcs1-v1_5-sha256'|
 /** RSA-PSS (Probabilistic Signature Scheme) */
-'rsaPss';
+'rsa-pss-sha256'|
+/** ECDSA with P-256 curve (secp256r1) */
+'ecdsa-secp256r1'|
+/** ECDSA with P-384 curve (secp384r1) */
+'ecdsa-secp384r1'|
+/** Ed25519 */
+'ed25519';
 
 /**
  * Configuration for signature verification.
  *
  * @property {SignatureAlgorithm} algorithm - The signature algorithm to use
- * @property {SignatureVerifyingKeyOptions} key - The public key configuration
- *
- * @example
- * ```typescript
- * const verifierOptions = {
- *   algorithm: 'ed25519',
- *   key: {
- *     format: 'spkiPem',
- *     data: publicKeyPem,
- *   },
- * };
- * ```
+ * @property {SignatureKeyData} key - The public key configuration
  */
-export interface SignatureVerifierOptions {
+export interface SignatureKey {
   algorithm: SignatureAlgorithm
-  key: SignatureVerifyingKeyOptions
+  key: SignatureKeyData
 }
 
 /**
@@ -1805,70 +1069,10 @@ export interface SignatureVerifierOptions {
  *
  * @property {VerifyingKeyFormat} format - The format of the public key
  * @property {string | Uint8Array} data - The key data (string for PEM, Uint8Array for DER/Raw)
- *
- * @example
- * ```typescript
- * // PEM format (string)
- * const pemKey = {
- *   format: 'spkiPem',
- *   data: publicKeyPem,
- * };
- *
- * // DER format (binary)
- * const derKey = {
- *   format: 'spkiDer',
- *   data: new Uint8Array(derKeyBytes),
- * };
- * ```
  */
-export interface SignatureVerifyingKeyOptions {
-  format: VerifyingKeyFormat
+export interface SignatureKeyData {
+  format: SignatureKeyFormat
   data: string | Uint8Array
-}
-
-/**
- * Configuration options for the updater.
- *
- * @property {string} [channel] - Update channel (e.g., "stable", "beta")
- * @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
- * @property {Function} [integrityChecker] - Custom integrity verification function
- * @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes. Verified independently of `integrityPolicy` — the signature signs the integrity string, not the bundle bytes, so keep the policy enabled ('strict' or 'optional') for the signature to also authenticate the downloaded bytes.
- *
- * @example
- * ```typescript
- * const updater = new Updater(source, remote, {
- *   channel: 'stable',
- *   integrityPolicy: 'strict',
- *   signatureVerifier: {
- *     algorithm: 'ed25519',
- *     key: {
- *       format: 'spkiPem',
- *       data: publicKeyPem,
- *     },
- *   },
- * });
- * ```
- *
- * @example
- * ```typescript
- * // Custom verification functions
- * const updater = new Updater(source, remote, {
- *   integrityChecker: async (data, integrity) => {
- *     // Custom integrity verification
- *     return true;
- *   },
- *   signatureVerifier: async (message, signature) => {
- *     // Custom signature verification
- *     return true;
- *   },
- * });
- * ```
- */
-export interface UpdaterOptions {
-  channel?: string
-  integrityPolicy?: IntegrityPolicy
-  integrityChecker?: (data: Uint8Array, integrity: string) => Promise<boolean>
-  signatureVerifier?: SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)
 }
 
 /**
@@ -1883,14 +1087,14 @@ export interface UpdaterOptions {
  * // PEM format (text)
  * const pemKey = fs.readFileSync('./public-key.pem', 'utf8');
  * const config1 = {
- *   format: 'spkiPem',
+ *   format: 'spki_pem',
  *   data: pemKey,
  * };
  *
  * // DER format (binary)
  * const derKey = fs.readFileSync('./public-key.der');
  * const config2 = {
- *   format: 'spkiDer',
+ *   format: 'spki_der',
  *   data: derKey,
  * };
  *
@@ -1902,18 +1106,186 @@ export interface UpdaterOptions {
  * };
  * ```
  */
-export type VerifyingKeyFormat = /** SubjectPublicKeyInfo DER format (binary) */
-'spkiDer'|
+export type SignatureKeyFormat = /** SubjectPublicKeyInfo DER format (binary) */
+'spki_der'|
 /** SubjectPublicKeyInfo PEM format (text) */
-'spkiPem'|
+'spki_pem'|
 /** PKCS#1 DER format (RSA only| binary) */
-'pkcs1Der'|
+'pkcs1_der'|
 /** PKCS#1 PEM format (RSA only| text) */
-'pkcs1Pem'|
+'pkcs1_pem'|
 /** SEC1 format (ECDSA only| binary) */
 'sec1'|
 /** Raw key bytes (Ed25519 only| 32 bytes) */
 'raw';
+
+export interface SignatureVerifyKey {
+  id: string
+  verify: SignatureKey | ((message: Uint8Array, signature: string) => Promise<boolean>)
+}
+
+export interface SourceConfig {
+  builtinDir: string
+  remoteDir: string
+  builtinManifestFilepath?: string
+  remoteManifestFilepath?: string
+  options?: SourceOptions
+}
+
+export type SourceIntegrityCheckMode =  'all'|
+'only_remote';
+
+export interface SourceIntegrityOptions {
+  policy?: IntegrityPolicy
+  checkMode?: SourceIntegrityCheckMode
+}
+
+export type SourceKind =  'builtin'|
+'remote';
+
+export interface SourceListItem {
+  source: SourceKind
+  item: ManifestBundleItem
+}
+
+export interface SourceOptions {
+  headerRead?: HeaderReadOptions
+  indexRead?: IndexReadOptions
+  dataRead?: DataReadOptions
+  integrity?: SourceIntegrityOptions
+  removeBundleChunkSize?: number
+}
+
+export interface Update {
+  id: string
+  createdAt: string
+  runtimeVersion: number
+  bundles: Array<BundleUpdate>
+  metadata: Record<string, string>
+}
+
+export const UPDATE_PROTOCOL_VERSION: string
+
+export interface UpdaterDownloadOptions {
+  concurrency?: number
+  timeout?: number
+}
+
+export interface UpdaterDownloadResult {
+  name: string
+  version: string
+  integrity?: string
+  metadata?: Record<string, string>
+  result: UpdaterDownloadResultKind
+}
+
+export type UpdaterDownloadResultKind =
+  | { type: 'downloaded' }
+  | { type: 'error', code: ErrorCode, message: string }
+
+export interface UpdaterGetUpdateOptions {
+  expectSignatureKeyId?: string
+}
+
+export interface UpdaterInstallResult {
+  name: string
+  targetVersion?: string
+  installVersion?: string
+  result: UpdaterInstallResultKind
+}
+
+export type UpdaterInstallResultKind =
+  | { type: 'installed' }
+  | { type: 'staged_version_not_matched' }
+  | { type: 'staged_bundle_not_exists' }
+  | { type: 'verify_failed' }
+  | { type: 'error', code: ErrorCode, message: string }
+
+export interface UpdaterInstallTarget {
+  name: string
+  version?: string
+}
+
+export interface UpdaterIntegrityOptions {
+  policy?: IntegrityPolicy
+  algorithm?: IntegrityAlgorithm
+}
+
+export interface UpdaterOptions {
+  channel?: string
+  integrity?: UpdaterIntegrityOptions
+  signature?: UpdaterSignatureOptions
+}
+
+export interface UpdaterRollbackResult {
+  name: string
+  targetVersion?: string
+  rollbackVersion?: string
+  result: UpdaterRollbackResultKind
+}
+
+export type UpdaterRollbackResultKind =
+  | { type: 'rolled_back' }
+  | { type: 'previous_version_not_matched' }
+  | { type: 'previous_bundle_not_exists' }
+  | { type: 'verify_failed' }
+  | { type: 'group_failed', groups: Array<string> }
+  | { type: 'error', code: ErrorCode, message: string }
+
+export interface UpdaterRollbackTarget {
+  name: string
+  version?: string
+}
+
+export interface UpdaterSignatureOptions {
+  keys?: Array<SignatureVerifyKey>
+}
+
+export interface UpdateSignature {
+  keyId: string
+  sig: string
+  alg: string
+}
+
+/**
+ * Options for resolving the bundle name from the request uri.
+ *
+ * - `hostname`: from the uri hostname.
+ *   - `segment` - Hostname segment to use, or the nth segment (default: 'first')
+ *   - `allowWvbSuffixOnly` - Only resolve hosts ending in `.wvb` (default: false)
+ * - `pathname`: from the uri pathname.
+ *   - `segmentIndex` - Path segment index, 0-based over non-empty segments (default: 0)
+ *
+ * @example
+ * ```typescript
+ * // `https://app.wvb/index.html` -> bundle "app"
+ * const byHostname: UriBundleResolver = { type: 'hostname' };
+ *
+ * // `https://cdn.example.com/my-app/index.html` -> bundle "my-app"
+ * const byPathname: UriBundleResolver = { type: 'pathname', segmentIndex: 0 };
+ * ```
+ */
+export type UriBundleResolver =
+  | { type: 'hostname', segment?: HostnameSegment | number, allowWvbSuffixOnly?: boolean }
+  | { type: 'pathname', segmentIndex?: number }
+
+/**
+ * How the file path in the bundle is resolved from the request uri.
+ *
+ * @enum {string}
+ */
+export type UriPathResolver = /** Use the uri path as-is (only percent-decoded). */
+'exact'|
+/**
+ * Directory index: `/` -> `/index.html` and `/about` -> `/about/index.html`.
+ * (static-site / MPA style; e.g. Astro `format: 'directory'` / Next `trailingSlash: true`)
+ */
+'directory_index'|
+/**
+ * `.html` extension: `/` -> `/index.html` and `/about` -> `/about.html`.
+ * (flat-file style; e.g. Astro `format: 'file'` / GitHub Pages / Next `trailingSlash: false`)
+ */
+'html_extension';
 
 export type Version =  'v1';
 

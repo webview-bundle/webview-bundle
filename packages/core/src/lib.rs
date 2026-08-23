@@ -77,16 +77,16 @@
 //!
 //! ## Bundle Source
 //!
-//! Organize multiple bundle versions with the `BundleSource` API:
+//! Organize multiple bundle versions with the `Source` API:
 //!
 //! ```no_run
 //! # #[cfg(feature = "source")]
 //! # async {
-//! use wvb::source::BundleSource;
+//! use wvb::source::Source;
 //!
-//! let source = BundleSource::builder()
-//!     .builtin_dir("./builtin")  // Shipped with app
-//!     .remote_dir("./remote")     // Downloaded updates
+//! let source = Source::builder()
+//!     .builtin_dir("./builtin")
+//!     .remote_dir("./remote")
 //!     .build();
 //!
 //! // Load current version (remote takes priority)
@@ -104,10 +104,10 @@
 //! use std::path::Path;
 //! use std::sync::Arc;
 //! use wvb::remote::Remote;
-//! use wvb::source::BundleSource;
-//! use wvb::updater::{Updater, UpdaterInstallBundleTarget};
+//! use wvb::source::Source;
+//! use wvb::updater::{Updater, UpdaterInstallTarget};
 //!
-//! let source = Arc::new(BundleSource::builder().remote_dir("./remote").build());
+//! let source = Arc::new(Source::builder().remote_dir("./remote").build());
 //! let remote = Arc::new(
 //!     Remote::builder()
 //!         .base_url("https://updates.example.com")
@@ -128,10 +128,9 @@
 //!     let targets = update
 //!         .bundles
 //!         .iter()
-//!         .map(|bundle| UpdaterInstallBundleTarget {
+//!         .map(|bundle| UpdaterInstallTarget {
 //!             name: bundle.name.clone(),
-//!             version: bundle.version.clone(),
-//!             atomic: None,
+//!             version: Some(bundle.version.clone()),
 //!         })
 //!         .collect::<Vec<_>>();
 //!     updater.install(&targets).await.unwrap();
@@ -178,4 +177,4 @@ pub mod source;
 pub mod testing;
 #[cfg(feature = "updater")]
 pub mod updater;
-pub(crate) mod util;
+pub mod util;

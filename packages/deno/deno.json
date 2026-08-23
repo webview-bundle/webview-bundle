@@ -12,6 +12,6 @@
     "build": "deno run --allow-read --allow-write --allow-run --allow-env scripts/build.ts"
   },
   "publish": {
-    "exclude": ["fixtures", "scripts", "**/*.test.ts"]
+    "exclude": ["fixtures", "scripts", "lib/testing.ts", "**/*.test.ts"]
   }
 }

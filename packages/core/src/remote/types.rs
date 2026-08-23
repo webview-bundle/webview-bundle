@@ -12,7 +12,7 @@ pub struct RemoteGetUpdateOptions {
   pub channel: Option<String>,
   #[cfg(feature = "signature")]
   /// The client requests the signature information to be used for verification.
-  pub expect_signature: Option<crate::signature::SignatureKeySet>,
+  pub expect_signature: Option<crate::signature::SignatureVerifyKey>,
 }
 
 impl RemoteGetUpdateOptions {
@@ -27,7 +27,7 @@ impl RemoteGetUpdateOptions {
   }
 
   #[cfg(feature = "signature")]
-  pub fn expect_signature(mut self, sig: crate::signature::SignatureKeySet) -> Self {
+  pub fn expect_signature(mut self, sig: crate::signature::SignatureVerifyKey) -> Self {
     self.expect_signature = Some(sig);
     self
   }
@@ -57,14 +57,6 @@ pub struct Update {
   ///
   /// [ISO 8601]: https://en.wikipedia.org/wiki/ISO_8601
   pub created_at: String,
-  /// The date and time at which the update should be expired.
-  /// After this expiration time, the client muse discard existing update info
-  /// and receive a new update.
-  ///
-  /// The datetime should be formatted according to [ISO 8601].
-  ///
-  /// [ISO 8601]: https://en.wikipedia.org/wiki/ISO_8601
-  pub expires_at: Option<String>,
   /// This is managed internally by the library and uses a versioning scheme
   /// distinct from the package version; it is utilized to ensure version compatibility
   /// within the update model.

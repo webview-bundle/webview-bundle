@@ -1,92 +1,81 @@
-import type { ListRemoteBundleInfo, RemoteBundleInfo } from './bindings.ts';
-import { WebviewBundleError } from './error.ts';
-import { cstr, getLib, readResult } from './ffi.ts';
+import type {
+  BundleUpdate,
+  HttpOptions,
+  RemoteConfig,
+  RemoteUpdateResponse,
+  Update,
+  UpdateSignature,
+} from './bindings.ts';
+import type { Cancellation } from './cancellation.ts';
+import { cstr, getLib, readHandle, readJsonAsync, requireHandle } from './ffi.ts';
+import { type SignatureVerifyKey, serializeSignatureVerifyKey } from './signature.ts';
 
-export type { ListRemoteBundleInfo, RemoteBundleInfo };
+export type {
+  BundleUpdate,
+  HttpOptions,
+  RemoteConfig,
+  RemoteUpdateResponse,
+  Update,
+  UpdateSignature,
+};
 
-export interface HttpOptions {
-  /** Headers sent with every request. */
-  defaultHeaders?: Record<string, string>;
-  userAgent?: string;
-  timeout?: number;
-  readTimeout?: number;
-  connectTimeout?: number;
-  poolIdleTimeout?: number;
-  poolMaxIdlePerHost?: number;
-  referer?: boolean;
-  tcpNodelay?: boolean;
-  hickoryDns?: boolean;
+export interface RemoteGetUpdateOptions {
+  /** The etag of the update previously received; sent as `if-none-match`. */
+  etag?: string;
+  channel?: string;
+  /** Require the response to be signed by this key. */
+  expectSignature?: SignatureVerifyKey;
 }
 
-export interface RemoteOptions {
-  http?: HttpOptions;
-}
-
-export interface RemoteDownload {
-  info: RemoteBundleInfo;
-  data: Uint8Array<ArrayBuffer>;
+function serializeGetUpdateOptions(options: RemoteGetUpdateOptions): string {
+  const { expectSignature, ...rest } = options;
+  return JSON.stringify(
+    expectSignature == null
+      ? rest
+      : { ...rest, expectSignature: serializeSignatureVerifyKey(expectSignature) }
+  );
 }
 
 /**
- * HTTP client for a remote bundle server
+ * HTTP client for the update server: fetches the update document and downloads bundle files.
+ *
+ * Owns a native handle — call {@link Remote.free} (or `using remote = new Remote(...)`) when done.
  */
 export class Remote {
   #ptr: Deno.PointerValue;
 
-  constructor(endpoint: string, options?: RemoteOptions) {
+  constructor(config: RemoteConfig) {
     const lib = getLib();
-    this.#ptr = lib.symbols.wvb_remote_new(
-      cstr(endpoint),
-      cstr(options?.http != null ? JSON.stringify(options.http) : '')
-    );
-    if (this.#ptr === null) {
-      throw new WebviewBundleError('unknown', 'wvb: failed to create Remote');
-    }
+    this.#ptr = readHandle(lib, lib.symbols.wvb_remote_new(cstr(JSON.stringify(config))));
   }
 
+  /** @internal Native handle, for passing to an updater. Throws if already freed. */
   get pointer(): Deno.PointerValue {
-    if (this.#ptr === null) {
-      throw new WebviewBundleError('null_handle', 'wvb: Remote has been freed');
-    }
-    return this.#ptr;
+    return requireHandle(this.#ptr, 'Remote');
   }
 
-  async listBundles(channel?: string): Promise<ListRemoteBundleInfo[]> {
+  /** The update document, or `null` when the server answered `304 Not Modified`. */
+  getUpdate(options?: RemoteGetUpdateOptions): Promise<RemoteUpdateResponse | null> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_remote_list_bundles(this.#ptr, cstr(channel ?? ''));
-    return JSON.parse(readResult(lib, ptr).json) as ListRemoteBundleInfo[];
-  }
-
-  async getInfo(bundleName: string, channel?: string): Promise<RemoteBundleInfo> {
-    const lib = getLib();
-    const ptr = await lib.symbols.wvb_remote_get_info(
-      this.#ptr,
-      cstr(bundleName),
-      cstr(channel ?? '')
+    return readJsonAsync(
+      lib.symbols.wvb_remote_get_update(
+        this.pointer,
+        cstr(options != null ? serializeGetUpdateOptions(options) : '')
+      )
     );
-    return JSON.parse(readResult(lib, ptr).json) as RemoteBundleInfo;
   }
 
-  async download(bundleName: string, channel?: string): Promise<RemoteDownload> {
+  /** Downloads `url` into `filepath`. Cancelling rejects the call with `core.cancelled`. */
+  async download(url: string, filepath: string, cancellation?: Cancellation): Promise<void> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_remote_download(
-      this.#ptr,
-      cstr(bundleName),
-      cstr(channel ?? '')
+    await readJsonAsync(
+      lib.symbols.wvb_remote_download(
+        this.pointer,
+        cstr(url),
+        cstr(filepath),
+        cancellation?.pointer ?? null
+      )
     );
-    const { json, body } = readResult(lib, ptr);
-    return { info: JSON.parse(json) as RemoteBundleInfo, data: body };
-  }
-
-  async downloadVersion(bundleName: string, version: string): Promise<RemoteDownload> {
-    const lib = getLib();
-    const ptr = await lib.symbols.wvb_remote_download_version(
-      this.#ptr,
-      cstr(bundleName),
-      cstr(version)
-    );
-    const { json, body } = readResult(lib, ptr);
-    return { info: JSON.parse(json) as RemoteBundleInfo, data: body };
   }
 
   free(): void {

@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "entries": {
+  "bundles": {
     "app": {
       "versions": {
         "1.0.0": {}

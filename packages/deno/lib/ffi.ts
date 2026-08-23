@@ -10,21 +10,52 @@ import {
 } from './release.ts';
 
 const SYMBOLS = {
-  wvb_source_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
-  wvb_source_new_with_options: {
-    parameters: ['buffer', 'buffer', 'buffer'],
-    result: 'pointer',
-  },
+  // Source. Disk/manifest ops run on the tokio runtime → nonblocking.
+  wvb_source_new: { parameters: ['buffer'], result: 'pointer' },
   wvb_source_free: { parameters: ['pointer'], result: 'void' },
-  // BundleSource data API (→ WvbResult). Disk/manifest ops run on the tokio runtime → nonblocking.
   wvb_source_list_bundles: { parameters: ['pointer'], result: 'pointer', nonblocking: true },
-  wvb_source_load_version: {
+  wvb_source_list_builtin_bundles: {
+    parameters: ['pointer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_list_remote_bundles: {
+    parameters: ['pointer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_get_version: {
     parameters: ['pointer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
   },
-  wvb_source_update_version: {
+  wvb_source_get_remote_staged_version: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_get_remote_previous_version: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_update_remote_version: {
     parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_update_remote_versions: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_stage_remote_bundle: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_stage_remote_bundles: {
+    parameters: ['pointer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
   },
@@ -33,31 +64,57 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
-  wvb_source_get_builtin_filepath: {
+  wvb_source_get_builtin_bundle_filepath: {
     parameters: ['pointer', 'buffer', 'buffer'],
     result: 'pointer',
   },
-  wvb_source_get_remote_filepath: {
+  wvb_source_get_remote_bundle_filepath: {
     parameters: ['pointer', 'buffer', 'buffer'],
     result: 'pointer',
   },
-  wvb_source_load_builtin_metadata: {
-    parameters: ['pointer', 'buffer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
-  wvb_source_load_remote_metadata: {
+  wvb_source_get_builtin_version_data: {
     parameters: ['pointer', 'buffer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
   },
-  wvb_source_unload_descriptor: { parameters: ['pointer', 'buffer'], result: 'pointer' },
+  wvb_source_get_remote_version_data: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_fetch_bundle: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_fetch_builtin_bundle: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_fetch_remote_bundle: {
+    parameters: ['pointer', 'buffer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_fetch_descriptor: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_load: { parameters: ['pointer', 'buffer'], result: 'pointer', nonblocking: true },
+  wvb_source_unload: { parameters: ['pointer', 'buffer'], result: 'pointer' },
   wvb_source_remove_remote_bundle: {
-    parameters: ['pointer', 'buffer', 'buffer'],
+    parameters: ['pointer', 'buffer', 'buffer', 'i8'],
     result: 'pointer',
     nonblocking: true,
   },
-  wvb_source_remote_retained_versions: {
+  wvb_source_remove_remote_bundles: {
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_source_prune_remote_bundle: {
     parameters: ['pointer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
@@ -67,6 +124,11 @@ const SYMBOLS = {
     result: 'pointer',
     nonblocking: true,
   },
+  // Cancellation
+  wvb_cancellation_new: { parameters: [], result: 'pointer' },
+  wvb_cancellation_cancel: { parameters: ['pointer'], result: 'void' },
+  wvb_cancellation_is_cancelled: { parameters: ['pointer'], result: 'u8' },
+  wvb_cancellation_free: { parameters: ['pointer'], result: 'void' },
   // Protocol
   wvb_bundle_protocol_new: { parameters: ['pointer', 'buffer'], result: 'pointer' },
   wvb_proxy_protocol_new: { parameters: ['buffer'], result: 'pointer' },
@@ -77,44 +139,38 @@ const SYMBOLS = {
     nonblocking: true,
   },
   // Remote
-  wvb_remote_new: { parameters: ['buffer', 'buffer'], result: 'pointer' },
+  wvb_remote_new: { parameters: ['buffer'], result: 'pointer' },
   wvb_remote_free: { parameters: ['pointer'], result: 'void' },
-  wvb_remote_list_bundles: {
+  wvb_remote_get_update: {
     parameters: ['pointer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
   },
-  wvb_remote_get_info: {
-    parameters: ['pointer', 'buffer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
   wvb_remote_download: {
-    parameters: ['pointer', 'buffer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
-  wvb_remote_download_version: {
-    parameters: ['pointer', 'buffer', 'buffer'],
+    parameters: ['pointer', 'buffer', 'buffer', 'pointer'],
     result: 'pointer',
     nonblocking: true,
   },
   // Updater
-  wvb_updater_new: { parameters: ['pointer', 'pointer', 'buffer'], result: 'pointer' },
+  wvb_updater_new: { parameters: ['pointer', 'pointer', 'buffer', 'buffer'], result: 'pointer' },
   wvb_updater_free: { parameters: ['pointer'], result: 'void' },
-  wvb_updater_list_remotes: { parameters: ['pointer'], result: 'pointer', nonblocking: true },
   wvb_updater_get_update: {
     parameters: ['pointer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
   },
   wvb_updater_download: {
-    parameters: ['pointer', 'buffer', 'buffer'],
+    parameters: ['pointer', 'buffer', 'buffer', 'pointer'],
     result: 'pointer',
     nonblocking: true,
   },
   wvb_updater_install: {
-    parameters: ['pointer', 'buffer', 'buffer'],
+    parameters: ['pointer', 'buffer'],
+    result: 'pointer',
+    nonblocking: true,
+  },
+  wvb_updater_rollback: {
+    parameters: ['pointer', 'buffer'],
     result: 'pointer',
     nonblocking: true,
   },
@@ -140,37 +196,6 @@ const SYMBOLS = {
   wvb_bundle_builder_entry_paths: { parameters: ['pointer'], result: 'pointer' },
   wvb_bundle_builder_build: { parameters: ['pointer', 'buffer'], result: 'pointer' },
   wvb_bundle_builder_free: { parameters: ['pointer'], result: 'void' },
-  // BundleSource: fetch / load / write (disk I/O → nonblocking).
-  wvb_source_fetch_bundle: {
-    parameters: ['pointer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
-  wvb_source_fetch_builtin_bundle: {
-    parameters: ['pointer', 'buffer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
-  wvb_source_fetch_remote_bundle: {
-    parameters: ['pointer', 'buffer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
-  wvb_source_fetch_descriptor: {
-    parameters: ['pointer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
-  wvb_source_load_descriptor: {
-    parameters: ['pointer', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
-  wvb_source_write_remote_bundle_data: {
-    parameters: ['pointer', 'buffer', 'buffer', 'buffer', 'usize', 'buffer'],
-    result: 'pointer',
-    nonblocking: true,
-  },
   // BundleDescriptor (lazy reads reopen the file → nonblocking)
   wvb_descriptor_get_data: {
     parameters: ['pointer', 'buffer', 'buffer'],
@@ -411,4 +436,32 @@ export function readResponse(l: WvbLib, resultPtr: Deno.PointerValue): HttpRespo
     headers: Record<string, string>;
   };
   return { status, headers, body };
+}
+
+/** The JSON payload of a blocking data call. */
+export function readJson<T>(resultPtr: Deno.PointerValue): T {
+  return JSON.parse(readResult(getLib(), resultPtr).json) as T;
+}
+
+/** The JSON payload of a nonblocking data call. */
+export async function readJsonAsync<T>(pending: Promise<Deno.PointerValue>): Promise<T> {
+  return readJson<T>(await pending);
+}
+
+/** The handle a nonblocking constructor call returns. */
+export async function readHandleAsync(
+  pending: Promise<Deno.PointerValue>
+): Promise<NonNullable<Deno.PointerValue>> {
+  return readHandle(getLib(), await pending);
+}
+
+/** A live handle, or the "already freed" error naming what was freed. */
+export function requireHandle(
+  ptr: Deno.PointerValue,
+  what: string
+): NonNullable<Deno.PointerValue> {
+  if (ptr === null) {
+    throw new WebviewBundleError('null_handle', `wvb: ${what} has been freed`);
+  }
+  return ptr;
 }

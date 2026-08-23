@@ -10,11 +10,11 @@ use common::{
 use std::sync::Arc;
 use wvb::integrity::{IntegrityAlgorithm, IntegrityPolicy};
 use wvb::protocol::{BundleProtocol, Protocol};
-use wvb::source::{
-  BundleSource, BundleSourceIntegrityOptions, BundleSourceOptions, BundleSourceVerifyMode,
-};
+use wvb::source::{Source, SourceIntegrityCheckMode, SourceIntegrityOptions, SourceOptions};
 use wvb::testing::{TestingBundle, TestingSourceBuilder};
-use wvb::updater::{UpdaterGetUpdateOptions, UpdaterIntegrityOptions, UpdaterOptions};
+use wvb::updater::{
+  UpdaterGetUpdateOptions, UpdaterInstallResultKind, UpdaterIntegrityOptions, UpdaterOptions,
+};
 use wvb::{BundleBuilderOptions, ChecksumReadOptions, ChecksumWriteOptions, DataReadOptions};
 
 const BODY: &[u8] = b"<h1>hello</h1>";
@@ -33,8 +33,8 @@ fn source_of(
   bundle: TestingBundle,
   kind: Kind,
   integrity: bool,
-  options: BundleSourceOptions,
-) -> (Arc<BundleSource>, SourceDirs) {
+  options: SourceOptions,
+) -> (Arc<Source>, SourceDirs) {
   let (name, version) = (bundle.name().to_owned(), bundle.version().to_owned());
   let mut builder = TestingSourceBuilder::new();
   if integrity {
@@ -57,19 +57,19 @@ fn source_of(
   (source, dirs)
 }
 
-fn builtin_source(options: BundleSourceOptions) -> (Arc<BundleSource>, SourceDirs) {
+fn builtin_source(options: SourceOptions) -> (Arc<Source>, SourceDirs) {
   source_of(app("1.0.0"), Kind::Builtin, false, options)
 }
 
-fn filepath(source: &BundleSource, kind: Kind) -> std::path::PathBuf {
+fn filepath(source: &Source, kind: Kind) -> std::path::PathBuf {
   match kind {
     Kind::Builtin => source.get_builtin_bundle_filepath("app", "1.0.0").unwrap(),
     Kind::Remote => source.get_remote_bundle_filepath("app", "1.0.0").unwrap(),
   }
 }
 
-fn integrity_options(policy: IntegrityPolicy) -> BundleSourceOptions {
-  BundleSourceOptions::default().integrity(BundleSourceIntegrityOptions::default().policy(policy))
+fn integrity_options(policy: IntegrityPolicy) -> SourceOptions {
+  SourceOptions::default().integrity(SourceIntegrityOptions::default().policy(policy))
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ fn integrity_options(policy: IntegrityPolicy) -> BundleSourceOptions {
 
 #[tokio::test]
 async fn protocol_serves_a_healthy_bundle() {
-  let (source, _) = builtin_source(BundleSourceOptions::default());
+  let (source, _) = builtin_source(SourceOptions::default());
 
   let resp = BundleProtocol::new(source)
     .handle(get("https://app.wvb/index.html"))
@@ -93,13 +93,13 @@ async fn protocol_serves_a_healthy_bundle() {
 /// not as damaged bytes handed to the webview.
 #[tokio::test]
 async fn protocol_rejects_a_corrupted_entry() {
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   let offset = app("1.0.0").entry_data_offset(INDEX).unwrap();
   corrupt(&filepath(&source, Kind::Builtin), |data| {
     data[offset] ^= 0xff
   });
 
-  let err = BundleProtocol::new(reload_with(&dirs, BundleSourceOptions::default()))
+  let err = BundleProtocol::new(reload_with(&dirs, SourceOptions::default()))
     .handle(get("https://app.wvb/index.html"))
     .await
     .unwrap_err();
@@ -111,13 +111,13 @@ async fn protocol_rejects_a_corrupted_entry() {
 /// Corrupting the stored checksum itself is caught too.
 #[tokio::test]
 async fn protocol_rejects_a_corrupted_checksum() {
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   let offset = app("1.0.0").entry_checksum_offset(INDEX).unwrap();
   corrupt(&filepath(&source, Kind::Builtin), |data| {
     data[offset] ^= 0xff
   });
 
-  let err = BundleProtocol::new(reload_with(&dirs, BundleSourceOptions::default()))
+  let err = BundleProtocol::new(reload_with(&dirs, SourceOptions::default()))
     .handle(get("https://app.wvb/index.html"))
     .await
     .unwrap_err();
@@ -128,7 +128,7 @@ async fn protocol_rejects_a_corrupted_checksum() {
 /// Range requests read entry data through the same path, so they are verified too.
 #[tokio::test]
 async fn protocol_rejects_a_corrupted_entry_on_a_range_request() {
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   let offset = app("1.0.0").entry_data_offset(INDEX).unwrap();
   corrupt(&filepath(&source, Kind::Builtin), |data| {
     data[offset] ^= 0xff
@@ -140,7 +140,7 @@ async fn protocol_rejects_a_corrupted_entry_on_a_range_request() {
     .header(http::header::RANGE, "bytes=0-4")
     .body(vec![])
     .unwrap();
-  let err = BundleProtocol::new(reload_with(&dirs, BundleSourceOptions::default()))
+  let err = BundleProtocol::new(reload_with(&dirs, SourceOptions::default()))
     .handle(request)
     .await
     .unwrap_err();
@@ -150,7 +150,7 @@ async fn protocol_rejects_a_corrupted_entry_on_a_range_request() {
 
 #[tokio::test]
 async fn protocol_verification_can_be_turned_off() {
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   let offset = app("1.0.0").entry_checksum_offset(INDEX).unwrap();
   corrupt(&filepath(&source, Kind::Builtin), |data| {
     data[offset] ^= 0xff
@@ -158,7 +158,7 @@ async fn protocol_verification_can_be_turned_off() {
 
   // Only the checksum byte is corrupt, so the entry still decompresses once the source is
   // told not to verify it.
-  let options = BundleSourceOptions::default()
+  let options = SourceOptions::default()
     .data_read(DataReadOptions::default().checksum(ChecksumReadOptions::default().verify(false)));
   let resp = BundleProtocol::new(reload_with(&dirs, options))
     .handle(get("https://app.wvb/index.html"))
@@ -176,7 +176,7 @@ async fn protocol_serves_with_the_source_checksum_seed() {
   bundle.set_options(
     BundleBuilderOptions::default().data_checksum(ChecksumWriteOptions::default().seed(42)),
   );
-  let matching = BundleSourceOptions::default()
+  let matching = SourceOptions::default()
     .data_read(DataReadOptions::default().checksum(ChecksumReadOptions::default().seed(42)));
   let (source, dirs) = source_of(bundle, Kind::Builtin, false, matching);
 
@@ -187,7 +187,7 @@ async fn protocol_serves_with_the_source_checksum_seed() {
   assert_eq!(resp.body().as_ref(), BODY);
 
   // The default source seed (0) recomputes a different checksum for the very same bytes.
-  let err = BundleProtocol::new(reload_with(&dirs, BundleSourceOptions::default()))
+  let err = BundleProtocol::new(reload_with(&dirs, SourceOptions::default()))
     .handle(get("https://app.wvb/index.html"))
     .await
     .unwrap_err();
@@ -198,13 +198,13 @@ async fn protocol_serves_with_the_source_checksum_seed() {
 /// the protocol, so it verifies by default too.
 #[tokio::test]
 async fn loaded_descriptor_verifies_by_default() {
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   let offset = app("1.0.0").entry_data_offset(INDEX).unwrap();
   corrupt(&filepath(&source, Kind::Builtin), |data| {
     data[offset] ^= 0xff
   });
 
-  let source = reload_with(&dirs, BundleSourceOptions::default());
+  let source = reload_with(&dirs, SourceOptions::default());
   let descriptor = source.load("app").await.unwrap();
   let err = descriptor.get_data(INDEX).await.unwrap_err();
 
@@ -216,10 +216,10 @@ async fn loaded_descriptor_verifies_by_default() {
 /// flipping a byte of it leaves the header fields intact but breaks the checksum.
 #[tokio::test]
 async fn load_verifies_the_header_checksum() {
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   corrupt(&filepath(&source, Kind::Builtin), |data| data[13] ^= 0xff);
 
-  let err = reload_with(&dirs, BundleSourceOptions::default())
+  let err = reload_with(&dirs, SourceOptions::default())
     .load("app")
     .await
     .unwrap_err();
@@ -231,13 +231,13 @@ async fn load_verifies_the_header_checksum() {
 /// index content, which begins after the 17-byte header; flipping its first byte breaks it.
 #[tokio::test]
 async fn load_verifies_the_index_checksum() {
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   corrupt(&filepath(&source, Kind::Builtin), |data| {
     let index_size = u32::from_be_bytes([data[9], data[10], data[11], data[12]]) as usize;
     data[17 + index_size] ^= 0xff;
   });
 
-  let err = reload_with(&dirs, BundleSourceOptions::default())
+  let err = reload_with(&dirs, SourceOptions::default())
     .load("app")
     .await
     .unwrap_err();
@@ -250,10 +250,10 @@ async fn load_verifies_the_index_checksum() {
 async fn header_index_verification_can_be_turned_off() {
   use wvb::{HeaderReadOptions, IndexReadOptions};
 
-  let (source, dirs) = builtin_source(BundleSourceOptions::default());
+  let (source, dirs) = builtin_source(SourceOptions::default());
   corrupt(&filepath(&source, Kind::Builtin), |data| data[13] ^= 0xff);
 
-  let options = BundleSourceOptions::default()
+  let options = SourceOptions::default()
     .header_read(
       HeaderReadOptions::default().checksum(ChecksumReadOptions::default().verify(false)),
     )
@@ -313,10 +313,10 @@ async fn check_mode_only_remote_leaves_builtin_bundles_alone() {
 /// ...whereas `All` does verify them, so a missing integrity string fails under `Strict`.
 #[tokio::test]
 async fn check_mode_all_with_strict_policy_requires_builtin_integrity() {
-  let options = BundleSourceOptions::default().integrity(
-    BundleSourceIntegrityOptions::default()
+  let options = SourceOptions::default().integrity(
+    SourceIntegrityOptions::default()
       .policy(IntegrityPolicy::Strict)
-      .check_mode(BundleSourceVerifyMode::All),
+      .check_mode(SourceIntegrityCheckMode::All),
   );
   let (source, _) = builtin_source(options);
 
@@ -329,8 +329,8 @@ async fn check_mode_all_with_strict_policy_requires_builtin_integrity() {
 /// integrity string at all is an error. Under the default `Optional` policy it is not.
 #[tokio::test]
 async fn check_mode_all_under_optional_policy_allows_missing_integrity() {
-  let options = BundleSourceOptions::default()
-    .integrity(BundleSourceIntegrityOptions::default().check_mode(BundleSourceVerifyMode::All));
+  let options = SourceOptions::default()
+    .integrity(SourceIntegrityOptions::default().check_mode(SourceIntegrityCheckMode::All));
   let (source, _) = builtin_source(options);
 
   let resp = BundleProtocol::new(source)
@@ -345,18 +345,13 @@ async fn check_mode_all_under_optional_policy_allows_missing_integrity() {
 /// remote bundle whose manifest carries integrity metadata is hashed on load.
 #[tokio::test]
 async fn integrity_check_defaults_to_only_remote_under_the_optional_policy() {
-  let (source, dirs) = source_of(
-    app("1.0.0"),
-    Kind::Remote,
-    true,
-    BundleSourceOptions::default(),
-  );
+  let (source, dirs) = source_of(app("1.0.0"), Kind::Remote, true, SourceOptions::default());
   let offset = app("1.0.0").entry_data_offset(INDEX).unwrap();
   corrupt(&filepath(&source, Kind::Remote), |data| {
     data[offset] ^= 0xff
   });
 
-  let err = reload_with(&dirs, BundleSourceOptions::default())
+  let err = reload_with(&dirs, SourceOptions::default())
     .load("app")
     .await
     .unwrap_err();
@@ -369,18 +364,13 @@ async fn integrity_check_defaults_to_only_remote_under_the_optional_policy() {
 /// complementary.
 #[tokio::test]
 async fn a_remote_bundle_without_integrity_metadata_loads_by_default() {
-  let (source, dirs) = source_of(
-    app("1.0.0"),
-    Kind::Remote,
-    false,
-    BundleSourceOptions::default(),
-  );
+  let (source, dirs) = source_of(app("1.0.0"), Kind::Remote, false, SourceOptions::default());
   let offset = app("1.0.0").entry_data_offset(INDEX).unwrap();
   corrupt(&filepath(&source, Kind::Remote), |data| {
     data[offset] ^= 0xff
   });
 
-  let source = reload_with(&dirs, BundleSourceOptions::default());
+  let source = reload_with(&dirs, SourceOptions::default());
   source.load("app").await.unwrap();
 
   let err = BundleProtocol::new(source)
@@ -440,10 +430,10 @@ async fn install_rejects_a_bundle_the_integrity_does_not_describe() {
     .await
     .unwrap();
 
-  assert_eq!(
-    results[0].result.as_ref().unwrap_err().code(),
-    wvb::ErrorCode::IntegrityVerifyFailed
-  );
+  assert!(matches!(
+    results[0].result,
+    UpdaterInstallResultKind::VerifyFailed
+  ));
 }
 
 /// The update itself is authenticated by a signature over the response body: one signed by a
@@ -452,25 +442,25 @@ async fn install_rejects_a_bundle_the_integrity_does_not_describe() {
 #[tokio::test]
 async fn an_update_signed_by_an_unexpected_key_is_rejected() {
   use ed25519_dalek::SigningKey;
-  use wvb::signature::{Ed25519, SignatureKey, SignatureKeySet};
+  use wvb::signature::{Ed25519, SignatureVerify, SignatureVerifyKey};
   use wvb::updater::UpdaterSignatureOptions;
 
-  let (source, _) = builtin_source(BundleSourceOptions::default());
+  let (source, _) = builtin_source(SourceOptions::default());
   let mut server = remote_server(vec![bundle("app", "2.0.0", b"<h1>v2</h1>")]);
   server.insert_signature_key("release", [7u8; 32]);
 
   // A key published under the same id, but not the pair the server signs with.
   let other = SigningKey::from_bytes(&[9u8; 32]);
-  let key_set = SignatureKeySet {
+  let key_set = SignatureVerifyKey {
     id: "release".to_owned(),
-    key: SignatureKey::Ed25519(
+    verify: SignatureVerify::Ed25519(
       Ed25519::from_public_key_bytes(&other.verifying_key().to_bytes()).unwrap(),
     ),
   };
   let updater = updater_with(
     &source,
     &server.base_url(),
-    UpdaterOptions::default().signature(UpdaterSignatureOptions::default().key_set(key_set)),
+    UpdaterOptions::default().signature(UpdaterSignatureOptions::default().add_key(key_set)),
   );
 
   let err = updater

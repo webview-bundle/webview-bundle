@@ -104,7 +104,7 @@ signature-rsa-pss-sha256 = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
 source = ["dep:dashmap", "async", "_serde", "dep:semver", "tokio/macros"]
 testing = ["source", "remote", "integrity", "dep:httpmock", "dep:time", "dep:anyhow"]
 tracing = ["dep:tracing"]
-updater = ["remote", "source"]
+updater = ["remote", "source", "dep:time", "time/parsing"]
 
 [lints.clippy]
 module_inception = "allow"

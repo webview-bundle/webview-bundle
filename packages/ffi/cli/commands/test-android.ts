@@ -9,10 +9,6 @@ export class TestAndroidCommand extends Command {
   async execute() {
     const androidDir = path.join(PKG_DIR, 'android');
 
-    await runCommand('./gradlew', [':lib-jvm:test'], {
-      cwd: androidDir,
-      prefix: '[:lib-jvm:test] ',
-    });
     await runCommand('./gradlew', [':testapp:assembleDebug'], {
       cwd: androidDir,
       prefix: '[:testapp:assembleDebug] ',

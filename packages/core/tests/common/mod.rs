@@ -4,9 +4,12 @@ use http::Request;
 use std::sync::Arc;
 use wvb::BundleEntry;
 use wvb::remote::{BundleUpdate, Remote, Update};
-use wvb::source::{BundleSource, BundleSourceOptions};
+use wvb::source::{Source, SourceOptions};
 use wvb::testing::{TempDir, TestingBundle, TestingRemoteServer, TestingSourceBuilder};
-use wvb::updater::{Updater, UpdaterInstallBundleTarget, UpdaterOptions};
+use wvb::updater::{
+  Updater, UpdaterDownloadResultKind, UpdaterInstallResultKind, UpdaterInstallTarget,
+  UpdaterOptions,
+};
 
 /// A base url nothing listens on, for updaters that must never reach a server.
 pub const OFFLINE_URL: &str = "http://127.0.0.1:1";
@@ -36,7 +39,7 @@ pub fn bundle_of(name: &str, version: &str, entries: &[(&str, &[u8])]) -> Testin
 }
 
 /// A source that ships `bundles` as builtin, each of them active.
-pub fn builtin_source(bundles: Vec<TestingBundle>) -> Arc<BundleSource> {
+pub fn builtin_source(bundles: Vec<TestingBundle>) -> Arc<Source> {
   let mut builder = TestingSourceBuilder::new();
   for bundle in bundles {
     builder.add_builtin_bundle(bundle);
@@ -50,7 +53,7 @@ pub struct SourceDirs {
 }
 
 /// Same as [`builtin_source`], keeping the directories so the source can be built again.
-pub fn source_with_dirs(bundles: Vec<TestingBundle>) -> (Arc<BundleSource>, SourceDirs) {
+pub fn source_with_dirs(bundles: Vec<TestingBundle>) -> (Arc<Source>, SourceDirs) {
   let mut builder = TestingSourceBuilder::new();
   for bundle in bundles {
     builder.add_builtin_bundle(bundle);
@@ -63,13 +66,13 @@ pub fn source_with_dirs(bundles: Vec<TestingBundle>) -> (Arc<BundleSource>, Sour
 }
 
 /// A source over the same directories, as a restarted app would build it.
-pub fn reload(dirs: &SourceDirs) -> Arc<BundleSource> {
-  reload_with(dirs, BundleSourceOptions::default())
+pub fn reload(dirs: &SourceDirs) -> Arc<Source> {
+  reload_with(dirs, SourceOptions::default())
 }
 
-pub fn reload_with(dirs: &SourceDirs, options: BundleSourceOptions) -> Arc<BundleSource> {
+pub fn reload_with(dirs: &SourceDirs, options: SourceOptions) -> Arc<Source> {
   Arc::new(
-    BundleSource::builder()
+    Source::builder()
       .builtin_dir(&dirs.builtin)
       .remote_dir(&dirs.remote)
       .options(options)
@@ -88,15 +91,11 @@ pub fn remote_server(bundles: Vec<TestingBundle>) -> TestingRemoteServer {
   server
 }
 
-pub fn updater(source: &Arc<BundleSource>, base_url: &str) -> Updater {
+pub fn updater(source: &Arc<Source>, base_url: &str) -> Updater {
   updater_with(source, base_url, UpdaterOptions::default())
 }
 
-pub fn updater_with(
-  source: &Arc<BundleSource>,
-  base_url: &str,
-  options: UpdaterOptions,
-) -> Updater {
+pub fn updater_with(source: &Arc<Source>, base_url: &str, options: UpdaterOptions) -> Updater {
   Updater::builder()
     .source(source.clone())
     .remote(Arc::new(
@@ -108,11 +107,18 @@ pub fn updater_with(
     .unwrap()
 }
 
-pub fn target(name: &str, version: &str) -> UpdaterInstallBundleTarget {
-  UpdaterInstallBundleTarget {
+pub fn target(name: &str, version: &str) -> UpdaterInstallTarget {
+  UpdaterInstallTarget {
     name: name.to_owned(),
-    version: version.to_owned(),
-    atomic: None,
+    version: Some(version.to_owned()),
+  }
+}
+
+/// Panics unless `result` says the bundle was installed, naming what happened instead.
+#[track_caller]
+pub fn expect_installed(bundle_name: &str, result: &UpdaterInstallResultKind) {
+  if !matches!(result, UpdaterInstallResultKind::Installed) {
+    panic!("install of {bundle_name} failed: {result:?}");
   }
 }
 
@@ -136,8 +142,8 @@ pub async fn fetch_update(updater: &Updater) -> Update {
 
 pub async fn download_all(updater: &Updater, bundles: &[BundleUpdate]) {
   for item in updater.download(bundles, None).await.unwrap() {
-    if let Err(e) = item.result {
-      panic!("download of {} failed: {e}", item.update.name);
+    if let UpdaterDownloadResultKind::Error(e) = item.result {
+      panic!("download of {} failed: {e}", item.name);
     }
   }
 }
@@ -148,9 +154,7 @@ pub async fn install_all(updater: &Updater, bundles: &[BundleUpdate]) {
     .map(|x| target(&x.name, &x.version))
     .collect::<Vec<_>>();
   for item in updater.install(&targets).await.unwrap() {
-    if let Err(e) = item.result {
-      panic!("install of {} failed: {e}", item.target.name);
-    }
+    expect_installed(&item.name, &item.result);
   }
 }
 

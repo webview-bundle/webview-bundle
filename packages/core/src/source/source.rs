@@ -1,10 +1,10 @@
 #[cfg(feature = "integrity")]
 use crate::integrity::IntegrityPolicy;
-use crate::source::types::BundleSourceKind;
+use crate::source::types::SourceKind;
 use crate::source::{
-  BundleEntryPruneResult, BundleEntryRemoveResult, BundleEntryRemoveResultKind, BundleManifest,
-  BundleManifestEntryItem, BundleManifestVersionData, BundleSourceOptions, BundleSourceVersion,
-  ReadOnly, ReadWrite,
+  BundleSourceVersion, Manifest, ManifestPruneResult, ManifestRemoveData, ManifestRemoveResult,
+  ManifestRemoveResultKind, ManifestSetCurrentVersionResult, ManifestStageData,
+  ManifestStageResult, ManifestVersionData, ReadOnly, ReadWrite, SourceListItem, SourceOptions,
 };
 use crate::util;
 use crate::{
@@ -12,22 +12,23 @@ use crate::{
   EXTENSION, MANIFEST_FILENAME, Reader,
 };
 use dashmap::DashMap;
+use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, RwLock};
 
-/// Builder for creating a `BundleSource`.
+/// Builder for creating a `Source`.
 ///
 /// # Example
 ///
 /// ```no_run
 /// # #[cfg(feature = "source")]
 /// # {
-/// use wvb::source::BundleSource;
+/// use wvb::source::Source;
 ///
-/// let source = BundleSource::builder()
+/// let source = Source::builder()
 ///     .builtin_dir("./builtin")
 ///     .remote_dir("./remote")
 ///     .build();
@@ -35,15 +36,15 @@ use tokio::sync::OnceCell;
 /// ```
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
-pub struct BundleSourceBuilder {
+pub struct SourceBuilder {
   builtin_dir: PathBuf,
   builtin_manifest_filepath: Option<PathBuf>,
   remote_dir: PathBuf,
   remote_manifest_filepath: Option<PathBuf>,
-  options: BundleSourceOptions,
+  options: SourceOptions,
 }
 
-impl BundleSourceBuilder {
+impl SourceBuilder {
   pub fn new() -> Self {
     Self::default()
   }
@@ -71,12 +72,12 @@ impl BundleSourceBuilder {
   }
 
   #[must_use]
-  pub fn options(mut self, options: BundleSourceOptions) -> Self {
+  pub fn options(mut self, options: SourceOptions) -> Self {
     self.options = options;
     self
   }
 
-  pub fn build(self) -> BundleSource {
+  pub fn build(self) -> Source {
     let builtin_dir = self.builtin_dir;
     let builtin_manifest_filepath = self
       .builtin_manifest_filepath
@@ -87,30 +88,14 @@ impl BundleSourceBuilder {
       .remote_manifest_filepath
       .map(|x| util::fs::normalize_path(&remote_dir, &x))
       .unwrap_or(remote_dir.join(MANIFEST_FILENAME));
-    BundleSource {
+    Source {
       builtin_dir,
-      builtin_manifest: BundleManifest::new(&builtin_manifest_filepath, ReadOnly),
+      builtin_manifest: Manifest::new(&builtin_manifest_filepath, ReadOnly),
       remote_dir,
-      remote_manifest: BundleManifest::new(&remote_manifest_filepath, ReadWrite),
+      remote_manifest: RwLock::new(Manifest::new(&remote_manifest_filepath, ReadWrite)),
       descriptors: DashMap::default(),
       options: self.options,
     }
-  }
-}
-
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "_serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "_serde", serde(rename_all = "camelCase"))]
-#[non_exhaustive]
-pub struct ListBundleItem {
-  pub source: BundleSourceKind,
-  #[cfg_attr(feature = "_serde", serde(flatten))]
-  pub item: BundleManifestEntryItem,
-}
-
-impl ListBundleItem {
-  pub(crate) fn from(source: BundleSourceKind, item: BundleManifestEntryItem) -> Self {
-    Self { source, item }
   }
 }
 
@@ -118,13 +103,13 @@ impl ListBundleItem {
 type DescriptorCell = Arc<OnceCell<Arc<BundleDescriptor>>>;
 
 #[derive(Debug)]
-pub struct BundleSource {
+pub struct Source {
   builtin_dir: PathBuf,
-  pub(crate) builtin_manifest: BundleManifest<ReadOnly>,
+  pub(crate) builtin_manifest: Manifest<ReadOnly>,
   remote_dir: PathBuf,
-  pub(crate) remote_manifest: BundleManifest<ReadWrite>,
+  pub(crate) remote_manifest: RwLock<Manifest<ReadWrite>>,
   descriptors: DashMap<String, (PathBuf, DescriptorCell)>,
-  options: BundleSourceOptions,
+  options: SourceOptions,
 }
 
 /// A descriptor together with the filepath it was loaded from.
@@ -195,45 +180,62 @@ impl std::ops::Deref for LoadedDescriptor {
   }
 }
 
-impl BundleSource {
-  pub fn builder() -> BundleSourceBuilder {
-    BundleSourceBuilder::new()
+impl Source {
+  pub fn builder() -> SourceBuilder {
+    SourceBuilder::new()
   }
 
-  pub fn options(&self) -> &BundleSourceOptions {
+  pub fn options(&self) -> &SourceOptions {
     &self.options
   }
 
-  pub async fn list_bundles(&self) -> crate::Result<Vec<ListBundleItem>> {
+  pub fn builtin_dir(&self) -> &Path {
+    &self.builtin_dir
+  }
+
+  pub fn builtin_manifest(&self) -> &Manifest<ReadOnly> {
+    &self.builtin_manifest
+  }
+
+  pub fn remote_dir(&self) -> &Path {
+    &self.remote_dir
+  }
+
+  pub fn remote_manifest(&self) -> &RwLock<Manifest<ReadWrite>> {
+    &self.remote_manifest
+  }
+
+  pub async fn list_bundles(&self) -> crate::Result<Vec<SourceListItem>> {
     let (builtin_items, remote_items) =
-      tokio::try_join!(self.list_builtin_bundles(), self.list_remote_bundles(),)?;
+      tokio::try_join!(self.list_builtin_bundles(), self.list_remote_bundles())?;
     Ok([builtin_items, remote_items].concat())
   }
 
-  pub async fn list_builtin_bundles(&self) -> crate::Result<Vec<ListBundleItem>> {
-    let entries = self.builtin_manifest.list_entries().await?;
-    let items = entries
+  pub async fn list_builtin_bundles(&self) -> crate::Result<Vec<SourceListItem>> {
+    let items = self
+      .builtin_manifest
+      .list_items()
+      .await?
       .into_iter()
-      .map(|item| ListBundleItem::from(BundleSourceKind::Builtin, item))
+      .map(|item| SourceListItem::from(SourceKind::Builtin, item))
       .collect::<Vec<_>>();
     Ok(items)
   }
 
-  pub async fn list_remote_bundles(&self) -> crate::Result<Vec<ListBundleItem>> {
-    let entries = self.remote_manifest.list_entries().await?;
-    let items = entries
+  pub async fn list_remote_bundles(&self) -> crate::Result<Vec<SourceListItem>> {
+    let remote_manifest = self.remote_manifest.read().await;
+    let items = remote_manifest
+      .list_items()
+      .await?
       .into_iter()
-      .map(|item| ListBundleItem::from(BundleSourceKind::Builtin, item))
+      .map(|item| SourceListItem::from(SourceKind::Remote, item))
       .collect::<Vec<_>>();
     Ok(items)
   }
 
   pub async fn get_version(&self, bundle_name: &str) -> crate::Result<Option<BundleSourceVersion>> {
-    match self
-      .remote_manifest
-      .get_current_version(bundle_name)
-      .await?
-    {
+    let remote_manifest = self.remote_manifest.read().await;
+    match remote_manifest.get_current_version(bundle_name).await? {
       Some(ver) => Ok(Some(BundleSourceVersion::remote(ver))),
       None => {
         // fallback to builtin version
@@ -251,48 +253,58 @@ impl BundleSource {
     &self,
     bundle_name: &str,
   ) -> crate::Result<Option<String>> {
-    self.remote_manifest.get_staged_version(bundle_name).await
+    let remote_manifest = self.remote_manifest.read().await;
+    let version = remote_manifest.get_staged_version(bundle_name).await?;
+    Ok(version)
   }
 
-  pub async fn update_remote_version(&self, bundle_name: &str, version: &str) -> crate::Result<()> {
-    self
-      .update_remote_versions(&[(bundle_name.to_owned(), version.to_owned())])
-      .await
+  pub async fn get_remote_previous_version(
+    &self,
+    bundle_name: &str,
+  ) -> crate::Result<Option<String>> {
+    let remote_manifest = self.remote_manifest.read().await;
+    let version = remote_manifest.get_previous_version(bundle_name).await?;
+    Ok(version)
   }
 
-  pub async fn update_remote_versions(&self, items: &[(String, String)]) -> crate::Result<()> {
-    if items.is_empty() {
-      return Ok(());
-    }
-    self.remote_manifest.set_current_versions(items).await?;
-    self.remote_manifest.save().await?;
-    Ok(())
+  pub async fn update_remote_version(
+    &self,
+    bundle_name: &str,
+    version: &str,
+  ) -> crate::Result<ManifestSetCurrentVersionResult> {
+    let mut remote_manifest = self.remote_manifest.write().await;
+    let result = remote_manifest
+      .set_current_version(bundle_name, version)
+      .await?;
+    Ok(result)
+  }
+
+  pub async fn update_remote_versions(
+    &self,
+    items: impl Into<HashMap<String, String>>,
+  ) -> crate::Result<Vec<ManifestSetCurrentVersionResult>> {
+    let mut remote_manifest = self.remote_manifest.write().await;
+    let results = remote_manifest.set_current_version_many(items).await?;
+    Ok(results)
   }
 
   pub async fn stage_remote_bundle(
     &self,
     bundle_name: &str,
-    version: &str,
-    data: BundleManifestVersionData,
-  ) -> crate::Result<()> {
-    self
-      .remote_manifest
-      .insert_stage_entry(bundle_name, version, data)
-      .await?;
-    self.remote_manifest.save().await?;
-    Ok(())
+    data: ManifestStageData,
+  ) -> crate::Result<ManifestStageResult> {
+    let mut remote_manifest = self.remote_manifest.write().await;
+    let result = remote_manifest.stage(bundle_name, data).await?;
+    Ok(result)
   }
 
   pub async fn stage_remote_bundles(
     &self,
-    items: &[(String, String, BundleManifestVersionData)],
-  ) -> crate::Result<()> {
-    if items.is_empty() {
-      return Ok(());
-    }
-    self.remote_manifest.insert_staged_entries(items).await?;
-    self.remote_manifest.save().await?;
-    Ok(())
+    items: impl Into<HashMap<String, ManifestStageData>>,
+  ) -> crate::Result<Vec<ManifestStageResult>> {
+    let mut remote_manifest = self.remote_manifest.write().await;
+    let results = remote_manifest.stage_many(items).await?;
+    Ok(results)
   }
 
   pub async fn resolve_filepath(&self, bundle_name: &str) -> crate::Result<PathBuf> {
@@ -312,15 +324,14 @@ impl BundleSource {
     bundle_name: &str,
     version: &BundleSourceVersion,
   ) -> crate::Result<PathBuf> {
-    match version.kind {
-      BundleSourceKind::Builtin => self.get_builtin_bundle_filepath(bundle_name, &version.version),
-      BundleSourceKind::Remote => self.get_remote_bundle_filepath(bundle_name, &version.version),
+    match version.source {
+      SourceKind::Builtin => self.get_builtin_bundle_filepath(bundle_name, &version.version),
+      SourceKind::Remote => self.get_remote_bundle_filepath(bundle_name, &version.version),
     }
   }
 
-  /// Whether the integrity of bundles of this kind is checked on load.
   #[cfg(feature = "integrity")]
-  fn checks_integrity_on_load(&self, kind: &BundleSourceKind) -> bool {
+  fn checks_integrity_on_load(&self, kind: &SourceKind) -> bool {
     self.options.integrity.policy != IntegrityPolicy::Off
       && self.options.integrity.check_mode.should_verify(kind)
   }
@@ -333,18 +344,18 @@ impl BundleSource {
   ) -> crate::Result<Option<Vec<u8>>> {
     #[cfg(feature = "integrity")]
     {
-      let check_integrity = self.checks_integrity_on_load(&version.kind);
+      let check_integrity = self.checks_integrity_on_load(&version.source);
       if !check_integrity {
         return Ok(None);
       }
 
-      let data = match version.kind {
-        BundleSourceKind::Builtin => {
+      let data = match version.source {
+        SourceKind::Builtin => {
           self
             .get_builtin_version_data(bundle_name, &version.version)
             .await?
         }
-        BundleSourceKind::Remote => {
+        SourceKind::Remote => {
           self
             .get_remote_version_data(bundle_name, &version.version)
             .await?
@@ -470,10 +481,10 @@ impl BundleSource {
     &self,
     bundle_name: &str,
     version: &str,
-  ) -> crate::Result<Option<BundleManifestVersionData>> {
+  ) -> crate::Result<Option<ManifestVersionData>> {
     self
       .builtin_manifest
-      .get_entry_version_data(bundle_name, version)
+      .get_version_data(bundle_name, version)
       .await
   }
 
@@ -481,11 +492,12 @@ impl BundleSource {
     &self,
     bundle_name: &str,
     version: &str,
-  ) -> crate::Result<Option<BundleManifestVersionData>> {
-    self
-      .remote_manifest
-      .get_entry_version_data(bundle_name, version)
-      .await
+  ) -> crate::Result<Option<ManifestVersionData>> {
+    let remote_manifest = self.remote_manifest.read().await;
+    let data = remote_manifest
+      .get_version_data(bundle_name, version)
+      .await?;
+    Ok(data)
   }
 
   pub async fn load(&self, bundle_name: &str) -> crate::Result<Arc<LoadedDescriptor>> {
@@ -540,115 +552,107 @@ impl BundleSource {
       .is_some()
   }
 
-  /// Removes a single staged remote bundle: drops its manifest entry and deletes its
-  /// file from disk. Returns whether the entry existed.
   pub async fn remove_remote_bundle(
     &self,
     bundle_name: &str,
     version: &str,
     force: Option<bool>,
-  ) -> crate::Result<BundleEntryRemoveResult> {
-    let result = self
-      .remote_manifest
-      .remove_entry(bundle_name, version, force)
-      .await?;
+  ) -> crate::Result<ManifestRemoveResult> {
+    // The file is unreferenced once the manifest no longer lists it, so deleting it does not
+    // need the lock — and holding it there would stall every read for the whole deletion.
+    let (result, filepath) = {
+      let mut remote_manifest = self.remote_manifest.write().await;
+      let result = remote_manifest.remove(bundle_name, version, force).await?;
 
-    if result.kind == BundleEntryRemoveResultKind::Removed {
-      self.remote_manifest.save().await?;
-      if let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, &result.version) {
-        self.unload_filepath(&result.name, &filepath);
-        remove_files_by_chunk(vec![filepath], 1).await;
+      let mut filepath = None;
+      if result.kind == ManifestRemoveResultKind::Removed {
+        if let Ok(path) = self.get_remote_bundle_filepath(&result.name, &result.version) {
+          self.unload_filepath(&result.name, &path);
+          filepath = Some(path);
+        }
       }
+      (result, filepath)
+    };
+
+    if let Some(filepath) = filepath {
+      remove_files_by_chunk(vec![filepath], Some(1)).await;
     }
 
     Ok(result)
   }
 
-  /// Same as [`BundleSource::remove_remote_bundle`] for several bundles, using a single
-  /// manifest write. The returned flags line up with `items`.
-  pub async fn remove_remote_bundles<N, V>(
+  pub async fn remove_remote_bundles(
     &self,
-    items: &[(N, V)],
-    force: Option<bool>,
-  ) -> crate::Result<Vec<BundleEntryRemoveResult>>
-  where
-    N: AsRef<str>,
-    V: AsRef<str>,
-  {
-    let results = self.remote_manifest.remove_entries(items, force).await?;
-    if !results
-      .iter()
-      .any(|x| x.kind == BundleEntryRemoveResultKind::Removed)
-    {
-      return Ok(results);
-    }
+    items: impl Into<HashMap<String, ManifestRemoveData>>,
+  ) -> crate::Result<Vec<ManifestRemoveResult>> {
+    let (results, filepaths) = {
+      let mut remote_manifest = self.remote_manifest.write().await;
+      let results = remote_manifest.remove_many(items).await?;
 
-    // The manifest is the source of truth, so it is made durable before the files it no
-    // longer references are deleted
-    self.remote_manifest.save().await?;
-
-    let mut filepaths = Vec::with_capacity(results.len());
-    for ((name, version), result) in items.iter().zip(results.iter()) {
-      if result.kind != BundleEntryRemoveResultKind::Removed {
-        continue;
+      let mut filepaths = Vec::with_capacity(results.len());
+      for result in results.iter() {
+        if result.kind != ManifestRemoveResultKind::Removed {
+          continue;
+        }
+        let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, &result.version) else {
+          continue;
+        };
+        self.unload_filepath(&result.name, &filepath);
+        filepaths.push(filepath);
       }
-      let (name, version) = (name.as_ref(), version.as_ref());
-      let Ok(filepath) = self.get_remote_bundle_filepath(name, version) else {
-        continue;
-      };
-      self.unload_filepath(name, &filepath);
-      filepaths.push(filepath);
-    }
-    remove_files_by_chunk(filepaths, 256).await;
+      (results, filepaths)
+    };
+
+    remove_files_by_chunk(filepaths, self.options.remove_bundle_chunk_size).await;
 
     Ok(results)
   }
 
   /// Remove orphan remote bundles which is not using so can free disk space.
-  pub async fn prune_remote_bundle(
-    &self,
-    bundle_name: &str,
-  ) -> crate::Result<BundleEntryPruneResult> {
-    let result = self.remote_manifest.prune_entry(bundle_name).await?;
+  pub async fn prune_remote_bundle(&self, bundle_name: &str) -> crate::Result<ManifestPruneResult> {
+    let (result, filepaths) = {
+      let mut remote_manifest = self.remote_manifest.write().await;
+      let result = remote_manifest.prune(bundle_name).await?;
 
-    if !result.pruned_versions.is_empty() {
-      self.remote_manifest.save().await?;
-      let mut filepaths = vec![];
+      let mut filepaths = Vec::with_capacity(result.pruned_versions.len());
       for version in result.pruned_versions.iter() {
         if let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, version) {
           filepaths.push(filepath);
         }
       }
-      remove_files_by_chunk(filepaths, 256).await;
-    }
+      (result, filepaths)
+    };
+
+    remove_files_by_chunk(filepaths, self.options.remove_bundle_chunk_size).await;
 
     Ok(result)
   }
 
-  /// Same as [`BundleSource::prune_remote_bundle`] for several bundles, using a single
+  /// Same as [`Source::prune_remote_bundle`] for several bundles, using a single
   /// manifest write.
   pub async fn prune_remote_bundles<N>(
     &self,
     bundle_names: &[N],
-  ) -> crate::Result<Vec<BundleEntryPruneResult>>
+  ) -> crate::Result<Vec<ManifestPruneResult>>
   where
     N: AsRef<str>,
   {
-    let results = self.remote_manifest.prune_entries(bundle_names).await?;
-    if results.iter().any(|x| !x.pruned_versions.is_empty()) {
-      self.remote_manifest.save().await?;
-    }
+    let (results, filepaths) = {
+      let mut remote_manifest = self.remote_manifest.write().await;
+      let results = remote_manifest.prune_many(bundle_names).await?;
 
-    let mut filepaths = vec![];
-    for result in results.iter() {
-      for version in result.pruned_versions.iter() {
-        if let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, version) {
-          filepaths.push(filepath);
+      let mut filepaths = vec![];
+      for result in results.iter() {
+        for version in result.pruned_versions.iter() {
+          if let Ok(filepath) = self.get_remote_bundle_filepath(&result.name, version) {
+            filepaths.push(filepath);
+          }
         }
       }
-    }
+      (results, filepaths)
+    };
 
-    remove_files_by_chunk(filepaths, 256).await;
+    remove_files_by_chunk(filepaths, self.options.remove_bundle_chunk_size).await;
 
     Ok(results)
   }
@@ -712,12 +716,12 @@ async fn read_file(filepath: &Path) -> crate::Result<Vec<u8>> {
 }
 
 /// Deletes files, best-effort, in batches rather than one task per file.
-async fn remove_files_by_chunk(filepaths: Vec<PathBuf>, chunk_size: usize) {
+async fn remove_files_by_chunk(filepaths: Vec<PathBuf>, chunk_size: Option<usize>) {
   if filepaths.is_empty() {
     return;
   }
 
-  for chunk in filepaths.chunks(chunk_size) {
+  for chunk in filepaths.chunks(chunk_size.unwrap_or(256).max(1)) {
     let chunk = chunk.to_vec();
     let _ = tokio::task::spawn_blocking(move || {
       for filepath in chunk {
@@ -732,27 +736,41 @@ async fn remove_files_by_chunk(filepaths: Vec<PathBuf>, chunk_size: usize) {
 mod tests {
   use super::*;
   use crate::ChecksumReadOptions;
-  use crate::source::{BundleManifestData, BundleManifestEntry, BundleManifestEntryItemStatus};
+  use crate::source::{ManifestBundleItemStatus, ManifestBundleSet, ManifestData};
   use crate::testing::{Fixtures, TempDir};
   use std::collections::HashMap;
 
-  fn fixture_source() -> BundleSource {
+  fn fixture_source() -> Source {
     let fixture = Fixtures::bundles();
-    BundleSource::builder()
+    Source::builder()
       .builtin_dir(fixture.get_path("builtin"))
       .remote_dir(fixture.get_path("remote"))
       .build()
   }
 
-  fn remote_source(temp: &TempDir) -> BundleSource {
-    BundleSource::builder()
+  fn remote_source(temp: &TempDir) -> Source {
+    Source::builder()
       .remote_dir(temp.dir().join("remote"))
       .build()
   }
 
-  async fn stage(source: &BundleSource, bundle_name: &str, version: &str, data: &[u8]) {
+  fn stage_data(version: &str, data: Option<ManifestVersionData>) -> ManifestStageData {
+    ManifestStageData {
+      version: version.to_owned(),
+      data,
+    }
+  }
+
+  fn remove_data(versions: &[&str], force: Option<bool>) -> ManifestRemoveData {
+    ManifestRemoveData {
+      versions: versions.iter().map(|x| (*x).to_owned()).collect(),
+      force,
+    }
+  }
+
+  async fn stage(source: &Source, bundle_name: &str, version: &str, data: &[u8]) {
     source
-      .stage_remote_bundle(bundle_name, version, BundleManifestVersionData::default())
+      .stage_remote_bundle(bundle_name, stage_data(version, None))
       .await
       .unwrap();
     let filepath = source
@@ -764,7 +782,7 @@ mod tests {
     tokio::fs::write(&filepath, data).await.unwrap();
   }
 
-  async fn staged_source(temp: &TempDir, versions: &[&str]) -> BundleSource {
+  async fn staged_source(temp: &TempDir, versions: &[&str]) -> Source {
     let source = remote_source(temp);
     for version in versions {
       stage(&source, "app", version, b"bundle").await;
@@ -772,7 +790,7 @@ mod tests {
     source
   }
 
-  async fn staged_bundle_source(temp: &TempDir, versions: &[&str]) -> BundleSource {
+  async fn staged_bundle_source(temp: &TempDir, versions: &[&str]) -> Source {
     let data = tokio::fs::read(Fixtures::bundles().get_path("remote/app/1.0.0.wvb"))
       .await
       .unwrap();
@@ -787,13 +805,13 @@ mod tests {
   async fn stage_remote_bundle_records_version_data() {
     let temp = TempDir::new();
     let source = remote_source(&temp);
-    let data = BundleManifestVersionData {
+    let data = ManifestVersionData {
       integrity: Some("sha256:abc".to_owned()),
       metadata: Some(HashMap::from([("channel".to_owned(), "stable".to_owned())])),
     };
 
     source
-      .stage_remote_bundle("app", "1.0.0", data.clone())
+      .stage_remote_bundle("app", stage_data("1.0.0", Some(data.clone())))
       .await
       .unwrap();
 
@@ -838,17 +856,9 @@ mod tests {
     let source = remote_source(&temp);
 
     source
-      .stage_remote_bundles(&[
-        (
-          "app".to_owned(),
-          "1.0.0".to_owned(),
-          BundleManifestVersionData::default(),
-        ),
-        (
-          "docs".to_owned(),
-          "2.0.0".to_owned(),
-          BundleManifestVersionData::default(),
-        ),
+      .stage_remote_bundles([
+        ("app".to_owned(), stage_data("1.0.0", None)),
+        ("docs".to_owned(), stage_data("2.0.0", None)),
       ])
       .await
       .unwrap();
@@ -868,12 +878,12 @@ mod tests {
         (
           "app".to_owned(),
           "1.0.0".to_owned(),
-          BundleManifestEntryItemStatus::Staged
+          ManifestBundleItemStatus::Staged
         ),
         (
           "docs".to_owned(),
           "2.0.0".to_owned(),
-          BundleManifestEntryItemStatus::Staged
+          ManifestBundleItemStatus::Staged
         ),
       ]
     );
@@ -884,8 +894,8 @@ mod tests {
     let temp = TempDir::new();
     let source = remote_source(&temp);
 
-    source.stage_remote_bundles(&[]).await.unwrap();
-    source.update_remote_versions(&[]).await.unwrap();
+    source.stage_remote_bundles([]).await.unwrap();
+    source.update_remote_versions([]).await.unwrap();
 
     assert!(!temp.dir().join("remote").join(MANIFEST_FILENAME).exists());
   }
@@ -911,20 +921,21 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn update_remote_version_rejects_a_version_that_was_never_staged() {
+  async fn update_remote_version_reports_a_version_that_was_never_staged() {
     let temp = TempDir::new();
     let source = staged_source(&temp, &["1.0.0"]).await;
 
-    let err = source
-      .update_remote_version("app", "9.9.9")
-      .await
-      .unwrap_err();
-    assert!(matches!(err, crate::Error::BundleEntryNotExists { .. }));
-    let err = source
-      .update_remote_version("unknown", "1.0.0")
-      .await
-      .unwrap_err();
-    assert!(matches!(err, crate::Error::BundleEntryNotExists { .. }));
+    assert_eq!(
+      source.update_remote_version("app", "9.9.9").await.unwrap(),
+      ManifestSetCurrentVersionResult::version_not_exists("app", "9.9.9")
+    );
+    assert_eq!(
+      source
+        .update_remote_version("unknown", "1.0.0")
+        .await
+        .unwrap(),
+      ManifestSetCurrentVersionResult::not_exists("unknown", "1.0.0")
+    );
     assert!(source.get_version("app").await.unwrap().is_none());
   }
 
@@ -938,7 +949,7 @@ mod tests {
     assert!(source.get_version("unknown").await.unwrap().is_none());
 
     let temp = TempDir::new();
-    let builtin_only = BundleSource::builder()
+    let builtin_only = Source::builder()
       .builtin_dir(Fixtures::bundles().get_path("builtin"))
       .remote_dir(temp.dir().join("remote"))
       .build();
@@ -957,7 +968,7 @@ mod tests {
         .get_builtin_version_data("app", "1.0.0")
         .await
         .unwrap(),
-      Some(BundleManifestVersionData::default())
+      Some(ManifestVersionData::default())
     );
     assert!(
       source
@@ -971,7 +982,7 @@ mod tests {
         .get_remote_version_data("app", "1.1.0")
         .await
         .unwrap(),
-      Some(BundleManifestVersionData::default())
+      Some(ManifestVersionData::default())
     );
     assert!(
       source
@@ -987,17 +998,13 @@ mod tests {
     let source = fixture_source();
 
     let builtin = source.list_builtin_bundles().await.unwrap();
-    assert!(
-      builtin
-        .iter()
-        .all(|x| x.source == BundleSourceKind::Builtin)
-    );
+    assert!(builtin.iter().all(|x| x.source == SourceKind::Builtin));
     assert_eq!(
       builtin
         .iter()
         .map(|x| (x.item.version.as_str(), x.item.status.clone()))
         .collect::<Vec<_>>(),
-      vec![("1.0.0", BundleManifestEntryItemStatus::Current)]
+      vec![("1.0.0", ManifestBundleItemStatus::Current)]
     );
 
     let mut items = source
@@ -1014,17 +1021,17 @@ mod tests {
         (
           "app".to_owned(),
           "1.0.0".to_owned(),
-          BundleManifestEntryItemStatus::Current
+          ManifestBundleItemStatus::Current
         ),
         (
           "app".to_owned(),
           "1.0.0".to_owned(),
-          BundleManifestEntryItemStatus::Current
+          ManifestBundleItemStatus::Current
         ),
         (
           "app".to_owned(),
           "1.1.0".to_owned(),
-          BundleManifestEntryItemStatus::Orphan
+          ManifestBundleItemStatus::Orphan
         ),
       ]
     );
@@ -1034,11 +1041,11 @@ mod tests {
   async fn manifest_filepath_options_are_honored() {
     let temp = TempDir::new();
     let builtin_manifest_filepath = temp.dir().join("builtin-manifest.json");
-    let mut manifest = BundleManifestData::default();
-    manifest.entries.insert(
+    let mut manifest = ManifestData::default();
+    manifest.bundles.insert(
       "app".to_owned(),
-      BundleManifestEntry {
-        versions: HashMap::from([("1.0.0".to_owned(), BundleManifestVersionData::default())]),
+      ManifestBundleSet {
+        versions: HashMap::from([("1.0.0".to_owned(), ManifestVersionData::default())]),
         current_version: Some("1.0.0".to_owned()),
         previous_version: None,
         staged_version: None,
@@ -1051,14 +1058,14 @@ mod tests {
     .await
     .unwrap();
 
-    let source = BundleSource::builder()
+    let source = Source::builder()
       .builtin_dir(temp.dir().join("builtin"))
       .builtin_manifest_filepath(&builtin_manifest_filepath)
       .remote_dir(temp.dir().join("remote"))
       .remote_manifest_filepath("custom.json")
       .build();
     source
-      .stage_remote_bundle("app", "2.0.0", BundleManifestVersionData::default())
+      .stage_remote_bundle("app", stage_data("2.0.0", None))
       .await
       .unwrap();
 
@@ -1090,14 +1097,14 @@ mod tests {
     source.update_remote_version("app", "1.0.0").await.unwrap();
 
     let removed = source
-      .remove_remote_bundles(&[("app", "1.1.0"), ("app", "9.9.9")], None)
+      .remove_remote_bundles([("app".to_owned(), remove_data(&["1.1.0", "9.9.9"], None))])
       .await
       .unwrap();
     assert_eq!(
       removed,
       vec![
-        BundleEntryRemoveResult::removed("app", "1.1.0"),
-        BundleEntryRemoveResult::not_found("app", "9.9.9"),
+        ManifestRemoveResult::removed("app", "1.1.0"),
+        ManifestRemoveResult::version_not_exists("app", "9.9.9"),
       ]
     );
 
@@ -1106,7 +1113,7 @@ mod tests {
     assert!(filepath("1.0.0").exists());
     assert!(filepath("1.2.0").exists());
 
-    let reopened = BundleSource::builder()
+    let reopened = Source::builder()
       .remote_dir(temp.dir().join("remote"))
       .build();
     assert!(
@@ -1126,16 +1133,17 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn remove_remote_bundles_rejects_the_current_version_without_force() {
+  async fn remove_remote_bundles_keeps_the_current_version_without_force() {
     let temp = TempDir::new();
     let source = staged_source(&temp, &["1.0.0"]).await;
     source.update_remote_version("app", "1.0.0").await.unwrap();
 
-    let err = source
-      .remove_remote_bundles(&[("app", "1.0.0")], None)
+    let removed = source
+      .remove_remote_bundles([("app".to_owned(), remove_data(&["1.0.0"], None))])
       .await
-      .unwrap_err();
-    assert!(matches!(err, crate::Error::BundleCannotBeRemoved { .. }));
+      .unwrap();
+
+    assert_eq!(removed, vec![ManifestRemoveResult::in_use("app", "1.0.0")]);
     assert!(
       source
         .get_remote_bundle_filepath("app", "1.0.0")
@@ -1155,7 +1163,7 @@ mod tests {
       .await
       .unwrap();
 
-    assert_eq!(removed, BundleEntryRemoveResult::removed("app", "1.0.0"));
+    assert_eq!(removed, ManifestRemoveResult::removed("app", "1.0.0"));
     assert!(
       !source
         .get_remote_bundle_filepath("app", "1.0.0")
@@ -1175,7 +1183,7 @@ mod tests {
       .remove_remote_bundle("app", "1.0.0", None)
       .await
       .unwrap();
-    assert_eq!(removed, BundleEntryRemoveResult::removed("app", "1.0.0"));
+    assert_eq!(removed, ManifestRemoveResult::removed("app", "1.0.0"));
     assert!(!filepath("1.0.0").exists());
     assert!(filepath("1.1.0").exists());
 
@@ -1183,7 +1191,10 @@ mod tests {
       .remove_remote_bundle("app", "1.0.0", None)
       .await
       .unwrap();
-    assert_eq!(removed, BundleEntryRemoveResult::not_found("app", "1.0.0"));
+    assert_eq!(
+      removed,
+      ManifestRemoveResult::version_not_exists("app", "1.0.0")
+    );
   }
 
   #[tokio::test]
@@ -1193,13 +1204,13 @@ mod tests {
     let filepath = |version| source.get_remote_bundle_filepath("app", version).unwrap();
 
     source
-      .remove_remote_bundles(&[("app", "1.0.0")], None)
+      .remove_remote_bundles([("app".to_owned(), remove_data(&["1.0.0"], None))])
       .await
       .unwrap();
     assert_eq!(source.list_remote_bundles().await.unwrap().len(), 1);
 
     source
-      .remove_remote_bundles(&[("app", "1.1.0")], None)
+      .remove_remote_bundles([("app".to_owned(), remove_data(&["1.1.0"], None))])
       .await
       .unwrap();
     assert!(source.list_remote_bundles().await.unwrap().is_empty());
@@ -1239,7 +1250,7 @@ mod tests {
       stage(&source, name, version, b"bundle").await;
     }
     source
-      .update_remote_versions(&[
+      .update_remote_versions([
         ("a".to_owned(), "1.0.0".to_owned()),
         ("b".to_owned(), "2.0.0".to_owned()),
       ])
@@ -1251,11 +1262,11 @@ mod tests {
     assert_eq!(
       results,
       vec![
-        BundleEntryPruneResult {
+        ManifestPruneResult {
           name: "a".to_owned(),
           pruned_versions: vec!["1.1.0".to_owned()],
         },
-        BundleEntryPruneResult {
+        ManifestPruneResult {
           name: "b".to_owned(),
           pruned_versions: vec![],
         },
@@ -1352,7 +1363,7 @@ mod tests {
 
   #[test]
   fn invalid_filepath() {
-    let source = BundleSource::builder()
+    let source = Source::builder()
       .builtin_dir("/tmp/builtin")
       .remote_dir("/tmp/remote")
       .build();
@@ -1388,7 +1399,7 @@ mod tests {
   #[tokio::test]
   async fn invalid_filepath_when_fetch_remote_bundle() {
     let fixture = Fixtures::bundles();
-    let source = BundleSource::builder()
+    let source = Source::builder()
       .remote_dir(fixture.get_path("remote"))
       .build();
     let err = source
@@ -1497,10 +1508,10 @@ mod tests {
   async fn load_applies_the_data_read_options_of_the_source() {
     let fixture = Fixtures::bundles();
     let data_read = DataReadOptions::default().checksum(ChecksumReadOptions::default().seed(42));
-    let source = BundleSource::builder()
+    let source = Source::builder()
       .builtin_dir(fixture.get_path("builtin"))
       .remote_dir(fixture.get_path("remote"))
-      .options(BundleSourceOptions::default().data_read(data_read))
+      .options(SourceOptions::default().data_read(data_read))
       .build();
     assert_eq!(source.options().data_read, data_read);
 

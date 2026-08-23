@@ -1,6 +1,8 @@
 mod bundle;
+mod cancellation;
 mod error;
 mod integrity;
+mod options;
 mod protocol;
 mod remote;
 mod result;

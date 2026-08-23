@@ -4,66 +4,200 @@ import { invoke } from './invoke.js';
  * - builtin: Built-in bundle which is included in the application.
  * - remote: Remote bundle which is downloaded from a remote server.
  */
-export type BundleSourceType = 'builtin' | 'remote';
+export type SourceKind = 'builtin' | 'remote';
 
-/**
- * Bundle manifest metadata.
- */
-export interface BundleManifestMetadata {
-  /** "ETag" header value. */
-  etag?: string;
+/** What the manifest records for one version of a bundle. */
+export interface ManifestVersionData {
   /** Integrity value to verify the bundle. */
   integrity?: string;
-  /** Signature value to verify the bundle. */
-  signature?: string;
-  /** Last modified timestamp. (uses GMT) */
-  lastModified?: string;
+  /** Arbitrary string-valued metadata the update carried for this version. */
+  metadata?: Record<string, string>;
 }
 
-/**
- * List item of bundle manifests.
- */
-export interface ListBundleManifestItem {
+/** Where a version stands in its bundle's lifecycle. */
+export type ManifestBundleItemStatus = 'current' | 'previous' | 'staged' | 'orphan';
+
+/** One version of one bundle, as the manifest records it. */
+export interface ManifestBundleItem {
   /** The name of the bundle. */
   name: string;
   /** The version of the bundle. */
   version: string;
-  /** Whether the bundle is currently active. */
-  current: boolean;
-  /** Bundle manifest metadata. */
-  metadata: BundleManifestMetadata;
+  /** Whether this version is the current/previous/staged one, or an orphan. */
+  status: ManifestBundleItemStatus;
+  /** Bundle manifest data. */
+  data: ManifestVersionData;
 }
 
-/**
- * List item of bundles.
- */
-export interface ListBundleItem {
-  /** The type of the bundle. */
-  type: BundleSourceType;
+/** List item of bundles. */
+export interface SourceListItem {
+  /** Which source (builtin or remote) records this item. */
+  source: SourceKind;
   /** The bundle item. */
-  item: ListBundleManifestItem;
+  item: ManifestBundleItem;
 }
 
-/**
- * Bundle source version.
- */
+/** Bundle version with the source that provides it. */
 export interface BundleSourceVersion {
-  /** The type of the bundle source. */
-  type: BundleSourceType;
+  /** The source that provides this version. */
+  source: SourceKind;
   /** The version of the bundle. */
   version: string;
 }
 
-async function listBundles(): Promise<ListBundleItem[]> {
-  return invoke<ListBundleItem[]>('sourceListBundles');
+export type ManifestSetCurrentVersionResultKind =
+  /** The version is now the current one. */
+  | 'settled'
+  /** The bundle does not exist in the manifest. */
+  | 'not_exists'
+  /** The version does not exist in the manifest. */
+  | 'version_not_exists';
+
+export interface ManifestSetCurrentVersionResult {
+  name: string;
+  version: string;
+  kind: ManifestSetCurrentVersionResultKind;
 }
 
-async function loadVersion(bundleName: string): Promise<BundleSourceVersion | null> {
-  return invoke<BundleSourceVersion | null>('sourceLoadVersion', { bundleName });
+/** The version to stage, and what the manifest should record for it. */
+export interface ManifestStageData {
+  version: string;
+  data?: ManifestVersionData;
 }
 
-async function updateVersion(bundleName: string, version: string): Promise<void> {
-  return invoke<void>('sourceUpdateVersion', { bundleName, version });
+export type ManifestStageResultKind =
+  /** The version is now the staged one. */
+  | 'staged'
+  /** The version is the current one, so it cannot be staged. */
+  | 'in_use';
+
+export interface ManifestStageResult {
+  name: string;
+  version: string;
+  kind: ManifestStageResultKind;
+}
+
+/** The versions to remove from one bundle. */
+export interface ManifestRemoveData {
+  versions: string[];
+  /** Remove even the version in use. Default: `false`. */
+  force?: boolean;
+}
+
+export type ManifestRemoveResultKind =
+  | 'removed'
+  /** The bundle does not exist in the manifest. */
+  | 'not_exists'
+  /** The version does not exist in the manifest. */
+  | 'version_not_exists'
+  /** The version is the current one; pass `force` to remove it anyway. */
+  | 'in_use';
+
+export interface ManifestRemoveResult {
+  name: string;
+  version: string;
+  kind: ManifestRemoveResultKind;
+}
+
+export interface ManifestPruneResult {
+  name: string;
+  /** The orphan versions that were removed. */
+  prunedVersions: string[];
+}
+
+async function listBundles(): Promise<SourceListItem[]> {
+  return invoke<SourceListItem[]>('sourceListBundles');
+}
+
+async function listBuiltinBundles(): Promise<SourceListItem[]> {
+  return invoke<SourceListItem[]>('sourceListBuiltinBundles');
+}
+
+async function listRemoteBundles(): Promise<SourceListItem[]> {
+  return invoke<SourceListItem[]>('sourceListRemoteBundles');
+}
+
+async function getVersion(bundleName: string): Promise<BundleSourceVersion | null> {
+  return invoke<BundleSourceVersion | null>('sourceGetVersion', { bundleName });
+}
+
+async function getRemoteStagedVersion(bundleName: string): Promise<string | null> {
+  return invoke<string | null>('sourceGetRemoteStagedVersion', { bundleName });
+}
+
+async function getRemotePreviousVersion(bundleName: string): Promise<string | null> {
+  return invoke<string | null>('sourceGetRemotePreviousVersion', { bundleName });
+}
+
+async function getBuiltinVersionData(
+  bundleName: string,
+  version: string
+): Promise<ManifestVersionData | null> {
+  return invoke<ManifestVersionData | null>('sourceGetBuiltinVersionData', {
+    bundleName,
+    version,
+  });
+}
+
+async function getRemoteVersionData(
+  bundleName: string,
+  version: string
+): Promise<ManifestVersionData | null> {
+  return invoke<ManifestVersionData | null>('sourceGetRemoteVersionData', {
+    bundleName,
+    version,
+  });
+}
+
+async function updateRemoteVersion(
+  bundleName: string,
+  version: string
+): Promise<ManifestSetCurrentVersionResult> {
+  return invoke<ManifestSetCurrentVersionResult>('sourceUpdateRemoteVersion', {
+    bundleName,
+    version,
+  });
+}
+
+async function updateRemoteVersions(
+  items: Record<string, string>
+): Promise<ManifestSetCurrentVersionResult[]> {
+  return invoke<ManifestSetCurrentVersionResult[]>('sourceUpdateRemoteVersions', { items });
+}
+
+async function stageRemoteBundle(
+  bundleName: string,
+  data: ManifestStageData
+): Promise<ManifestStageResult> {
+  return invoke<ManifestStageResult>('sourceStageRemoteBundle', { bundleName, data });
+}
+
+async function stageRemoteBundles(
+  items: Record<string, ManifestStageData>
+): Promise<ManifestStageResult[]> {
+  return invoke<ManifestStageResult[]>('sourceStageRemoteBundles', { items });
+}
+
+async function removeRemoteBundle(
+  bundleName: string,
+  version: string,
+  force?: boolean
+): Promise<ManifestRemoveResult> {
+  return invoke<ManifestRemoveResult>('sourceRemoveRemoteBundle', { bundleName, version, force });
+}
+
+async function removeRemoteBundles(
+  items: Record<string, ManifestRemoveData>
+): Promise<ManifestRemoveResult[]> {
+  return invoke<ManifestRemoveResult[]>('sourceRemoveRemoteBundles', { items });
+}
+
+async function pruneRemoteBundle(bundleName: string): Promise<ManifestPruneResult> {
+  return invoke<ManifestPruneResult>('sourcePruneRemoteBundle', { bundleName });
+}
+
+async function pruneRemoteBundles(bundleNames: string[]): Promise<ManifestPruneResult[]> {
+  return invoke<ManifestPruneResult[]>('sourcePruneRemoteBundles', { bundleNames });
 }
 
 async function resolveFilepath(bundleName: string): Promise<string> {
@@ -78,68 +212,52 @@ async function getRemoteBundleFilepath(bundleName: string, version: string): Pro
   return invoke<string>('sourceGetRemoteBundleFilepath', { bundleName, version });
 }
 
-async function loadBuiltinMetadata(
-  bundleName: string,
-  version: string
-): Promise<BundleManifestMetadata | null> {
-  return invoke<BundleManifestMetadata | null>('sourceLoadBuiltinMetadata', {
-    bundleName,
-    version,
-  });
-}
-
-async function loadRemoteMetadata(
-  bundleName: string,
-  version: string
-): Promise<BundleManifestMetadata | null> {
-  return invoke<BundleManifestMetadata | null>('sourceLoadRemoteMetadata', {
-    bundleName,
-    version,
-  });
-}
-
-async function unloadDescriptor(bundleName: string): Promise<boolean> {
-  return invoke<boolean>('sourceUnloadDescriptor', { bundleName });
-}
-
-async function removeRemoteBundle(bundleName: string, version: string): Promise<boolean> {
-  return invoke<boolean>('sourceRemoveRemoteBundle', { bundleName, version });
-}
-
-async function remoteRetainedVersions(bundleName: string): Promise<string[]> {
-  return invoke<string[]>('sourceRemoteRetainedVersions', { bundleName });
-}
-
-async function pruneRemoteBundles(bundleName: string): Promise<string[]> {
-  return invoke<string[]>('sourcePruneRemoteBundles', { bundleName });
+async function unload(bundleName: string): Promise<boolean> {
+  return invoke<boolean>('sourceUnload', { bundleName });
 }
 
 export interface SourceApi {
   listBundles: typeof listBundles;
-  loadVersion: typeof loadVersion;
-  updateVersion: typeof updateVersion;
+  listBuiltinBundles: typeof listBuiltinBundles;
+  listRemoteBundles: typeof listRemoteBundles;
+  getVersion: typeof getVersion;
+  getRemoteStagedVersion: typeof getRemoteStagedVersion;
+  getRemotePreviousVersion: typeof getRemotePreviousVersion;
+  getBuiltinVersionData: typeof getBuiltinVersionData;
+  getRemoteVersionData: typeof getRemoteVersionData;
+  updateRemoteVersion: typeof updateRemoteVersion;
+  updateRemoteVersions: typeof updateRemoteVersions;
+  stageRemoteBundle: typeof stageRemoteBundle;
+  stageRemoteBundles: typeof stageRemoteBundles;
+  removeRemoteBundle: typeof removeRemoteBundle;
+  removeRemoteBundles: typeof removeRemoteBundles;
+  pruneRemoteBundle: typeof pruneRemoteBundle;
+  pruneRemoteBundles: typeof pruneRemoteBundles;
   resolveFilepath: typeof resolveFilepath;
   getBuiltinBundleFilepath: typeof getBuiltinBundleFilepath;
   getRemoteBundleFilepath: typeof getRemoteBundleFilepath;
-  loadBuiltinMetadata: typeof loadBuiltinMetadata;
-  loadRemoteMetadata: typeof loadRemoteMetadata;
-  unloadDescriptor: typeof unloadDescriptor;
-  removeRemoteBundle: typeof removeRemoteBundle;
-  remoteRetainedVersions: typeof remoteRetainedVersions;
-  pruneRemoteBundles: typeof pruneRemoteBundles;
+  unload: typeof unload;
 }
 
 export const source: SourceApi = {
   listBundles,
-  loadVersion,
-  updateVersion,
+  listBuiltinBundles,
+  listRemoteBundles,
+  getVersion,
+  getRemoteStagedVersion,
+  getRemotePreviousVersion,
+  getBuiltinVersionData,
+  getRemoteVersionData,
+  updateRemoteVersion,
+  updateRemoteVersions,
+  stageRemoteBundle,
+  stageRemoteBundles,
+  removeRemoteBundle,
+  removeRemoteBundles,
+  pruneRemoteBundle,
+  pruneRemoteBundles,
   resolveFilepath,
   getBuiltinBundleFilepath,
   getRemoteBundleFilepath,
-  loadBuiltinMetadata,
-  loadRemoteMetadata,
-  unloadDescriptor,
-  removeRemoteBundle,
-  remoteRetainedVersions,
-  pruneRemoteBundles,
+  unload,
 };

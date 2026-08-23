@@ -11,8 +11,8 @@ use std::sync::Arc;
 use tokio::fs;
 use wvb::http::HeaderMap;
 use wvb::{
-  AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, BundleBuilderOptions,
-  BundleEntry, BundleReader, BundleWriter, HeaderWriterOptions, IndexWriterOptions, Reader, Writer,
+  AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, BundleEntry, BundleReader,
+  BundleWriter, Reader, Writer,
 };
 
 /// Bundle header containing format metadata.
@@ -517,19 +517,19 @@ impl From<IndexReadOptions> for wvb::IndexReadOptions {
 
 /// Options for building a bundle.
 ///
-/// @property {BuildHeaderOptions} [header] - Header generation options
-/// @property {BuildIndexOptions} [index] - Index generation options
+/// @property {HeaderWriterOptions} [header] - Header generation options
+/// @property {IndexWriterOptions} [index] - Index generation options
 /// @property {ChecksumWriteOptions} [dataChecksum] - Checksum generation for the data section
 #[napi(object)]
-pub struct BuildOptions {
-  pub header: Option<BuildHeaderOptions>,
-  pub index: Option<BuildIndexOptions>,
+pub struct BundleBuilderOptions {
+  pub header: Option<HeaderWriterOptions>,
+  pub index: Option<IndexWriterOptions>,
   pub data_checksum: Option<ChecksumWriteOptions>,
 }
 
-impl From<BuildOptions> for BundleBuilderOptions {
-  fn from(value: BuildOptions) -> Self {
-    let mut options = BundleBuilderOptions::default();
+impl From<BundleBuilderOptions> for wvb::BundleBuilderOptions {
+  fn from(value: BundleBuilderOptions) -> Self {
+    let mut options = wvb::BundleBuilderOptions::default();
     if let Some(header) = value.header {
       options = options.header(header.into());
     }
@@ -565,13 +565,13 @@ impl From<ChecksumWriteOptions> for wvb::ChecksumWriteOptions {
 ///
 /// @property {ChecksumWriteOptions} [checksum] - Checksum generation for the header section
 #[napi(object)]
-pub struct BuildHeaderOptions {
+pub struct HeaderWriterOptions {
   pub checksum: Option<ChecksumWriteOptions>,
 }
 
-impl From<BuildHeaderOptions> for HeaderWriterOptions {
-  fn from(value: BuildHeaderOptions) -> Self {
-    let mut options = HeaderWriterOptions::default();
+impl From<HeaderWriterOptions> for wvb::HeaderWriterOptions {
+  fn from(value: HeaderWriterOptions) -> Self {
+    let mut options = wvb::HeaderWriterOptions::default();
     if let Some(checksum) = value.checksum {
       options = options.checksum(checksum.into());
     }
@@ -583,13 +583,13 @@ impl From<BuildHeaderOptions> for HeaderWriterOptions {
 ///
 /// @property {ChecksumWriteOptions} [checksum] - Checksum generation for the index section
 #[napi(object)]
-pub struct BuildIndexOptions {
+pub struct IndexWriterOptions {
   pub checksum: Option<ChecksumWriteOptions>,
 }
 
-impl From<BuildIndexOptions> for IndexWriterOptions {
-  fn from(value: BuildIndexOptions) -> Self {
-    let mut options = IndexWriterOptions::default();
+impl From<IndexWriterOptions> for wvb::IndexWriterOptions {
+  fn from(value: IndexWriterOptions) -> Self {
+    let mut options = wvb::IndexWriterOptions::default();
     if let Some(checksum) = value.checksum {
       options = options.checksum(checksum.into());
     }
@@ -745,7 +745,7 @@ impl BundleBuilder {
   /// This consumes the builder's entries and creates a complete bundle with
   /// compressed data.
   ///
-  /// @param {BuildOptions} [options] - Build options
+  /// @param {BundleBuilderOptions} [options] - Build options
   /// @returns {Bundle} The built bundle
   ///
   /// @example
@@ -754,7 +754,7 @@ impl BundleBuilder {
   /// await writeBundle(bundle, 'output.wvb');
   /// ```
   #[napi]
-  pub fn build(&mut self, options: Option<BuildOptions>) -> crate::Result<Bundle> {
+  pub fn build(&mut self, options: Option<BundleBuilderOptions>) -> crate::Result<Bundle> {
     if let Some(options) = options {
       self.inner.set_options(options.into());
     }

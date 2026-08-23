@@ -1,5 +1,5 @@
 use crate::protocol::uri::{UriBundleResolver, UriPathResolver};
-use crate::source::BundleSource;
+use crate::source::Source;
 use async_trait::async_trait;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_range::HttpRange;
@@ -10,7 +10,7 @@ use tokio::io::AsyncWriteExt;
 /// Protocol handler for serving files from bundle sources.
 ///
 /// `BundleProtocol` implements the `Protocol` trait to serve web resources from
-/// `.wvb` bundle files stored in a `BundleSource`. It supports:
+/// `.wvb` bundle files stored in a `Source`. It supports:
 ///
 /// - GET and HEAD HTTP methods
 /// - HTTP Range requests for streaming large files (video, audio)
@@ -35,10 +35,10 @@ use tokio::io::AsyncWriteExt;
 /// # #[cfg(feature = "protocol")]
 /// # async {
 /// use wvb::protocol::{BundleProtocol, Protocol};
-/// use wvb::source::BundleSource;
+/// use wvb::source::Source;
 /// use std::sync::Arc;
 ///
-/// let source = BundleSource::builder()
+/// let source = Source::builder()
 ///     .builtin_dir("./bundles")
 ///     .remote_dir("./remote")
 ///     .build();
@@ -64,9 +64,9 @@ use tokio::io::AsyncWriteExt;
 /// # #[cfg(feature = "protocol")]
 /// # async {
 /// # use wvb::protocol::{BundleProtocol, Protocol};
-/// # use wvb::source::BundleSource;
+/// # use wvb::source::Source;
 /// # use std::sync::Arc;
-/// # let source = Arc::new(BundleSource::builder().build());
+/// # let source = Arc::new(Source::builder().build());
 /// # let protocol = BundleProtocol::new(source);
 /// let request = http::Request::builder()
 ///     .uri("bundle://app/video.mp4")
@@ -79,7 +79,7 @@ use tokio::io::AsyncWriteExt;
 /// # };
 /// ```
 pub struct BundleProtocol {
-  source: Arc<BundleSource>,
+  source: Arc<Source>,
   bundle_resolver: UriBundleResolver,
   path_resolver: UriPathResolver,
 }
@@ -103,18 +103,18 @@ impl BundleProtocol {
   /// # #[cfg(feature = "protocol")]
   /// # {
   /// use wvb::protocol::BundleProtocol;
-  /// use wvb::source::BundleSource;
+  /// use wvb::source::Source;
   /// use std::sync::Arc;
   ///
-  /// let source = BundleSource::builder()
+  /// let source = Source::builder()
   ///     .builtin_dir("./bundles")
   ///     .build();
   /// let protocol = BundleProtocol::new(Arc::new(source));
   /// # }
   /// ```
-  pub fn new(source: Arc<BundleSource>) -> Self {
+  pub fn new(source: impl Into<Arc<Source>>) -> Self {
     Self {
-      source,
+      source: source.into(),
       bundle_resolver: UriBundleResolver::default(),
       path_resolver: UriPathResolver::default(),
     }
@@ -137,10 +137,10 @@ impl BundleProtocol {
   /// # #[cfg(feature = "protocol")]
   /// # {
   /// use wvb::protocol::BundleProtocol;
-  /// use wvb::source::BundleSource;
+  /// use wvb::source::Source;
   /// use std::sync::Arc;
   ///
-  /// let protocol = BundleProtocol::new(Arc::new(BundleSource::builder().build()));
+  /// let protocol = BundleProtocol::new(Arc::new(Source::builder().build()));
   /// let uri = "app://my-app/index.html".parse().unwrap();
   /// assert_eq!(protocol.bundle_resolver().resolve(&uri).as_deref(), Some("my-app"));
   /// # }
@@ -412,7 +412,7 @@ mod tests {
   async fn smoke() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -465,7 +465,7 @@ mod tests {
   async fn resolve_index_html() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -488,7 +488,7 @@ mod tests {
   async fn content_type() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -542,7 +542,7 @@ mod tests {
   async fn content_length() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -596,7 +596,7 @@ mod tests {
   async fn not_found() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -619,7 +619,7 @@ mod tests {
   async fn bundle_not_found() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -642,7 +642,7 @@ mod tests {
   async fn head_request() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -669,7 +669,7 @@ mod tests {
   async fn partial_request() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -732,7 +732,7 @@ mod tests {
   async fn not_allowed() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -755,7 +755,7 @@ mod tests {
   async fn with_bundle_resolver_custom() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -781,7 +781,7 @@ mod tests {
   async fn with_bundle_resolver_pathname() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -808,7 +808,7 @@ mod tests {
   async fn with_path_resolver_exact() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
@@ -843,7 +843,7 @@ mod tests {
   async fn with_path_resolver_html_extension() {
     let fixture = Fixtures::bundles();
     let source = Arc::new(
-      BundleSource::builder()
+      Source::builder()
         .builtin_dir(fixture.get_path("builtin"))
         .remote_dir(fixture.get_path("remote"))
         .build(),
