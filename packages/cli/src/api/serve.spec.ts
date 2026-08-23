@@ -4,10 +4,12 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { ServerType } from '@hono/node-server';
-import { BundleBuilder, type PathResolver, writeBundle } from '@wvb/node';
+import { BundleBuilder, writeBundle } from '@wvb/node';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Logger } from '../log.js';
 import { type ServeInstance, serve } from './serve.js';
+
+type PathResolver = any;
 
 let root: string;
 let instance: ServeInstance | undefined;

@@ -1,10 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Remote, writeBundle } from '@wvb/node';
+import { Remote } from '@wvb/node';
 import { Presets, SingleBar } from 'cli-progress';
 import { Command, Option } from 'clipanion';
 import { isBoolean } from 'typanion';
-import { logRemoteBundleInfo } from '../api/remote/logging.js';
 import { resolveBundleName, resolveConfig } from '../config.js';
 import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
@@ -112,7 +111,8 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
           Presets.shades_classic
         )
       : null;
-    const remote = new Remote(endpoint, {
+    const remote = new Remote({
+      baseUrl: endpoint,
       onDownload: data => {
         if (progress?.isActive !== true && data.totalBytes != null) {
           progress?.start(data.totalBytes, data.downloadedBytes);
@@ -121,17 +121,7 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
         }
       },
     });
-    const [info, bundle, buf] =
-      this.version != null
-        ? await remote.downloadVersion(bundleName, this.version)
-        : await remote.download(bundleName, this.channel);
-    logRemoteBundleInfo(this.logger, info, buf.byteLength);
-
     const write = this.write ?? true;
-    if (!write) {
-      return 0;
-    }
-
     const outFile = this.out ?? withWvbExtension(bundleName);
     const outFilePath = toAbsolutePath(outFile, config.root);
     if (await pathExists(outFilePath)) {
@@ -141,8 +131,19 @@ Set this to \`false\` (or pass "--no-write") just for simulating operation.
         return 1;
       }
     }
+    const update = await remote.getUpdate({ channel: this.channel });
+    const bundle = update?.update.bundles.find(
+      item => item.name === bundleName && (this.version == null || item.version === this.version)
+    );
+    if (bundle == null) {
+      this.logger.error(`Bundle not found in the current update: ${bundleName}`);
+      return 1;
+    }
+    if (!write) return 0;
     await fs.mkdir(path.dirname(outFilePath), { recursive: true });
-    const size = await writeBundle(bundle, outFilePath);
+    const url = bundle.downloadUrl ?? `${endpoint}/bundles/${bundle.name}/${bundle.version}`;
+    await remote.download(url, outFilePath);
+    const size = (await fs.stat(outFilePath)).size;
     this.logger.info(
       `Output: ${c.bold(c.success(outFile))} ${c.bytes(formatByteLength(Number(size)))}`
     );

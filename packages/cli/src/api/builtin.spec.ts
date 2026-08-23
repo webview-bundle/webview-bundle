@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { serve as honoServe, type ServerType } from '@hono/node-server';
-import type { BundleManifestData } from '@wvb/node';
+import type { ManifestData } from '@wvb/node';
 import { BundleBuilder, readBundle, writeBundleIntoBuffer } from '@wvb/node';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -41,8 +41,10 @@ async function writeWorkspace(
   }
 }
 
-async function readManifest(rel: string): Promise<BundleManifestData> {
-  return JSON.parse(await fs.readFile(path.join(root, rel), 'utf8'));
+async function readManifest(rel: string): Promise<ManifestData & { entries: Record<string, any> }> {
+  const manifest = JSON.parse(await fs.readFile(path.join(root, rel), 'utf8')) as ManifestData;
+  Object.defineProperty(manifest, 'entries', { enumerable: false, get: () => manifest.bundles });
+  return manifest as ManifestData & { entries: Record<string, any> };
 }
 
 function createTestLogger() {

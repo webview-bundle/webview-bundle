@@ -61,8 +61,8 @@ stored on the remote server.
       this.logger.error('"endpoint" is required for remote operations.');
       return 1;
     }
-    const remote = new Remote(endpointInput);
-    const bundles = await remote.listBundles({ channel: this.channel });
+    const remote = new Remote({ baseUrl: endpointInput });
+    const bundles = (await remote.getUpdate({ channel: this.channel }))?.update.bundles ?? [];
     this.logger.info(`Remote Webview Bundles:`);
     console.log(JSON.stringify(bundles, null, 2));
   }

@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,9 +12,10 @@ import type {
 import { makeIntegrity, signSignature } from '@wvb/config/remote';
 import {
   type Bundle,
-  type BundleManifestData,
+  type ManifestData,
+  ManifestVersion,
   Remote,
-  type RemoteOptions,
+  type RemoteOnDownloadData,
   readBundle,
   writeBundleIntoBuffer,
 } from '@wvb/node';
@@ -66,7 +68,7 @@ export interface BuiltinParams {
 }
 
 export interface BuiltinResult {
-  manifest: BundleManifestData;
+  manifest: ManifestData & { entries: Record<string, any> };
   android?: {
     noCompressStatus?: AndroidNoCompressStatus;
   };
@@ -101,10 +103,14 @@ export async function builtin(params: BuiltinParams): Promise<BuiltinResult> {
     await fs.rm(dir, { recursive: true });
   }
 
-  const manifest: BundleManifestData = {
-    manifestVersion: 1,
-    entries: {},
+  const manifest: ManifestData = {
+    manifestVersion: ManifestVersion.V1,
+    bundles: {},
   };
+  Object.defineProperty(manifest, 'entries', {
+    enumerable: false,
+    get: () => manifest.bundles,
+  });
   const progress = showProgress && target.type === 'remote' ? buildProgress() : null;
 
   const getLoadedBundles = (): AsyncGenerator<LoadedBundle[]> => {
@@ -135,13 +141,11 @@ export async function builtin(params: BuiltinParams): Promise<BuiltinResult> {
 
   const install = async (bundle: LoadedBundle): Promise<InstallResult> => {
     try {
-      manifest.entries[bundle.name] = {
+      manifest.bundles[bundle.name] = {
         versions: {
           [bundle.version]: {
-            etag: bundle.etag,
             integrity: bundle.integrity,
-            signature: bundle.signature,
-            lastModified: bundle.lastModified,
+            metadata: bundle.metadata,
           },
         },
         currentVersion: bundle.version,
@@ -156,7 +160,7 @@ export async function builtin(params: BuiltinParams): Promise<BuiltinResult> {
 
       return { success: true, name: bundle.name, version: bundle.version };
     } catch (e: unknown) {
-      delete manifest.entries[bundle.name];
+      delete manifest.bundles[bundle.name];
       return { success: false, name: bundle.name, version: bundle.version, error: e as Error };
     }
   };
@@ -233,7 +237,7 @@ export async function builtin(params: BuiltinParams): Promise<BuiltinResult> {
   }
 
   return {
-    manifest,
+    manifest: manifest as BuiltinResult['manifest'],
     android:
       android != null
         ? {
@@ -261,15 +265,11 @@ function buildProgress() {
   );
   const progressBars = new Map<string, SingleBar>();
 
-  const onDownload: NonNullable<RemoteOptions['onDownload']> = ({
-    downloadedBytes,
-    totalBytes,
-    endpoint,
-  }) => {
+  const onDownload = ({ downloadedBytes, totalBytes, url }: RemoteOnDownloadData) => {
     if (progress == null || totalBytes == null) {
       return;
     }
-    const bundleName = findBundleNameFromEndpoint(endpoint);
+    const bundleName = findBundleNameFromEndpoint(url);
     if (bundleName == null) {
       return;
     }
@@ -288,9 +288,9 @@ interface LoadedBundle {
   name: string;
   version: string;
   data: Buffer;
-  etag?: string;
-  signature?: string;
   integrity?: string;
+  metadata?: Record<string, string>;
+  signature?: string;
   lastModified?: string;
 }
 
@@ -469,7 +469,7 @@ async function resolveLocalWorkspaces(
 async function* loadRemoteBundles(
   target: BuiltinRemoteTargetConfig,
   options: {
-    onDownload?: RemoteOptions['onDownload'];
+    onDownload?: (data: RemoteOnDownloadData) => void;
     channel?: string;
     include?: BuiltinBundleMatches[];
     exclude?: BuiltinBundleMatches[];
@@ -484,12 +484,10 @@ async function* loadRemoteBundles(
     throw new ApiError(message);
   }
 
-  let remote = new Remote(remoteEndpoint, {
-    http: target.download?.http,
-  });
+  let remote = new Remote({ baseUrl: remoteEndpoint, http: target.download?.http });
   const channel = options.channel;
-  const allRemoteBundles = await remote.listBundles({ channel });
-  const remoteBundles = await filterAsync(allRemoteBundles, async remoteBundle => {
+  const update = await remote.getUpdate({ channel });
+  const remoteBundles = await filterAsync(update?.update.bundles ?? [], async remoteBundle => {
     const shouldInclude =
       options.include != null
         ? await isInMatches(remoteBundle.name, remoteBundle.version, options.include, true)
@@ -520,7 +518,8 @@ async function* loadRemoteBundles(
     options.logger?.info(`  ${c.info(remoteBundle.name)}: ${c.bold(c.info(remoteBundle.version))}`);
   }
 
-  remote = new Remote(remoteEndpoint, {
+  remote = new Remote({
+    baseUrl: remoteEndpoint,
     http: target.download?.http,
     onDownload: options.onDownload,
   });
@@ -530,9 +529,18 @@ async function* loadRemoteBundles(
   for (const chunks of chunk(remoteBundles, concurrency)) {
     const downloaded = await Promise.all(
       chunks.map(async remoteBundle => {
-        const [info, _, data] = await remote.download(remoteBundle.name, channel);
+        const filepath = path.join(os.tmpdir(), `wvb-cli-${randomUUID()}.wvb`);
+        const url =
+          remoteBundle.downloadUrl ??
+          `${remoteEndpoint}/bundles/${remoteBundle.name}/${remoteBundle.version}`;
+        await remote.download(url, filepath);
+        const data = await fs.readFile(filepath);
+        await fs.rm(filepath, { force: true });
         const loaded: LoadedBundle = {
-          ...info,
+          name: remoteBundle.name,
+          version: remoteBundle.version,
+          integrity: remoteBundle.integrity,
+          metadata: remoteBundle.metadata,
           data,
         };
         return loaded;
