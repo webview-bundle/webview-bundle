@@ -71,6 +71,58 @@ Denies the remote_download command without any pre-configured scope.
 <tr>
 <td>
 
+`wvb-tauri:allow-remote-download-version`
+
+</td>
+<td>
+
+Enables the remote_download_version command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-remote-download-version`
+
+</td>
+<td>
+
+Denies the remote_download_version command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:allow-remote-get-info`
+
+</td>
+<td>
+
+Enables the remote_get_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-remote-get-info`
+
+</td>
+<td>
+
+Denies the remote_get_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `wvb-tauri:allow-remote-get-update`
 
 </td>
@@ -90,6 +142,32 @@ Enables the remote_get_update command without any pre-configured scope.
 <td>
 
 Denies the remote_get_update command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:allow-remote-list-bundles`
+
+</td>
+<td>
+
+Enables the remote_list_bundles command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-remote-list-bundles`
+
+</td>
+<td>
+
+Denies the remote_list_bundles command without any pre-configured scope.
 
 </td>
 </tr>
@@ -357,6 +435,84 @@ Denies the source_list_remote_bundles command without any pre-configured scope.
 <tr>
 <td>
 
+`wvb-tauri:allow-source-load-builtin-metadata`
+
+</td>
+<td>
+
+Enables the source_load_builtin_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-source-load-builtin-metadata`
+
+</td>
+<td>
+
+Denies the source_load_builtin_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:allow-source-load-remote-metadata`
+
+</td>
+<td>
+
+Enables the source_load_remote_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-source-load-remote-metadata`
+
+</td>
+<td>
+
+Denies the source_load_remote_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:allow-source-load-version`
+
+</td>
+<td>
+
+Enables the source_load_version command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-source-load-version`
+
+</td>
+<td>
+
+Denies the source_load_version command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `wvb-tauri:allow-source-prune-remote-bundle`
 
 </td>
@@ -402,6 +558,32 @@ Enables the source_prune_remote_bundles command without any pre-configured scope
 <td>
 
 Denies the source_prune_remote_bundles command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:allow-source-remote-retained-versions`
+
+</td>
+<td>
+
+Enables the source_remote_retained_versions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-source-remote-retained-versions`
+
+</td>
+<td>
+
+Denies the source_remote_retained_versions command without any pre-configured scope.
 
 </td>
 </tr>
@@ -565,6 +747,32 @@ Denies the source_unload command without any pre-configured scope.
 <tr>
 <td>
 
+`wvb-tauri:allow-source-unload-descriptor`
+
+</td>
+<td>
+
+Enables the source_unload_descriptor command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-source-unload-descriptor`
+
+</td>
+<td>
+
+Denies the source_unload_descriptor command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `wvb-tauri:allow-source-update-remote-version`
 
 </td>
@@ -610,6 +818,32 @@ Enables the source_update_remote_versions command without any pre-configured sco
 <td>
 
 Denies the source_update_remote_versions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:allow-source-update-version`
+
+</td>
+<td>
+
+Enables the source_update_version command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-source-update-version`
+
+</td>
+<td>
+
+Denies the source_update_version command without any pre-configured scope.
 
 </td>
 </tr>
@@ -688,6 +922,32 @@ Enables the updater_install command without any pre-configured scope.
 <td>
 
 Denies the updater_install command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:allow-updater-list-remotes`
+
+</td>
+<td>
+
+Enables the updater_list_remotes command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`wvb-tauri:deny-updater-list-remotes`
+
+</td>
+<td>
+
+Denies the updater_list_remotes command without any pre-configured scope.
 
 </td>
 </tr>

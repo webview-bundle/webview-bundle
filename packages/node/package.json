@@ -35,6 +35,10 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./binding": {
+      "import": "./dist/binding/index.js",
+      "require": "./dist/binding/index.cjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

@@ -36,6 +36,7 @@ pub struct UpdaterConfig<R: Runtime> {
 }
 
 impl<R: Runtime> UpdaterConfig<R> {
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     Self {
       update_filepath: None,
@@ -101,6 +102,7 @@ pub struct SourceConfig<R: Runtime> {
 }
 
 impl<R: Runtime> SourceConfig<R> {
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     Self {
       builtin_dir: None,

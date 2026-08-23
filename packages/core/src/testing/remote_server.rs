@@ -119,11 +119,8 @@ impl TestingRemoteServer {
   }
 
   pub fn insert_bundle(&mut self, bundle: TestingBundle) -> bool {
-    let inserted = {
-      let mut bundles = self.bundles.lock().unwrap();
-      bundles.insert(bundle)
-    };
-    inserted
+    let mut bundles = self.bundles.lock().unwrap();
+    bundles.insert(bundle)
   }
 
   pub fn remove_bundle(&mut self, bundle: TestingBundle) -> bool {

@@ -191,8 +191,8 @@ pub struct ManifestSetCurrentVersionResult {
 impl From<source::ManifestSetCurrentVersionResult> for ManifestSetCurrentVersionResult {
   fn from(value: source::ManifestSetCurrentVersionResult) -> Self {
     Self {
-      name: value.name.into(),
-      version: value.version.into(),
+      name: value.name,
+      version: value.version,
       kind: value.kind.into(),
     }
   }

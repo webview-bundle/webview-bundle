@@ -1,4 +1,5 @@
-import { isWebviewBundleError, type Remote, type Updater } from '@wvb/node';
+import type { Remote, Updater } from '@wvb/node';
+import { isWebviewBundleError } from '@wvb/node/binding';
 import { ipcMain } from 'electron';
 import {
   type BridgeErrorData,

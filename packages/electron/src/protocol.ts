@@ -1,16 +1,21 @@
 import { Buffer } from 'node:buffer';
-import {
-  BundleProtocol,
-  type BundleResolverOptions,
-  type BundleSource,
-  type HttpMethod,
-  type HttpResponse,
-  type PathResolver,
-  ProxyProtocol,
+import type {
+  BundleResolverOptions,
+  BundleSource,
+  HttpMethod,
+  HttpResponse,
+  PathResolver,
 } from '@wvb/node';
 import type { Protocol as ElectronProtocol, Privileges } from 'electron';
 import { app, protocol as electronProtocol } from 'electron';
+import { wvbNode } from './native.js';
 import { makeError, uploadDataBody } from './utils.js';
+
+export type {
+  BundleResolverOptions,
+  HostnameSegment,
+  PathResolver,
+} from '@wvb/node';
 
 export interface ProtocolHandler {
   handle(req: Request): Promise<Response>;
@@ -21,11 +26,11 @@ export interface ProtocolOptions {
   privileges?: Privileges;
   /**
    * Builds the response when the handler throws (default: `500` with the error message). The error
-   * is a `WebviewBundleError` when it comes from the bundle itself, so it can be routed by code.
+   * carries a `WebviewBundleErrorCode` when it comes from the bundle itself, so it can be routed by code.
    *
    * @example
    * ```typescript
-   * import { isWebviewBundleError } from '@wvb/node';
+   * import { isWebviewBundleError } from '@wvb/electron';
    *
    * errorResponse: e =>
    *   isWebviewBundleError(e) && e.code === 'core.checksum_mismatch'
@@ -144,7 +149,7 @@ export function proxyProtocol(scheme: string, config: ProxyProtocolConfig): Prot
   const protocol: Protocol = {
     scheme,
     handler: async () => {
-      const proxy = new ProxyProtocol(
+      const proxy = new wvbNode.ProxyProtocol(
         resolver ?? (typeof hosts === 'function' ? await hosts() : (hosts as Hosts))
       );
       return {
@@ -192,7 +197,7 @@ export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}
   const protocol: Protocol = {
     scheme,
     handler: ({ source }) => {
-      const bundle = new BundleProtocol(source, {
+      const bundle = new wvbNode.BundleProtocol(source, {
         bundleResolver,
         pathResolver,
       });

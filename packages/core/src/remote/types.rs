@@ -106,7 +106,9 @@ impl FromStr for UpdateSignature {
       crate::Error::bad_remote_response(format!("\"wvb-signature\" header is malformed: {s:?}"))
     })?;
     let key_id = dict.remove("key_id").ok_or_else(|| {
-      crate::Error::bad_remote_response(format!("\"wvb-signature\" header is missing \"key_id\""))
+      crate::Error::bad_remote_response(
+        "\"wvb-signature\" header is missing \"key_id\"".to_string(),
+      )
     })?;
     let alg = dict.remove("alg").ok_or_else(|| {
       crate::Error::bad_remote_response("\"wvb-signature\" header is missing \"alg\"")

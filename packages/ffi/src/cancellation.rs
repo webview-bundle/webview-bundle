@@ -5,6 +5,7 @@ pub struct Cancellation {
 
 #[uniffi::export]
 impl Cancellation {
+  #[allow(clippy::new_without_default)]
   #[uniffi::constructor]
   pub fn new() -> Self {
     Self {

@@ -8,6 +8,7 @@ pub struct Cancellation {
 
 #[napi]
 impl Cancellation {
+  #[allow(clippy::new_without_default)]
   #[napi(constructor)]
   pub fn new() -> Self {
     let inner = util::cancellation::Cancellation::new();

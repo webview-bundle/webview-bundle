@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-remote-get-info"
+description = "Enables the remote_get_info command without any pre-configured scope."
+commands.allow = ["remote_get_info"]
+
+[[permission]]
+identifier = "deny-remote-get-info"
+description = "Denies the remote_get_info command without any pre-configured scope."
+commands.deny = ["remote_get_info"]
