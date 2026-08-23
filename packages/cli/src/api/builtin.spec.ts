@@ -165,12 +165,12 @@ describe('builtin with a local target', () => {
     expect(result.manifest.entries).toEqual({});
     expect(await readManifest('builtin/manifest.json')).toEqual({
       manifestVersion: 1,
-      entries: {},
+      bundles: {},
     });
     expect(messages).toContain('No local workspaces to install.');
   });
 
-  it('records the packed archive mtime as lastModified', async () => {
+  it('records the packed archive mtime in metadata', async () => {
     await writeWorkspace('workspaces/app-a', { name: 'app-a', version: '1.0.0' });
 
     const result = await builtin({
@@ -180,7 +180,7 @@ describe('builtin with a local target', () => {
     });
 
     const packed = await fs.stat(path.join(root, 'workspaces/app-a/.wvb/app-a.wvb'));
-    expect(result.manifest.entries['app-a']?.versions['1.0.0']?.lastModified).toBe(
+    expect(result.manifest.entries['app-a']?.versions['1.0.0']?.metadata?.lastModified).toBe(
       packed.mtime.toUTCString()
     );
   });
@@ -196,7 +196,7 @@ describe('builtin with a local target', () => {
     });
 
     expect(result.manifest.entries['app-a']?.currentVersion).toBe('1.0.0');
-    expect(result.manifest.entries['app-a']?.versions['1.0.0']?.lastModified).toBeUndefined();
+    expect(result.manifest.entries['app-a']?.versions['1.0.0']?.metadata).toEqual({});
     expect(await pathExists(path.join(root, 'builtin'))).toBe(false);
     expect(await pathExists(path.join(root, 'workspaces/app-a/.wvb'))).toBe(false);
   });
@@ -389,7 +389,7 @@ describe('builtin integrity and signature for a local target', () => {
     const verified = await crypto.subtle.verify(
       { name: 'Ed25519' },
       publicKey,
-      new Uint8Array(Buffer.from(version!.signature!, 'base64')),
+      new Uint8Array(Buffer.from(version!.metadata?.signature, 'base64')),
       new Uint8Array(Buffer.from(version!.integrity!, 'utf8'))
     );
     expect(verified).toBe(true);
@@ -424,11 +424,23 @@ describe('builtin with a remote target', () => {
     listRequestUrls = [];
 
     const app = new Hono();
-    app.get('/bundles', c => {
+    app.get('/update', c => {
       listRequestUrls.push(c.req.url);
-      return c.json(listedBundles);
+      const origin = new URL(c.req.url).origin;
+      return c.json({
+        id: 'test-update',
+        createdAt: '2026-08-23T00:00:00Z',
+        runtimeVersion: 1,
+        bundles: listedBundles.map(bundle => ({
+          ...bundle,
+          downloadUrl: `${origin}/bundles/${bundle.name}/${bundle.version}`,
+          integrity: `sha256:${createHash('sha256').update(bundle.name).digest('base64')}`,
+          metadata: { signature: 'c2lnbmF0dXJl', lastModified: 'Wed, 21 Oct 2015 07:28:00 GMT' },
+        })),
+        metadata: {},
+      });
     });
-    app.get('/bundles/:name', c => {
+    app.get('/bundles/:name/:version', c => {
       const name = c.req.param('name');
       const listed = listedBundles.find(x => x.name === name);
       if (listed == null) {
@@ -439,12 +451,6 @@ describe('builtin with a remote target', () => {
       const data = writeBundleIntoBuffer(builder.build());
       return c.body(new Uint8Array(data), 200, {
         'content-type': 'application/webview-bundle',
-        'webview-bundle-name': name,
-        'webview-bundle-version': listed.version,
-        'webview-bundle-integrity': `sha256:${createHash('sha256').update(data).digest('base64')}`,
-        'webview-bundle-signature': 'c2lnbmF0dXJl',
-        etag: `W/"${name}-${listed.version}"`,
-        'last-modified': 'Wed, 21 Oct 2015 07:28:00 GMT',
       });
     });
 
@@ -482,12 +488,9 @@ describe('builtin with a remote target', () => {
       cwd: root,
     });
 
-    const installed = await fs.readFile(path.join(root, 'builtin/app-a/app-a_1.0.0.wvb'));
     expect(result.manifest.entries['app-a']?.versions['1.0.0']).toEqual({
-      etag: 'W/"app-a-1.0.0"',
-      integrity: `sha256:${createHash('sha256').update(installed).digest('base64')}`,
-      signature: 'c2lnbmF0dXJl',
-      lastModified: 'Wed, 21 Oct 2015 07:28:00 GMT',
+      integrity: `sha256:${createHash('sha256').update('app-a').digest('base64')}`,
+      metadata: { signature: 'c2lnbmF0dXJl', lastModified: 'Wed, 21 Oct 2015 07:28:00 GMT' },
     });
   });
 
@@ -499,7 +502,7 @@ describe('builtin with a remote target', () => {
       channel: 'beta',
     });
 
-    expect(listRequestUrls).toEqual([`${endpoint}/bundles?channel=beta`]);
+    expect(listRequestUrls).toEqual([`${endpoint}/update`]);
   });
 
   it('downloads only the bundles matching the include patterns', async () => {

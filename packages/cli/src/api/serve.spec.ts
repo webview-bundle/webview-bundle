@@ -4,12 +4,10 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { ServerType } from '@hono/node-server';
-import { BundleBuilder, writeBundle } from '@wvb/node';
+import { BundleBuilder, type UriPathResolver, writeBundle } from '@wvb/node';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Logger } from '../log.js';
 import { type ServeInstance, serve } from './serve.js';
-
-type PathResolver = any;
 
 let root: string;
 let instance: ServeInstance | undefined;
@@ -44,7 +42,7 @@ async function startServe(params: {
   silent?: boolean;
   logger?: Logger;
   colorEnabled?: boolean;
-  pathResolver?: PathResolver;
+  pathResolver?: UriPathResolver;
 }) {
   instance = await serve({
     hostname: '127.0.0.1',
@@ -166,7 +164,7 @@ describe('serve', () => {
   });
 });
 
-describe('serve with the "directoryIndex" path resolver', () => {
+describe('serve with the "directory_index" path resolver', () => {
   beforeEach(async () => {
     await writeBundleFile('app.wvb', {
       '/index.html': { data: '<h1>Root</h1>' },
@@ -185,7 +183,7 @@ describe('serve with the "directoryIndex" path resolver', () => {
   });
 
   it('resolves the root path to "/index.html"', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directoryIndex' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directory_index' });
 
     const res = await fetch(`${baseUrl}/`);
 
@@ -193,7 +191,7 @@ describe('serve with the "directoryIndex" path resolver', () => {
   });
 
   it('resolves a trailing-slash path to the directory index', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directoryIndex' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directory_index' });
 
     const res = await fetch(`${baseUrl}/about/`);
 
@@ -201,7 +199,7 @@ describe('serve with the "directoryIndex" path resolver', () => {
   });
 
   it('resolves an extension-less path to the directory index', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directoryIndex' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directory_index' });
 
     const res = await fetch(`${baseUrl}/about`);
 
@@ -209,7 +207,7 @@ describe('serve with the "directoryIndex" path resolver', () => {
   });
 
   it('leaves a path that already has an extension untouched', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directoryIndex' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'directory_index' });
 
     const res = await fetch(`${baseUrl}/app.js`);
 
@@ -217,7 +215,7 @@ describe('serve with the "directoryIndex" path resolver', () => {
   });
 });
 
-describe('serve with the "htmlExtension" path resolver', () => {
+describe('serve with the "html_extension" path resolver', () => {
   beforeEach(async () => {
     await writeBundleFile('app.wvb', {
       '/index.html': { data: '<h1>Root</h1>' },
@@ -228,7 +226,7 @@ describe('serve with the "htmlExtension" path resolver', () => {
   });
 
   it('resolves the root path to "/index.html"', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'htmlExtension' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'html_extension' });
 
     const res = await fetch(`${baseUrl}/`);
 
@@ -236,7 +234,7 @@ describe('serve with the "htmlExtension" path resolver', () => {
   });
 
   it('appends ".html" to an extension-less path', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'htmlExtension' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'html_extension' });
 
     const res = await fetch(`${baseUrl}/about`);
 
@@ -244,7 +242,7 @@ describe('serve with the "htmlExtension" path resolver', () => {
   });
 
   it('drops the trailing slash before appending ".html"', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'htmlExtension' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'html_extension' });
 
     const res = await fetch(`${baseUrl}/about/`);
 
@@ -252,7 +250,7 @@ describe('serve with the "htmlExtension" path resolver', () => {
   });
 
   it('leaves a path that already has an extension untouched', async () => {
-    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'htmlExtension' });
+    const baseUrl = await startServe({ file: './app.wvb', pathResolver: 'html_extension' });
 
     const res = await fetch(`${baseUrl}/app.js`);
 

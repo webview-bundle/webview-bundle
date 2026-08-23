@@ -290,8 +290,6 @@ interface LoadedBundle {
   data: Buffer;
   integrity?: string;
   metadata?: Record<string, string>;
-  signature?: string;
-  lastModified?: string;
 }
 
 async function* loadLocalBundles(
@@ -399,11 +397,16 @@ async function* loadLocalBundles(
       // bundle was not written so leave `lastModified` undefined.
     }
 
+    const metadata: Record<string, string> = {};
+    if (lastModified != null) {
+      metadata.lastModified = lastModified;
+    }
+
     const loaded: LoadedBundle = {
       name: bundleName,
       version,
       data: writeBundleIntoBuffer(bundle),
-      lastModified,
+      metadata,
     };
 
     if (target.integrity !== false) {
@@ -418,7 +421,7 @@ async function* loadLocalBundles(
         options.logger?.error(message);
         throw new ApiError(message);
       }
-      loaded.signature = await signSignature(
+      loaded.metadata!.signature = await signSignature(
         target.signature,
         Buffer.from(loaded.integrity, 'utf8')
       );
