@@ -1,10 +1,11 @@
 import { Buffer } from 'node:buffer';
 import type {
-  BundleResolverOptions,
-  BundleSource,
+  BundleProtocolOptions,
   HttpMethod,
   HttpResponse,
-  PathResolver,
+  Source,
+  UriBundleResolver,
+  UriPathResolver,
 } from '@wvb/node';
 import type { Protocol as ElectronProtocol, Privileges } from 'electron';
 import { app, protocol as electronProtocol } from 'electron';
@@ -12,9 +13,10 @@ import { wvbNode } from './native.js';
 import { makeError, uploadDataBody } from './utils.js';
 
 export type {
-  BundleResolverOptions,
+  BundleProtocolOptions,
   HostnameSegment,
-  PathResolver,
+  UriBundleResolver,
+  UriPathResolver,
 } from '@wvb/node';
 
 export interface ProtocolHandler {
@@ -42,7 +44,7 @@ export interface ProtocolOptions {
 }
 
 export interface ProtocolHandlerBuildContext {
-  source: BundleSource;
+  source: Source;
 }
 export type ProtocolHandlerBuild = (
   ctx: ProtocolHandlerBuildContext
@@ -68,7 +70,7 @@ const DEFAULT_PRIVILEGES: Privileges = {
 /**
  * Register webview protocol into electron protocol so the registered scheme can be handled.
  */
-export async function registerProtocol(protocol: Protocol, source: BundleSource): Promise<void> {
+export async function registerProtocol(protocol: Protocol, source: Source): Promise<void> {
   const { scheme, handler, options = {} } = protocol;
   const { protocol: getProtocol, privileges, errorResponse } = options;
 
@@ -179,17 +181,17 @@ async function readBody(req: Request): Promise<Buffer | undefined> {
   return body.byteLength > 0 ? body : undefined;
 }
 
-export interface BundleProtocolConfig extends ProtocolOptions {
+export interface BundleProtocolConfig extends ProtocolOptions, BundleProtocolOptions {
   /**
    * How the bundle name is resolved from the request uri (default: the first hostname segment,
    * e.g. `app://my-app/index.html` -> bundle "my-app").
    */
-  bundleResolver?: BundleResolverOptions;
+  bundleResolver?: UriBundleResolver;
   /**
-   * How the file path in the bundle is resolved from the request uri (default: `'directoryIndex'`,
+   * How the file path in the bundle is resolved from the request uri (default: `'directory_index'`,
    * i.e. `/about` -> `/about/index.html`).
    */
-  pathResolver?: PathResolver;
+  pathResolver?: UriPathResolver;
 }
 
 export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): Protocol {

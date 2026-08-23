@@ -4,6 +4,7 @@ use crate::integrity::{IntegrityAlgorithm, IntegrityPolicy};
 use crate::remote::{BundleUpdate, Remote, Update};
 use crate::signature::SignatureVerifyKey;
 use crate::source::Source;
+use napi::Env;
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::path::Path;
@@ -271,102 +272,118 @@ impl Updater {
     remote: &Remote,
     update_filepath: String,
     options: Option<UpdaterOptions>,
-  ) -> crate::Result<Updater> {
-    let mut builder = updater::Updater::builder()
-      .source(source.inner.clone())
-      .remote(remote.inner.clone())
-      .update_filepath(Path::new(&update_filepath));
-    if let Some(options) = options {
-      builder = builder.options(options.into());
-    }
-    Ok(Updater {
-      inner: builder.build()?,
+    env: Env,
+  ) -> napi::Result<Updater> {
+    crate::Outcome::from_fn(|| {
+      let mut builder = updater::Updater::builder()
+        .source(source.inner.clone())
+        .remote(remote.inner.clone())
+        .update_filepath(Path::new(&update_filepath));
+      if let Some(options) = options {
+        builder = builder.options(options.into());
+      }
+      Ok(Updater {
+        inner: builder.build()?,
+      })
     })
+    .into_napi(env)
   }
 
-  #[napi]
+  #[napi(ts_return_type = "Promise<Update | null>")]
   pub async fn get_update(
     &self,
     options: Option<UpdaterGetUpdateOptions>,
-  ) -> crate::Result<Option<Update>> {
-    let update = self
-      .inner
-      .get_update(options.map(Into::into))
-      .await?
-      .map(Update::from);
-    Ok(update)
+  ) -> crate::Outcome<Option<Update>> {
+    crate::Outcome::from_future(async {
+      let update = self
+        .inner
+        .get_update(options.map(Into::into))
+        .await?
+        .map(Update::from);
+      Ok(update)
+    })
+    .await
   }
 
-  #[napi]
+  #[napi(ts_return_type = "Promise<UpdaterDownloadResult[]>")]
   pub async fn download(
     &self,
     bundle_updates: Vec<BundleUpdate>,
     options: Option<UpdaterDownloadOptions>,
     cancellation: Option<&Cancellation>,
-  ) -> crate::Result<Vec<UpdaterDownloadResult>> {
-    let bundle_updates = bundle_updates
-      .into_iter()
-      .map(Into::into)
-      .collect::<Vec<wvb::remote::BundleUpdate>>();
+  ) -> crate::Outcome<Vec<UpdaterDownloadResult>> {
+    crate::Outcome::from_future(async {
+      let bundle_updates = bundle_updates
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<wvb::remote::BundleUpdate>>();
 
-    let mut download_options = updater::UpdaterDownloadOptions::default();
-    if let Some(options) = options {
-      if let Some(concurrency) = options.concurrency {
-        download_options = download_options.concurrency(concurrency as usize);
+      let mut download_options = updater::UpdaterDownloadOptions::default();
+      if let Some(options) = options {
+        if let Some(concurrency) = options.concurrency {
+          download_options = download_options.concurrency(concurrency as usize);
+        }
+        if let Some(timeout) = options.timeout {
+          download_options = download_options.timeout(timeout as u64);
+        }
       }
-      if let Some(timeout) = options.timeout {
-        download_options = download_options.timeout(timeout as u64);
+      if let Some(cancellation) = cancellation {
+        download_options = download_options.cancellation(cancellation.inner.clone());
       }
-    }
-    if let Some(cancellation) = cancellation {
-      download_options = download_options.cancellation(cancellation.inner.clone());
-    }
 
-    let results = self
-      .inner
-      .download(&bundle_updates, Some(download_options))
-      .await?
-      .into_iter()
-      .map(UpdaterDownloadResult::from)
-      .collect::<Vec<_>>();
-    Ok(results)
+      let results = self
+        .inner
+        .download(&bundle_updates, Some(download_options))
+        .await?
+        .into_iter()
+        .map(UpdaterDownloadResult::from)
+        .collect::<Vec<_>>();
+      Ok(results)
+    })
+    .await
   }
 
-  #[napi]
+  #[napi(ts_return_type = "Promise<UpdaterInstallResult[]>")]
   pub async fn install(
     &self,
     targets: Vec<UpdaterInstallTarget>,
-  ) -> crate::Result<Vec<UpdaterInstallResult>> {
-    let targets = targets
-      .into_iter()
-      .map(Into::into)
-      .collect::<Vec<updater::UpdaterInstallTarget>>();
-    let results = self
-      .inner
-      .install(&targets)
-      .await?
-      .into_iter()
-      .map(UpdaterInstallResult::from)
-      .collect::<Vec<_>>();
-    Ok(results)
+  ) -> crate::Outcome<Vec<UpdaterInstallResult>> {
+    crate::Outcome::from_future(async {
+      let targets = targets
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<updater::UpdaterInstallTarget>>();
+      let results = self
+        .inner
+        .install(&targets)
+        .await?
+        .into_iter()
+        .map(UpdaterInstallResult::from)
+        .collect::<Vec<_>>();
+      Ok(results)
+    })
+    .await
   }
 
-  #[napi]
+  #[napi(ts_return_type = "Promise<UpdaterRollbackResult[]>")]
   pub async fn rollback(
     &self,
     targets: Vec<UpdaterRollbackTarget>,
-  ) -> crate::Result<Vec<UpdaterRollbackResult>> {
-    let targets = targets
-      .into_iter()
-      .map(Into::into)
-      .collect::<Vec<updater::UpdaterRollbackTarget>>();
-    let results = self
-      .inner
-      .rollback(&targets)
-      .await?
-      .into_iter()
-      .map(UpdaterRollbackResult::from)
-      .collect::<Vec<_>>();
-    Ok(results)
+  ) -> crate::Outcome<Vec<UpdaterRollbackResult>> {
+    crate::Outcome::from_future(async {
+      let targets = targets
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<updater::UpdaterRollbackTarget>>();
+      let results = self
+        .inner
+        .rollback(&targets)
+        .await?
+        .into_iter()
+        .map(UpdaterRollbackResult::from)
+        .collect::<Vec<_>>();
+      Ok(results)
+    })
+    .await
   }
 }

@@ -407,9 +407,12 @@ impl LoadedDescriptor {
   }
 
   #[napi]
-  pub async fn get_data(&self, path: String) -> crate::Result<Option<Buffer>> {
-    let data = self.inner.get_data(&path).await?;
-    Ok(data.map(|x| x.into()))
+  pub async fn get_data(&self, path: String) -> crate::Outcome<Option<Buffer>> {
+    crate::Outcome::from_future(async {
+      let data = self.inner.get_data(&path).await?;
+      Ok(data.map(|x| x.into()))
+    })
+    .await
   }
 
   #[napi]
@@ -579,11 +582,13 @@ impl Source {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<String> {
-    let filepath = self
-      .inner
-      .get_builtin_bundle_filepath(&bundle_name, &version)?;
-    Ok(filepath.to_string_lossy().to_string())
+  ) -> crate::Outcome<String> {
+    crate::Outcome::from_fn(|| {
+      let filepath = self
+        .inner
+        .get_builtin_bundle_filepath(&bundle_name, &version)?;
+      Ok(filepath.to_string_lossy().to_string())
+    })
   }
 
   #[napi]
@@ -591,11 +596,13 @@ impl Source {
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Result<String> {
-    let filepath = self
-      .inner
-      .get_remote_bundle_filepath(&bundle_name, &version)?;
-    Ok(filepath.to_string_lossy().to_string())
+  ) -> crate::Outcome<String> {
+    crate::Outcome::from_fn(|| {
+      let filepath = self
+        .inner
+        .get_remote_bundle_filepath(&bundle_name, &version)?;
+      Ok(filepath.to_string_lossy().to_string())
+    })
   }
 
   #[napi]
@@ -667,9 +674,12 @@ impl Source {
   }
 
   #[napi]
-  pub async fn load(&self, bundle_name: String) -> crate::Result<LoadedDescriptor> {
-    let inner = self.inner.load(&bundle_name).await?;
-    Ok(LoadedDescriptor { inner })
+  pub async fn load(&self, bundle_name: String) -> crate::Outcome<LoadedDescriptor> {
+    crate::Outcome::from_future(async {
+      let inner = self.inner.load(&bundle_name).await?;
+      Ok(LoadedDescriptor { inner })
+    })
+    .await
   }
 
   #[napi]

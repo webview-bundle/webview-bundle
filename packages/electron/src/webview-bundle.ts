@@ -1,16 +1,18 @@
-import type { BundleSource, Remote, Updater, UpdaterOptions } from '@wvb/node';
+import type { Remote, Source, Updater, UpdaterOptions } from '@wvb/node';
 import { registerIpc } from './ipc.js';
 import { wvbNode } from './native.js';
 import { type Protocol, registerProtocol } from './protocol.js';
 import { type RemoteOptions, remote } from './remote.js';
-import { bundleSource, type SourceOptions } from './source.js';
+import { type SourceOptions, source } from './source.js';
 
 export interface WebviewBundleRemoteConfig extends RemoteOptions {
-  endpoint: string;
+  baseUrl: string;
 }
 
 export interface WebviewBundleUpdaterConfig extends UpdaterOptions {
   remote: WebviewBundleRemoteConfig;
+  /** Persistent location for the last installed update metadata. */
+  updateFilepath: string;
 }
 
 export interface WebviewBundleConfig {
@@ -20,18 +22,23 @@ export interface WebviewBundleConfig {
 }
 
 export class WebviewBundle {
-  private readonly _source: BundleSource;
+  private readonly _source: Source;
   private readonly _remote: Remote | null = null;
   private readonly _updater: Updater | null = null;
   private readonly _ready: Promise<void>;
 
   constructor(private readonly config: WebviewBundleConfig) {
-    this._source = bundleSource(config.source);
+    this._source = source(config.source);
     if (config.updater != null) {
-      const { remote: remoteConfig, ...updaterOptions } = config.updater;
-      const { endpoint, ...remoteOptions } = remoteConfig;
-      this._remote = remote(endpoint, remoteOptions);
-      this._updater = new wvbNode.Updater(this._source, this._remote, updaterOptions);
+      const { remote: remoteConfig, updateFilepath, ...updaterOptions } = config.updater;
+      const { baseUrl, ...remoteOptions } = remoteConfig;
+      this._remote = remote(baseUrl, remoteOptions);
+      this._updater = new wvbNode.Updater(
+        this._source,
+        this._remote,
+        updateFilepath,
+        updaterOptions
+      );
     }
     this._ready = new Promise<void>((resolve, reject) => {
       Promise.all(config.protocols.map(p => registerProtocol(p, this._source)))
@@ -44,7 +51,7 @@ export class WebviewBundle {
     return this.config.protocols.map(x => x.scheme);
   }
 
-  get source(): BundleSource {
+  get source(): Source {
     return this._source;
   }
 
@@ -57,11 +64,6 @@ export class WebviewBundle {
   }
 
   ready(): Promise<void> {
-    return this._ready;
-  }
-
-  /** @deprecated Renamed to {@link ready}. Kept as an alias for backwards compatibility. */
-  whenProtocolRegistered(): Promise<void> {
     return this._ready;
   }
 }

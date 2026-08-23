@@ -2,6 +2,7 @@ use crate::cancellation::Cancellation;
 use crate::js::{JsCallback, JsCallbackExt};
 use crate::remote::HttpOptions;
 use crate::signature::SignatureVerifyKey;
+use napi::Env;
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::path::Path;
@@ -179,42 +180,48 @@ impl Remote {
   /// });
   /// ```
   #[napi(constructor)]
-  pub fn new(config: RemoteConfig) -> crate::Result<Remote> {
-    let mut builder = remote::Remote::builder().base_url(config.base_url);
-    if let Some(http) = config.http {
-      builder = builder.http(remote::HttpOptions::try_from(http)?);
-    }
-    if let Some(on_download) = config.on_download {
-      builder = builder.on_download(move |downloaded_bytes, total_bytes, url| {
-        let on_download_fn = Arc::clone(&on_download);
-        let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
-          downloaded_bytes: downloaded_bytes as u32,
-          total_bytes: total_bytes.map(|t| t as u32),
-          url,
+  pub fn new(env: Env, config: RemoteConfig) -> napi::Result<Remote> {
+    crate::Outcome::from_fn(|| {
+      let mut builder = remote::Remote::builder().base_url(config.base_url);
+      if let Some(http) = config.http {
+        builder = builder.http(remote::HttpOptions::try_from(http)?);
+      }
+      if let Some(on_download) = config.on_download {
+        builder = builder.on_download(move |downloaded_bytes, total_bytes, url| {
+          let on_download_fn = Arc::clone(&on_download);
+          let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
+            downloaded_bytes: downloaded_bytes as u32,
+            total_bytes: total_bytes.map(|t| t as u32),
+            url,
+          });
         });
-      });
-    }
-    let inner = builder.build()?;
-    Ok(Remote {
-      inner: Arc::new(inner),
+      }
+      let inner = builder.build()?;
+      Ok(Remote {
+        inner: Arc::new(inner),
+      })
     })
+    .into_napi(env)
   }
 
   /// Gets update information from the remote server.
   ///
   /// @param {RemoteGetUpdateOptions} [options] - Request options
   /// @returns {Promise<RemoteUpdateResponse | null>} Update response, or null when not modified
-  #[napi]
+  #[napi(ts_return_type = "Promise<RemoteUpdateResponse | null>")]
   pub async fn get_update(
     &self,
     options: Option<RemoteGetUpdateOptions>,
-  ) -> crate::Result<Option<RemoteUpdateResponse>> {
-    let update = self
-      .inner
-      .get_update(options.map(Into::into))
-      .await?
-      .map(RemoteUpdateResponse::from);
-    Ok(update)
+  ) -> crate::Outcome<Option<RemoteUpdateResponse>> {
+    crate::Outcome::from_future(async {
+      let update = self
+        .inner
+        .get_update(options.map(Into::into))
+        .await?
+        .map(RemoteUpdateResponse::from);
+      Ok(update)
+    })
+    .await
   }
 
   /// Downloads a bundle into the given file path.
@@ -222,21 +229,24 @@ impl Remote {
   /// @param {string} url - URL to download from
   /// @param {string} filepath - Destination file path
   /// @param {Cancellation} [cancellation] - Cancels the download when triggered
-  #[napi]
+  #[napi(ts_return_type = "Promise<void>")]
   pub async fn download(
     &self,
     url: String,
     filepath: String,
     cancellation: Option<&Cancellation>,
-  ) -> crate::Result<()> {
-    self
-      .inner
-      .download(
-        url,
-        Path::new(&filepath),
-        cancellation.map(|x| x.inner.clone()),
-      )
-      .await?;
-    Ok(())
+  ) -> crate::Outcome<()> {
+    crate::Outcome::from_future(async {
+      self
+        .inner
+        .download(
+          url,
+          Path::new(&filepath),
+          cancellation.map(|x| x.inner.clone()),
+        )
+        .await?;
+      Ok(())
+    })
+    .await
   }
 }

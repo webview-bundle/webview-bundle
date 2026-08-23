@@ -13,5 +13,5 @@ pub mod source;
 pub mod updater;
 pub mod version;
 
-pub use error::Error;
+pub use error::{Error, Outcome};
 pub type Result<T> = std::result::Result<T, Error>;

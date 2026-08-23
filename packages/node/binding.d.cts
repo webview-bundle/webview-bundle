@@ -617,9 +617,9 @@ export declare class Source {
 export declare class Updater {
   constructor(source: Source, remote: Remote, updateFilepath: string, options?: UpdaterOptions | undefined | null)
   getUpdate(options?: UpdaterGetUpdateOptions | undefined | null): Promise<Update | null>
-  download(bundleUpdates: Array<BundleUpdate>, options?: UpdaterDownloadOptions | undefined | null, cancellation?: Cancellation | undefined | null): Promise<Array<UpdaterDownloadResult>>
-  install(targets: Array<UpdaterInstallTarget>): Promise<Array<UpdaterInstallResult>>
-  rollback(targets: Array<UpdaterRollbackTarget>): Promise<Array<UpdaterRollbackResult>>
+  download(bundleUpdates: Array<BundleUpdate>, options?: UpdaterDownloadOptions | undefined | null, cancellation?: Cancellation | undefined | null): Promise<UpdaterDownloadResult[]>
+  install(targets: Array<UpdaterInstallTarget>): Promise<UpdaterInstallResult[]>
+  rollback(targets: Array<UpdaterRollbackTarget>): Promise<UpdaterRollbackResult[]>
 }
 
 /**

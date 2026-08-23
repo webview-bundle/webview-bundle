@@ -167,9 +167,12 @@ impl FromNapiValue for SignatureVerify {
                   .map_err(napi::Error::from)?,
               ),
               SignatureKeyFormat::SpkiPem => Ok(
-                signature::EcdsaSecp256r1::from_public_key_pem(&into_string_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::EcdsaSecp256r1::from_public_key_pem(&into_string_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(napi::Error::from)?,
               ),
               _ => Err(unsupported_key_format),
             }?;
@@ -188,9 +191,12 @@ impl FromNapiValue for SignatureVerify {
                   .map_err(napi::Error::from)?,
               ),
               SignatureKeyFormat::SpkiPem => Ok(
-                signature::EcdsaSecp384r1::from_public_key_pem(&into_string_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::EcdsaSecp384r1::from_public_key_pem(&into_string_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(napi::Error::from)?,
               ),
               _ => Err(unsupported_key_format),
             }?;
@@ -204,7 +210,7 @@ impl FromNapiValue for SignatureVerify {
                   .map_err(napi::Error::from)?,
               ),
               SignatureKeyFormat::SpkiPem => Ok(
-                signature::Ed25519::from_public_key_pem(&into_string_data(inner.key.data)?)
+                signature::Ed25519::from_public_key_pem(&into_string_data(env, inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
@@ -236,9 +242,12 @@ impl FromNapiValue for SignatureVerify {
                   .map_err(napi::Error::from)?,
               ),
               SignatureKeyFormat::Pkcs1Pem => Ok(
-                signature::RsaPkcs1V15Sha256::from_pkcs1_pem(&into_string_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::RsaPkcs1V15Sha256::from_pkcs1_pem(&into_string_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(napi::Error::from)?,
               ),
               SignatureKeyFormat::SpkiDer => Ok(
                 signature::RsaPkcs1V15Sha256::from_public_key_der(&into_buffer_data(
@@ -249,6 +258,7 @@ impl FromNapiValue for SignatureVerify {
               ),
               SignatureKeyFormat::SpkiPem => Ok(
                 signature::RsaPkcs1V15Sha256::from_public_key_pem(&into_string_data(
+                  env,
                   inner.key.data,
                 )?)
                 .map_err(crate::Error::from)
@@ -266,7 +276,7 @@ impl FromNapiValue for SignatureVerify {
                   .map_err(napi::Error::from)?,
               ),
               SignatureKeyFormat::Pkcs1Pem => Ok(
-                signature::RsaPssSha256::from_pkcs1_pem(&into_string_data(inner.key.data)?)
+                signature::RsaPssSha256::from_pkcs1_pem(&into_string_data(env, inner.key.data)?)
                   .map_err(crate::Error::from)
                   .map_err(napi::Error::from)?,
               ),
@@ -276,9 +286,12 @@ impl FromNapiValue for SignatureVerify {
                   .map_err(napi::Error::from)?,
               ),
               SignatureKeyFormat::SpkiPem => Ok(
-                signature::RsaPssSha256::from_public_key_pem(&into_string_data(inner.key.data)?)
-                  .map_err(crate::Error::from)
-                  .map_err(napi::Error::from)?,
+                signature::RsaPssSha256::from_public_key_pem(&into_string_data(
+                  env,
+                  inner.key.data,
+                )?)
+                .map_err(crate::Error::from)
+                .map_err(napi::Error::from)?,
               ),
               _ => Err(unsupported_key_format),
             }?;
@@ -308,12 +321,13 @@ impl FromNapiValue for SignatureVerify {
 // A key whose data type doesn't match its declared format is an invalid verifier option, so it
 // surfaces the same `invalid_signature_options` code as every other verifier-construction failure
 // (rather than the generic `napi` code an untagged `napi::Error` would yield).
-fn into_string_data(d: Either<String, Buffer>) -> napi::Result<String> {
+fn into_string_data(env: sys::napi_env, d: Either<String, Buffer>) -> napi::Result<String> {
   match d {
     Either::A(s) => Ok(s),
-    Either::B(_) => Err(
-      crate::Error::invalid_signature_key("signature key must be a string for this format").into(),
-    ),
+    Either::B(_) => Err(crate::error::js_error(
+      env,
+      crate::Error::invalid_signature_key("signature key must be a string for this format"),
+    )),
   }
 }
 

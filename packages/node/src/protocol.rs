@@ -212,26 +212,23 @@ impl BundleProtocol {
   /// console.log(`Status: ${response.status}`); // 206 Partial Content
   /// ```
   #[napi]
-  pub fn handle(
+  pub async fn handle(
     &self,
-    env: Env,
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
     body: Option<Buffer>,
-  ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers, body)?;
-    let inner = self.inner.clone();
-    let resp = AsyncBlockBuilder::new(async move {
-      inner
+  ) -> crate::Outcome<HttpResponse> {
+    crate::Outcome::from_future(async {
+      let req = request(method, uri, headers, body)?;
+      self
+        .inner
         .handle(req)
         .await
         .map(HttpResponse::from)
         .map_err(crate::Error::Core)
-        .map_err(|e| e.into())
     })
-    .build(&env)?;
-    Ok(resp)
+    .await
   }
 }
 
@@ -338,25 +335,22 @@ impl ProxyProtocol {
   /// );
   /// ```
   #[napi]
-  pub fn handle(
+  pub async fn handle(
     &self,
-    env: Env,
     method: HttpMethod,
     uri: String,
     headers: Option<HashMap<String, String>>,
     body: Option<Buffer>,
-  ) -> crate::Result<AsyncBlock<HttpResponse>> {
-    let req = request(method, uri, headers, body)?;
-    let inner = self.inner.clone();
-    let resp = AsyncBlockBuilder::new(async move {
-      inner
+  ) -> crate::Outcome<HttpResponse> {
+    crate::Outcome::from_future(async {
+      let req = request(method, uri, headers, body)?;
+      self
+        .inner
         .handle(req)
         .await
         .map(HttpResponse::from)
         .map_err(crate::Error::Core)
-        .map_err(|e| e.into())
     })
-    .build(&env)?;
-    Ok(resp)
+    .await
   }
 }

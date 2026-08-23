@@ -1,4 +1,9 @@
+use napi::Env;
+use napi::bindgen_prelude::{
+  JsObjectValue, Object, Property, PropertyAttributes, ToNapiValue, Unknown,
+};
 use napi_derive::napi;
+use std::future::Future;
 use wvb::http;
 
 /// Declares [`ErrorCode`] once: the string enum TypeScript sees, and the wire code each variant is
@@ -20,6 +25,12 @@ macro_rules! error_codes {
         match self {
           $(Self::$variant => $value,)+
         }
+      }
+    }
+
+    impl AsRef<str> for ErrorCode {
+      fn as_ref(&self) -> &'static str {
+        self.as_str()
       }
     }
   };
@@ -147,8 +158,63 @@ impl From<Error> for napi::Error {
   }
 }
 
-impl From<Error> for napi::JsError {
+const ERROR_NAME: &str = "WebviewBundleError";
+
+/// Creates a coded JavaScript error while napi is on the JS thread. This preserves custom codes
+/// for rejected promises, which napi otherwise reduces to a generic status error.
+pub(crate) fn js_error(env: napi::sys::napi_env, error: Error) -> napi::Error {
+  let raw = unsafe { napi::JsError::<ErrorCode>::from(error).into_value(env) };
+  brand_name(env, raw);
+  napi::Error::from(unsafe { Unknown::from_raw_unchecked(env, raw) })
+}
+
+impl From<Error> for napi::JsError<ErrorCode> {
   fn from(value: Error) -> Self {
-    napi::JsError::from(napi::Error::from(value))
+    let code = value.code();
+    napi::JsError::from(napi::Error::new(code, value.to_string()))
+  }
+}
+
+fn brand_name(raw_env: napi::sys::napi_env, raw: napi::sys::napi_value) {
+  let env = Env::from_raw(raw_env);
+  let mut object = Object::from_raw(raw_env, raw);
+  let Ok(name) = env.create_string(ERROR_NAME).and_then(|value| {
+    Property::new()
+      .with_utf8_name("name")
+      .map(|property| property.with_value(&value))
+  }) else {
+    return;
+  };
+  let _ = object
+    .define_properties(&[name
+      .with_property_attributes(PropertyAttributes::Configurable | PropertyAttributes::Writable)]);
+}
+
+/// Defers a Rust failure until napi can construct the actual JavaScript error object.
+pub struct Outcome<T>(pub crate::Result<T>);
+
+impl<T> Outcome<T> {
+  pub fn from_fn(f: impl FnOnce() -> crate::Result<T>) -> Self {
+    Self(f())
+  }
+
+  pub async fn from_future(future: impl Future<Output = crate::Result<T>>) -> Self {
+    Self(future.await)
+  }
+
+  pub fn into_napi(self, env: Env) -> napi::Result<T> {
+    self.0.map_err(|error| js_error(env.raw(), error))
+  }
+}
+
+impl<T: ToNapiValue> ToNapiValue for Outcome<T> {
+  unsafe fn to_napi_value(
+    env: napi::sys::napi_env,
+    value: Self,
+  ) -> napi::Result<napi::sys::napi_value> {
+    match value.0 {
+      Ok(value) => unsafe { T::to_napi_value(env, value) },
+      Err(error) => Err(js_error(env, error)),
+    }
   }
 }

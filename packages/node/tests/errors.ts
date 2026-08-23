@@ -1,7 +1,7 @@
-import { type ErrorCode, getWebviewBundleError } from '../dist/index.js';
+import { type ErrorCode, isWebviewBundleError } from '../dist/index.js';
 
 export function errorCode(value: unknown): ErrorCode | undefined {
-  return getWebviewBundleError(value)?.code;
+  return isWebviewBundleError(value) ? value.code : undefined;
 }
 
 export function caught(fn: () => unknown): unknown {

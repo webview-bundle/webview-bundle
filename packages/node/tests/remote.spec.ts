@@ -7,7 +7,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import {
   Cancellation,
   type ErrorCode,
-  getWebviewBundleError,
   isWebviewBundleError,
   Remote,
   type RemoteOnDownloadData,
@@ -145,9 +144,10 @@ describe('remote', () => {
       .catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
     expect(errorCode(error)).toBe<ErrorCode>('core.remote_http');
-    expect(getWebviewBundleError(error)?.message).toContain('503');
-    expect(getWebviewBundleError(error)?.message).toContain('maintenance');
-    expect(getWebviewBundleError(error)?.message).not.toMatch(/^\[/);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('503');
+    expect((error as Error).message).toContain('maintenance');
+    expect((error as Error).message).not.toMatch(/^\[/);
   });
 
   it('rejects a download of a bundle the server does not have', async () => {
