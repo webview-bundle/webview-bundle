@@ -16,6 +16,6 @@ runs:
     - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
       with:
         path: ${{ steps.yarn-cache-dir.outputs.YARN_CACHE_DIR }}
-        key: ${{ runner.os }}-node-yarn-${{ hashFiles('**/yarn.lock') }}
+        key: ${{ runner.os }}-node-yarn-${{ hashFiles('yarn.lock') }}
         restore-keys: |
           ${{ runner.os }}-node-yarn-
