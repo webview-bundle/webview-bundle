@@ -30,6 +30,7 @@ p256               = "0.13.2"
 p384               = "0.13.1"
 percent-encoding   = "2.3.2"
 reqwest            = { version = "0.13.4", default-features = false }
+rustls             = { version = "0.23", default-features = false }
 rsa                = "0.9.8"
 semver             = "1.0"
 serde              = "1.0"

@@ -30,6 +30,7 @@ p384             = { workspace = true, optional = true }
 percent-encoding = { workspace = true, optional = true }
 reqwest          = { workspace = true, default-features = false, optional = true }
 rsa              = { workspace = true, optional = true }
+rustls           = { workspace = true, default-features = false, optional = true }
 semver           = { workspace = true, optional = true }
 serde            = { workspace = true, optional = true }
 serde_json       = { workspace = true, optional = true }
@@ -82,12 +83,14 @@ full = [
 ]
 integrity = ["_serde", "sha2", "base64ct", "base64ct/alloc"]
 protocol = ["source", "dep:bytes", "dep:percent-encoding", "dep:http-range", "dep:getrandom"]
-protocol-proxy = ["protocol", "_reqwest", "reqwest/rustls", "reqwest/charset"]
+protocol-proxy = ["protocol", "_reqwest", "dep:rustls", "reqwest/rustls-no-provider", "rustls/ring", "reqwest/charset"]
 remote = [
   "async",
   "_reqwest",
   "_serde",
-  "reqwest/rustls",
+  "dep:rustls",
+  "reqwest/rustls-no-provider",
+  "rustls/ring",
   "reqwest/json",
   "reqwest/stream",
   "tokio/macros",
