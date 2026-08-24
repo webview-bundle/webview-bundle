@@ -10,9 +10,13 @@ use std::sync::Arc;
 use wvb::remote;
 
 #[napi(object)]
+/// A validated update response returned by [`Remote::get_update`].
 pub struct RemoteUpdateResponse {
+  /// Parsed update document.
   pub update: Update,
+  /// HTTP entity tag returned by the update server, when supplied.
   pub etag: Option<String>,
+  /// Signature metadata returned by the update server, when supplied.
   pub signature: Option<UpdateSignature>,
 }
 
@@ -27,11 +31,17 @@ impl From<remote::RemoteUpdateResponse> for RemoteUpdateResponse {
 }
 
 #[napi(object)]
+/// An atomically published set of bundle updates.
 pub struct Update {
+  /// Unique update identifier.
   pub id: String,
+  /// ISO 8601 time at which the update was published.
   pub created_at: String,
+  /// Update-model version required to process this document.
   pub runtime_version: u8,
+  /// Bundles included in the update.
   pub bundles: Vec<BundleUpdate>,
+  /// Provider-defined, string-valued update metadata.
   pub metadata: HashMap<String, String>,
 }
 
@@ -52,11 +62,17 @@ impl From<remote::Update> for Update {
 }
 
 #[napi(object)]
+/// One bundle advertised by an update document.
 pub struct BundleUpdate {
+  /// Bundle name.
   pub name: String,
+  /// Bundle version.
   pub version: String,
+  /// Absolute download URL, when the provider overrides the default endpoint.
   pub download_url: Option<String>,
+  /// Serialized integrity value for the downloaded bundle.
   pub integrity: Option<String>,
+  /// Provider-defined, string-valued bundle metadata.
   pub metadata: Option<HashMap<String, String>>,
 }
 
@@ -85,9 +101,13 @@ impl From<BundleUpdate> for remote::BundleUpdate {
 }
 
 #[napi(object)]
+/// Signature metadata for an update response.
 pub struct UpdateSignature {
+  /// Identifier of the public key used to verify the signature.
   pub key_id: String,
+  /// Base64-encoded signature of the raw update response body.
   pub sig: String,
+  /// Signature algorithm used for [`UpdateSignature::sig`].
   pub alg: String,
 }
 
@@ -114,17 +134,25 @@ pub struct RemoteOnDownloadData {
 }
 
 #[napi(object, object_to_js = false)]
+/// Options used to construct a [`Remote`] client.
 pub struct RemoteConfig {
+  /// Base URL of the update service.
   pub base_url: String,
+  /// Optional HTTP client configuration.
   pub http: Option<HttpOptions>,
+  /// Callback invoked as a bundle download progresses.
   #[napi(ts_type = "(data: RemoteOnDownloadData) => void")]
   pub on_download: Option<JsCallback<RemoteOnDownloadData, ()>>,
 }
 
 #[napi(object, object_to_js = false)]
+/// Options for requesting the current update document.
 pub struct RemoteGetUpdateOptions {
+  /// ETag of the previously received update document.
   pub etag: Option<String>,
+  /// Release channel to request.
   pub channel: Option<String>,
+  /// Public key that must sign the response.
   pub expect_signature: Option<SignatureVerifyKey>,
 }
 

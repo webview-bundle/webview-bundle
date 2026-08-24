@@ -7,11 +7,11 @@ export type BundleBuilderOptions = { header?: HeaderWriterOptions | null; index?
 /**
  * A bundle's header: format metadata read from the first bytes of a `.wvb` file.
  */
-export type BundleHeader = { version: Version; 
+export type BundleHeader = { version: Version;
 /**
  * Byte offset where the index section ends (the start of the data section).
  */
-indexEndOffset: number; 
+indexEndOffset: number;
 /**
  * Size of the index section in bytes.
  */
@@ -22,20 +22,43 @@ indexSize: number }
  */
 export type BundleSourceVersion = { source: SourceKind; version: string }
 
-export type BundleUpdate = { name: string; version: string; downloadUrl?: string | null; integrity?: string | null; metadata?: Partial<{ [key in string]: string }> | null }
+/**
+ * One bundle advertised by an update document.
+ */
+export type BundleUpdate = {
+/**
+ * Bundle name.
+ */
+name: string;
+/**
+ * Bundle version.
+ */
+version: string;
+/**
+ * Absolute download URL when the service overrides the default endpoint.
+ */
+downloadUrl?: string | null;
+/**
+ * Serialized integrity value for the downloaded bundle.
+ */
+integrity?: string | null;
+/**
+ * Provider-defined, string-valued bundle metadata.
+ */
+metadata?: Partial<{ [key in string]: string }> | null }
 
 /**
  * How a bundle section's xxHash checksum is verified when that section is read. The same options
  * apply to the header, the index and each entry's data.
- * 
+ *
  * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
  * bytes can rewrite the checksum.
  */
-export type ChecksumReadOptions = { 
+export type ChecksumReadOptions = {
 /**
  * Verify the section's checksum when it is read. Default: `true`.
  */
-verify?: boolean | null; 
+verify?: boolean | null;
 /**
  * The seed the checksum was built with. Default: `0`.
  */
@@ -74,11 +97,43 @@ export type HttpMethod = "get" | "head" | "options" | "post" | "put" | "patch" |
 /**
  * HTTP client options for a remote.
  */
-export type HttpOptions = { 
+export type HttpOptions = {
 /**
  * Headers sent with every request.
  */
-defaultHeaders?: Partial<{ [key in string]: string }> | null; userAgent?: string | null; timeout?: number | null; readTimeout?: number | null; connectTimeout?: number | null; poolIdleTimeout?: number | null; poolMaxIdlePerHost?: number | null; referer?: boolean | null; tcpNodelay?: boolean | null }
+defaultHeaders?: Partial<{ [key in string]: string }> | null;
+/**
+ * User-Agent sent with every request.
+ */
+userAgent?: string | null;
+/**
+ * Total request timeout in milliseconds.
+ */
+timeout?: number | null;
+/**
+ * Response-body read timeout in milliseconds.
+ */
+readTimeout?: number | null;
+/**
+ * Connection-establishment timeout in milliseconds.
+ */
+connectTimeout?: number | null;
+/**
+ * Idle lifetime in milliseconds for pooled connections.
+ */
+poolIdleTimeout?: number | null;
+/**
+ * Maximum idle connections retained for one host.
+ */
+poolMaxIdlePerHost?: number | null;
+/**
+ * Whether redirect requests include a Referer header.
+ */
+referer?: boolean | null;
+/**
+ * Whether TCP sockets disable Nagle's algorithm.
+ */
+tcpNodelay?: boolean | null }
 
 /**
  * Metadata for a single file in a bundle's index. Sizes are byte counts (`offset`/`len` over the
@@ -137,9 +192,32 @@ export type ManifestVersionData = { integrity?: string | null; metadata?: Partia
  * `@wvb/node`'s `RemoteConfig` minus `onDownload`: Deno FFI cannot call back into JS from the
  * worker thread a `nonblocking` symbol runs on, so download progress is not reported here.
  */
-export type RemoteConfig = { baseUrl: string; http?: HttpOptions | null }
+export type RemoteConfig = {
+/**
+ * Base URL of the update service.
+ */
+baseUrl: string;
+/**
+ * Optional HTTP client settings.
+ */
+http?: HttpOptions | null }
 
-export type RemoteUpdateResponse = { update: Update; etag?: string | null; signature?: UpdateSignature | null }
+/**
+ * A successful update response returned by the remote service.
+ */
+export type RemoteUpdateResponse = {
+/**
+ * Parsed update document.
+ */
+update: Update;
+/**
+ * HTTP entity tag supplied by the remote service.
+ */
+etag?: string | null;
+/**
+ * Signature metadata supplied by the remote service.
+ */
+signature?: UpdateSignature | null }
 
 /**
  * Digital signature algorithm for bundle verification. The wire strings match `@wvb/node`'s
@@ -158,11 +236,11 @@ export type SourceConfig = { builtinDir: string; remoteDir: string; builtinManif
  * Which bundles are checked against the integrity recorded for them in the manifest when they are
  * loaded from disk.
  */
-export type SourceIntegrityCheckMode = 
+export type SourceIntegrityCheckMode =
 /**
  * Verify both builtin and remote bundles.
  */
-"all" | 
+"all" |
 /**
  * Check downloaded (remote) bundles only.
  */
@@ -179,19 +257,57 @@ export type SourceListItem = { source: SourceKind; item: ManifestBundleItem }
 
 export type SourceOptions = { headerRead?: HeaderReadOptions | null; indexRead?: IndexReadOptions | null; dataRead?: DataReadOptions | null; integrity?: SourceIntegrityOptions | null; removeBundleChunkSize?: number | null }
 
-export type Update = { id: string; createdAt: string; runtimeVersion: number; bundles: BundleUpdate[]; metadata: Partial<{ [key in string]: string }> }
+/**
+ * An atomically published set of bundle updates.
+ */
+export type Update = {
+/**
+ * Unique update identifier.
+ */
+id: string;
+/**
+ * ISO 8601 publication time.
+ */
+createdAt: string;
+/**
+ * Update-model version required to process this document.
+ */
+runtimeVersion: number;
+/**
+ * Bundles included in this update.
+ */
+bundles: BundleUpdate[];
+/**
+ * Provider-defined, string-valued update metadata.
+ */
+metadata: Partial<{ [key in string]: string }> }
 
-export type UpdateSignature = { keyId: string; sig: string; alg: string }
+/**
+ * Signature metadata returned with an update document.
+ */
+export type UpdateSignature = {
+/**
+ * Identifier of the public key used to verify the signature.
+ */
+keyId: string;
+/**
+ * Base64-encoded signature of the raw update document.
+ */
+sig: string;
+/**
+ * Signature algorithm used for this signature.
+ */
+alg: string }
 
 export type UpdaterDownloadOptions = { concurrency?: number | null; timeout?: number | null }
 
-export type UpdaterGetUpdateOptions = { 
+export type UpdaterGetUpdateOptions = {
 /**
  * Require the update response to be signed by the key published under this id.
  */
 expectSignatureKeyId?: string | null }
 
-export type UpdaterInstallTarget = { name: string; 
+export type UpdaterInstallTarget = { name: string;
 /**
  * The staged version to install. When omitted, the staged version recorded in the manifest is
  * used; when given, it has to match that staged version.
@@ -200,7 +316,7 @@ version?: string | null }
 
 export type UpdaterIntegrityOptions = { policy?: IntegrityPolicy | null; algorithm?: IntegrityAlgorithm | null }
 
-export type UpdaterRollbackTarget = { name: string; 
+export type UpdaterRollbackTarget = { name: string;
 /**
  * The previous version to roll back to. When omitted, the previous version recorded in the
  * manifest is used; when given, it has to match that previous version.

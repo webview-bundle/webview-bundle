@@ -52,10 +52,15 @@ export type UpdaterDownloadResultKind =
   | { type: 'error'; code: ErrorCode; message: string };
 
 export interface UpdaterDownloadResult {
+  /** Bundle name. */
   name: string;
+  /** Bundle version requested from the update document. */
   version: string;
+  /** Advertised integrity value, when present. */
   integrity?: string;
+  /** Provider-defined bundle metadata, when present. */
   metadata?: Record<string, string>;
+  /** Per-bundle download outcome. */
   result: UpdaterDownloadResultKind;
 }
 
@@ -68,9 +73,13 @@ export type UpdaterInstallResultKind =
   | { type: 'error'; code: ErrorCode; message: string };
 
 export interface UpdaterInstallResult {
+  /** Bundle name. */
   name: string;
+  /** Version requested by the install target. */
   targetVersion?: string;
+  /** Version activated by this operation. */
   installVersion?: string;
+  /** Per-bundle install outcome. */
   result: UpdaterInstallResultKind;
 }
 
@@ -83,9 +92,13 @@ export type UpdaterRollbackResultKind =
   | { type: 'error'; code: ErrorCode; message: string };
 
 export interface UpdaterRollbackResult {
+  /** Bundle name. */
   name: string;
+  /** Version requested by the rollback target. */
   targetVersion?: string;
+  /** Version activated by this operation. */
   rollbackVersion?: string;
+  /** Per-bundle rollback outcome. */
   result: UpdaterRollbackResultKind;
 }
 
@@ -109,6 +122,7 @@ function serializeOptions(options: UpdaterOptions): string {
 export class Updater {
   #ptr: Deno.PointerValue;
 
+  /** Creates an updater and persists accepted update metadata at `updateFilepath`. */
   constructor(source: Source, remote: Remote, updateFilepath: string, options?: UpdaterOptions) {
     const lib = getLib();
     // A key the native side cannot build fails here rather than serving updates unverified.
@@ -175,6 +189,7 @@ export class Updater {
     );
   }
 
+  /** Releases the native updater handle. Safe to call more than once. */
   free(): void {
     if (this.#ptr !== null) {
       getLib().symbols.wvb_updater_free(this.#ptr);

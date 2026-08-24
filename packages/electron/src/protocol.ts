@@ -19,12 +19,17 @@ export type {
   UriPathResolver,
 } from '@wvb/node';
 
+/** Handles one Fetch-compatible request for a registered protocol. */
 export interface ProtocolHandler {
+  /** Produces the protocol response. */
   handle(req: Request): Promise<Response>;
 }
 
+/** Options shared by bundle and proxy protocol registrations. */
 export interface ProtocolOptions {
+  /** Electron protocol registry to use. Defaults to Electron's global registry. */
   protocol?: () => ElectronProtocol;
+  /** Privileges merged with the secure defaults for this scheme. */
   privileges?: Privileges;
   /**
    * Builds the response when the handler throws (default: `500` with the error message). The error
@@ -43,16 +48,23 @@ export interface ProtocolOptions {
   errorResponse?: (e: Error) => Response;
 }
 
+/** Context provided when a protocol handler is lazily constructed. */
 export interface ProtocolHandlerBuildContext {
+  /** Source from which the handler reads bundles. */
   source: Source;
 }
+/** Lazily constructs a protocol handler after Electron is ready. */
 export type ProtocolHandlerBuild = (
   ctx: ProtocolHandlerBuildContext
 ) => ProtocolHandler | Promise<ProtocolHandler>;
 
+/** A scheme, handler, and registration options managed by Webview Bundle. */
 export interface Protocol {
+  /** URI scheme without `://`. */
   scheme: string;
+  /** Ready handler or async factory for one. */
   handler: ProtocolHandler | ProtocolHandlerBuild;
+  /** Optional Electron registration settings. */
   options?: ProtocolOptions;
 }
 
@@ -194,6 +206,7 @@ export interface BundleProtocolConfig extends ProtocolOptions, BundleProtocolOpt
   pathResolver?: UriPathResolver;
 }
 
+/** Creates a protocol that serves files from the configured bundle source. */
 export function bundleProtocol(scheme: string, config: BundleProtocolConfig = {}): Protocol {
   const { bundleResolver, pathResolver, ...options } = config;
   const protocol: Protocol = {

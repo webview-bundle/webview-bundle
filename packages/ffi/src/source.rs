@@ -461,7 +461,7 @@ impl Source {
   }
 
   /// Drops the cached descriptor for `bundle_name`, if present. Already-returned
-  /// [`LoadedDescriptor`] handles keep working; the next [`load_descriptor`]
+  /// [`LoadedDescriptor`] handles keep working; the next call to [`Self::fetch_descriptor`]
   /// reloads from disk. Returns `true` if a cached descriptor was removed.
   pub fn unload(&self, bundle_name: String) -> bool {
     self.inner.unload(&bundle_name)

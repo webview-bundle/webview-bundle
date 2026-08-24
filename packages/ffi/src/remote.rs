@@ -7,11 +7,17 @@ use std::sync::Arc;
 use wvb::remote;
 
 #[derive(uniffi::Record, Clone, Debug)]
+/// A bundle advertised by an update document.
 pub struct BundleUpdate {
+  /// Bundle name.
   pub name: String,
+  /// Bundle version.
   pub version: String,
+  /// Absolute download URL when the server overrides the default endpoint.
   pub download_url: Option<String>,
+  /// Serialized integrity value for the downloaded bundle.
   pub integrity: Option<String>,
+  /// Provider-defined, string-valued bundle metadata.
   pub metadata: Option<HashMap<String, String>>,
 }
 
@@ -40,11 +46,17 @@ impl From<BundleUpdate> for remote::BundleUpdate {
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
+/// An atomically published set of bundle updates.
 pub struct Update {
+  /// Unique update identifier.
   pub id: String,
+  /// ISO 8601 publication time.
   pub created_at: String,
+  /// Update-model version required to process this document.
   pub runtime_version: u8,
+  /// Bundles included in this update.
   pub bundles: Vec<BundleUpdate>,
+  /// Provider-defined, string-valued update metadata.
   pub metadata: HashMap<String, String>,
 }
 
@@ -65,9 +77,13 @@ impl From<remote::Update> for Update {
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
+/// Signature metadata returned with an update document.
 pub struct UpdateSignature {
+  /// Identifier of the public key used to verify the signature.
   pub key_id: String,
+  /// Base64-encoded signature of the raw update document.
   pub sig: String,
+  /// Signature algorithm used for [`Self::sig`].
   pub alg: String,
 }
 
@@ -82,9 +98,13 @@ impl From<remote::UpdateSignature> for UpdateSignature {
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
+/// A successful response from [`Remote::get_update`].
 pub struct RemoteUpdateResponse {
+  /// Parsed update document.
   pub update: Update,
+  /// HTTP entity tag supplied by the remote server.
   pub etag: Option<String>,
+  /// Signature metadata supplied by the remote server.
   pub signature: Option<UpdateSignature>,
 }
 
@@ -104,6 +124,7 @@ pub struct HttpOptions {
   /// Headers sent with every request.
   #[uniffi(default = None)]
   pub default_headers: Option<HashMap<String, String>>,
+  /// User-Agent sent with requests, when supplied.
   #[uniffi(default = None)]
   pub user_agent: Option<String>,
   /// Total request timeout in milliseconds (default: `120000`).
@@ -118,12 +139,16 @@ pub struct HttpOptions {
   /// Timeout in milliseconds for establishing the connection.
   #[uniffi(default = None)]
   pub connect_timeout: Option<u64>,
+  /// Idle lifetime in milliseconds for pooled connections.
   #[uniffi(default = None)]
   pub pool_idle_timeout: Option<u64>,
+  /// Maximum idle connections retained for a host.
   #[uniffi(default = None)]
   pub pool_max_idle_per_host: Option<u32>,
+  /// Whether to generate a Referer header on redirects.
   #[uniffi(default = None)]
   pub referer: Option<bool>,
+  /// Whether to disable Nagle's algorithm on TCP sockets.
   #[uniffi(default = None)]
   pub tcp_nodelay: Option<bool>,
 }
@@ -180,15 +205,20 @@ pub struct RemoteOnDownloadData {
 /// A callback invoked with download progress as a bundle downloads.
 #[uniffi::export(with_foreign)]
 pub trait RemoteOnDownload: Send + Sync {
+  /// Receives the current progress for a bundle download.
   fn on_download(&self, data: RemoteOnDownloadData);
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
+/// Options used to request the current update document.
 pub struct RemoteGetUpdateOptions {
+  /// Entity tag of the previously received update document.
   #[uniffi(default = None)]
   pub etag: Option<String>,
+  /// Release channel to request.
   #[uniffi(default = None)]
   pub channel: Option<String>,
+  /// Public key that must sign the response.
   #[uniffi(default = None)]
   pub expect_signature: Option<SignatureVerifyKey>,
 }
@@ -260,6 +290,7 @@ impl Remote {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Remote {
+  /// Gets the current update document, or `None` when its ETag has not changed.
   pub async fn get_update(
     &self,
     options: Option<RemoteGetUpdateOptions>,
@@ -273,6 +304,10 @@ impl Remote {
   }
 
   #[uniffi::method(default(cancellation = None))]
+  /// Downloads `url` into `filepath`.
+  ///
+  /// The optional cancellation token stops the transfer without deleting a previously completed
+  /// bundle at the destination.
   pub async fn download(
     &self,
     url: String,

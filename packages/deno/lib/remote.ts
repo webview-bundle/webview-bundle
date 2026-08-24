@@ -22,6 +22,7 @@ export type {
 export interface RemoteGetUpdateOptions {
   /** The etag of the update previously received; sent as `if-none-match`. */
   etag?: string;
+  /** Release channel to request. */
   channel?: string;
   /** Require the response to be signed by this key. */
   expectSignature?: SignatureVerifyKey;
@@ -44,6 +45,7 @@ function serializeGetUpdateOptions(options: RemoteGetUpdateOptions): string {
 export class Remote {
   #ptr: Deno.PointerValue;
 
+  /** Creates a client for the configured update service. */
   constructor(config: RemoteConfig) {
     const lib = getLib();
     this.#ptr = readHandle(lib, lib.symbols.wvb_remote_new(cstr(JSON.stringify(config))));
@@ -78,6 +80,7 @@ export class Remote {
     );
   }
 
+  /** Releases the native remote handle. Safe to call more than once. */
   free(): void {
     if (this.#ptr !== null) {
       getLib().symbols.wvb_remote_free(this.#ptr);

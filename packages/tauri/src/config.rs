@@ -28,6 +28,7 @@ impl<R: Runtime> Path<R> {
 }
 
 #[derive(Clone)]
+/// Remote-update behavior configured for the Tauri plugin.
 pub struct UpdaterConfig<R: Runtime> {
   pub(crate) update_filepath: Option<Path<R>>,
   pub(crate) channel: Option<String>,
@@ -37,6 +38,7 @@ pub struct UpdaterConfig<R: Runtime> {
 
 impl<R: Runtime> UpdaterConfig<R> {
   #[allow(clippy::new_without_default)]
+  /// Creates a configuration with the core updater defaults.
   pub fn new() -> Self {
     Self {
       update_filepath: None,
@@ -46,26 +48,31 @@ impl<R: Runtime> UpdaterConfig<R> {
     }
   }
 
+  /// Stores the last accepted update response at `filepath`.
   pub fn update_filepath<T: Into<String>>(mut self, filepath: T) -> Self {
     self.update_filepath = Some(Path::Static(filepath.into()));
     self
   }
 
+  /// Resolves the persistent update-response path after Tauri has initialized.
   pub fn update_filepath_fn(mut self, filepath_fn: DynamicPathFn<R>) -> Self {
     self.update_filepath = Some(Path::Dynamic(filepath_fn));
     self
   }
 
+  /// Requests updates from `channel`.
   pub fn channel(mut self, channel: impl Into<String>) -> Self {
     self.channel = Some(channel.into());
     self
   }
 
+  /// Configures integrity verification for downloaded bundles.
   pub fn integrity(mut self, integrity: wvb::updater::UpdaterIntegrityOptions) -> Self {
     self.integrity = Some(integrity);
     self
   }
 
+  /// Configures accepted signatures for update documents.
   pub fn signature(mut self, signature: wvb::updater::UpdaterSignatureOptions) -> Self {
     self.signature = Some(signature);
     self
@@ -89,6 +96,7 @@ impl<R: Runtime> From<&UpdaterConfig<R>> for wvb::updater::UpdaterOptions {
 }
 
 #[derive(Clone)]
+/// Filesystem locations and read policies for builtin and downloaded bundles.
 pub struct SourceConfig<R: Runtime> {
   pub(crate) builtin_dir: Option<Path<R>>,
   pub(crate) builtin_manifest_filepath: Option<Path<R>>,
@@ -103,6 +111,7 @@ pub struct SourceConfig<R: Runtime> {
 
 impl<R: Runtime> SourceConfig<R> {
   #[allow(clippy::new_without_default)]
+  /// Creates an empty source configuration.
   pub fn new() -> Self {
     Self {
       builtin_dir: None,
@@ -117,41 +126,49 @@ impl<R: Runtime> SourceConfig<R> {
     }
   }
 
+  /// Sets the directory containing bundles shipped with the application.
   pub fn builtin_dir<T: Into<String>>(mut self, dir: T) -> Self {
     self.builtin_dir = Some(Path::Static(dir.into()));
     self
   }
 
+  /// Resolves the builtin bundle directory after Tauri has initialized.
   pub fn builtin_dir_fn(mut self, dir: DynamicPathFn<R>) -> Self {
     self.builtin_dir = Some(Path::Dynamic(dir));
     self
   }
 
+  /// Sets the manifest path used for builtin bundles.
   pub fn builtin_manifest_filepath<T: Into<String>>(mut self, filepath: T) -> Self {
     self.builtin_manifest_filepath = Some(Path::Static(filepath.into()));
     self
   }
 
+  /// Resolves the builtin manifest path after Tauri has initialized.
   pub fn builtin_manifest_filepath_fn(mut self, filepath: DynamicPathFn<R>) -> Self {
     self.builtin_manifest_filepath = Some(Path::Dynamic(filepath));
     self
   }
 
+  /// Sets the directory used for downloaded bundles.
   pub fn remote_dir<T: Into<String>>(mut self, dir: T) -> Self {
     self.remote_dir = Some(Path::Static(dir.into()));
     self
   }
 
+  /// Resolves the downloaded-bundle directory after Tauri has initialized.
   pub fn remote_dir_fn(mut self, dir: DynamicPathFn<R>) -> Self {
     self.remote_dir = Some(Path::Dynamic(dir));
     self
   }
 
+  /// Sets the manifest path used for downloaded bundles.
   pub fn remote_manifest_filepath<T: Into<String>>(mut self, filepath: T) -> Self {
     self.remote_manifest_filepath = Some(Path::Static(filepath.into()));
     self
   }
 
+  /// Resolves the downloaded-bundle manifest path after Tauri has initialized.
   pub fn remote_manifest_filepath_fn(mut self, filepath: DynamicPathFn<R>) -> Self {
     self.remote_manifest_filepath = Some(Path::Dynamic(filepath));
     self
@@ -188,6 +205,7 @@ impl<R: Runtime> SourceConfig<R> {
     self
   }
 
+  /// Sets the number of bundle files removed in one filesystem batch.
   pub fn remove_bundle_chunk_size(mut self, size: usize) -> Self {
     self.remove_bundle_chunk_size = Some(size);
     self
@@ -217,21 +235,25 @@ impl<R: Runtime> From<&SourceConfig<R>> for wvb::source::SourceOptions {
 }
 
 #[derive(Clone, Default)]
+/// Builder for the remote update client used by the Tauri plugin.
 pub struct RemoteConfig {
   builder: wvb::remote::RemoteBuilder,
 }
 
 impl RemoteConfig {
+  /// Creates a remote client configuration for `base_url`.
   pub fn new(base_url: impl Into<String>) -> Self {
     let builder = wvb::remote::Remote::builder().base_url(base_url);
     Self { builder }
   }
 
+  /// Applies HTTP client options to the remote client.
   pub fn http(mut self, http: wvb::remote::HttpOptions) -> Self {
     self.builder = self.builder.http(http);
     self
   }
 
+  /// Receives bundle download progress as bytes loaded, optional total bytes, and URL.
   pub fn on_download<F>(mut self, on_download: F) -> Self
   where
     F: Fn(u64, Option<u64>, String) + Send + Sync + 'static,
@@ -250,6 +272,7 @@ impl RemoteConfig {
 pub type ErrorResponse = Arc<dyn Fn(&crate::Error) -> http::Response<Vec<u8>> + Send + Sync>;
 
 #[derive(Clone)]
+/// Configuration for serving bundles through a custom URI scheme.
 pub struct BundleProtocolConfig {
   scheme: String,
   pub(crate) bundle_resolver: Option<wvb::protocol::UriBundleResolver>,
@@ -258,6 +281,7 @@ pub struct BundleProtocolConfig {
 }
 
 impl BundleProtocolConfig {
+  /// Creates a bundle protocol for `scheme`.
   pub fn new<S: Into<String>>(scheme: S) -> Self {
     Self {
       scheme: scheme.into(),
@@ -319,6 +343,7 @@ impl BundleProtocolConfig {
 }
 
 #[derive(Clone)]
+/// Configuration for forwarding a custom URI scheme to another HTTP origin.
 pub struct ProxyProtocolConfig {
   scheme: String,
   pub(crate) resolver: wvb::protocol::ProxyResolver,
@@ -326,6 +351,7 @@ pub struct ProxyProtocolConfig {
 }
 
 impl ProxyProtocolConfig {
+  /// Creates a proxy protocol for `scheme` using `resolver` to select the target origin.
   pub fn new<S: Into<String>>(scheme: S, resolver: wvb::protocol::ProxyResolver) -> Self {
     Self {
       scheme: scheme.into(),
@@ -346,16 +372,21 @@ impl ProxyProtocolConfig {
 }
 
 #[derive(Clone)]
+/// Either a bundle-serving protocol or a proxy protocol.
 pub enum ProtocolConfig {
+  /// Serves resources from a local Webview Bundle source.
   Bundle(BundleProtocolConfig),
+  /// Forwards requests to an HTTP origin selected by a resolver.
   Proxy(ProxyProtocolConfig),
 }
 
 impl ProtocolConfig {
+  /// Starts a [`BundleProtocolConfig`] builder for `scheme`.
   pub fn bundle<S: Into<String>>(scheme: S) -> BundleProtocolConfig {
     BundleProtocolConfig::new(scheme)
   }
 
+  /// Starts a [`ProxyProtocolConfig`] builder for `scheme`.
   pub fn proxy<S: Into<String>>(
     scheme: S,
     resolver: wvb::protocol::ProxyResolver,
@@ -363,6 +394,7 @@ impl ProtocolConfig {
     ProxyProtocolConfig::new(scheme, resolver)
   }
 
+  /// URI scheme registered by this protocol.
   pub fn scheme(&self) -> &str {
     match self {
       ProtocolConfig::Bundle(x) => &x.scheme,
@@ -418,6 +450,7 @@ impl From<ProxyProtocolConfig> for ProtocolConfig {
 }
 
 #[derive(Clone, Default)]
+/// Top-level configuration passed to [`init`](crate::init).
 pub struct Config<R: Runtime> {
   pub(crate) source: Option<SourceConfig<R>>,
   pub(crate) protocols: Vec<ProtocolConfig>,
@@ -428,6 +461,7 @@ pub struct Config<R: Runtime> {
 }
 
 impl<R: Runtime> Config<R> {
+  /// Creates an empty plugin configuration with platform defaults.
   pub fn new() -> Self {
     Self {
       source: None,
@@ -439,16 +473,19 @@ impl<R: Runtime> Config<R> {
     }
   }
 
+  /// Configures builtin and remote bundle storage.
   pub fn source(mut self, source: SourceConfig<R>) -> Self {
     self.source = Some(source);
     self
   }
 
+  /// Registers one bundle or proxy protocol.
   pub fn protocol<P: Into<ProtocolConfig>>(mut self, protocol: P) -> Self {
     self.protocols.push(protocol.into());
     self
   }
 
+  /// Configures the remote update client.
   pub fn remote(mut self, remote: RemoteConfig) -> Self {
     self.remote = Some(remote);
     self
@@ -461,6 +498,7 @@ impl<R: Runtime> Config<R> {
   }
 
   #[cfg(target_os = "android")]
+  /// Configures Android-specific builtin bundle extraction.
   pub fn android(mut self, android: crate::android::AndroidOptions) -> Self {
     self.android = Some(android);
     self

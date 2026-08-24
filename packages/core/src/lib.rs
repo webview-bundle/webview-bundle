@@ -1,7 +1,7 @@
 //! # Webview Bundle Core
 //!
-//! An offline-first web resources delivery system for webview-mounted frameworks and platforms
-//! (e.g., Electron, Tauri, with Android and iOS planned).
+//! An offline-first web-resource delivery system for webview hosts such as Electron, Tauri, and
+//! native mobile integrations.
 //!
 //! ## Overview
 //!
@@ -9,7 +9,7 @@
 //! resources to webview applications. It supports:
 //!
 //! - **Offline-first architecture**: Bundle resources locally for immediate availability
-//! - **Delta updates**: Download only what changed between versions
+//! - **Staged updates**: Download and verify a version before explicitly activating it
 //! - **Integrity verification**: Ensure bundle authenticity with checksums and signatures
 //! - **Source management**: Organize bundles with builtin and remote sources
 //! - **HTTP protocol support**: Serve bundles through custom protocol handlers
@@ -150,31 +150,49 @@ mod writer;
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
+/// Bundle construction APIs.
 pub use builder::*;
+/// Bundle data structures and read access APIs.
 pub use bundle::*;
+/// Bundle-format constants.
 pub use consts::*;
+/// Error type and stable error codes.
 pub use error::{Error, ErrorCode};
+/// Bundle header types and readers/writers.
 pub use header::*;
+/// Bundle index types and readers/writers.
 pub use index::*;
+/// Synchronous and asynchronous bundle reader traits.
 pub use reader::*;
+/// Bundle-format version type.
 pub use version::*;
+/// Synchronous and asynchronous bundle writer traits.
 pub use writer::*;
 
+/// Re-export of the HTTP types used by protocol APIs.
 pub use http;
 
 mod consts;
 #[cfg(feature = "integrity")]
+/// Integrity parsing, construction, and verification APIs.
 pub mod integrity;
 #[cfg(feature = "protocol")]
+/// Custom URI protocol handlers and resolvers.
 pub mod protocol;
 #[cfg(feature = "remote")]
+/// Update discovery and bundle download client APIs.
 pub mod remote;
 #[cfg(feature = "signature")]
+/// Signature parsing and verification APIs.
 pub mod signature;
 #[cfg(feature = "source")]
+/// Builtin and downloaded bundle source management.
 pub mod source;
 #[cfg(feature = "testing")]
+/// Test fixtures and in-process remote server helpers.
 pub mod testing;
 #[cfg(feature = "updater")]
+/// Remote update download, installation, and rollback APIs.
 pub mod updater;
+/// Internal utility types that are also useful to integration authors.
 pub mod util;
