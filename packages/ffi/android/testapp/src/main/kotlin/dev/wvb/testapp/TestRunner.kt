@@ -183,7 +183,7 @@ class TestRunner(private val context: Context) {
 
         // ── Protocol ─────────────────────────────────────────────────────
         testSuspend("BundleProtocolHandler: 200 index.html") {
-            withBundleSource { source ->
+            withSource { source ->
                 val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null)
                 check(response.status == 200.toUShort()) { "status=${response.status}" }
@@ -193,7 +193,7 @@ class TestRunner(private val context: Context) {
         }
 
         testSuspend("BundleProtocolHandler: 200 root redirect") {
-            withBundleSource { source ->
+            withSource { source ->
                 val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.GET, "https://app.wvb/", null)
                 check(response.status == 200.toUShort()) { "status=${response.status}" }
@@ -201,7 +201,7 @@ class TestRunner(private val context: Context) {
         }
 
         testSuspend("BundleProtocolHandler: 404 not found") {
-            withBundleSource { source ->
+            withSource { source ->
                 val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.GET, "https://app.wvb/not_found.html", null)
                 check(response.status == 404.toUShort()) { "status=${response.status}" }
@@ -209,7 +209,7 @@ class TestRunner(private val context: Context) {
         }
 
         testSuspend("BundleProtocolHandler: HEAD 200") {
-            withBundleSource { source ->
+            withSource { source ->
                 val handler = BundleProtocolHandler(source)
                 val response = handler.handle(HttpMethod.HEAD, "https://app.wvb/index.html", null)
                 check(response.status == 200.toUShort()) { "status=${response.status}" }
@@ -218,7 +218,7 @@ class TestRunner(private val context: Context) {
         }
 
         testSuspend("BundleProtocolHandler: exact path resolver does not rewrite to index.html") {
-            withBundleSource { source ->
+            withSource { source ->
                 val options = BundleProtocolOptions(pathResolver = PathResolver.EXACT)
                 val handler = BundleProtocolHandler(source, options)
                 check(handler.handle(HttpMethod.GET, "https://app.wvb/index.html", null).status == 200.toUShort())
@@ -228,7 +228,7 @@ class TestRunner(private val context: Context) {
         }
 
         testSuspend("BundleProtocolHandler: allowWvbSuffixOnly rejects other hosts") {
-            withBundleSource { source ->
+            withSource { source ->
                 val options = BundleProtocolOptions(
                     bundleResolver = BundleResolver.Hostname(
                         segment = HostnameSegment.First,
@@ -254,7 +254,7 @@ class TestRunner(private val context: Context) {
         }
 
         testSuspend("BundleProtocolHandler: a request body is accepted") {
-            withBundleSource { source ->
+            withSource { source ->
                 val handler = BundleProtocolHandler(source)
                 // The bundle protocol serves GET/HEAD only, but the body still travels over the FFI.
                 val response = handler.handle(
@@ -311,17 +311,17 @@ class TestRunner(private val context: Context) {
             }
             val appDir = File(remoteDir, "app")
             appDir.mkdirs()
-            context.assets.open("fixtures/remote/app/app_1.0.0.wvb").use { input ->
-                File(appDir, "app_1.0.0.wvb").outputStream().use { input.copyTo(it) }
+            context.assets.open("fixtures/remote/app/1.0.0.wvb").use { input ->
+                File(appDir, "1.0.0.wvb").outputStream().use { input.copyTo(it) }
             }
         }
         return remoteDir
     }
 
-    private suspend fun withBundleSource(block: suspend (BundleSource) -> Unit) {
+    private suspend fun withSource(block: suspend (Source) -> Unit) {
         val remoteDir = setupFixtures()
-        val source = BundleSource(
-            BundleSourceConfig(
+        val source = Source(
+            SourceConfig(
                 builtinDir = context.cacheDir.absolutePath,
                 remoteDir = remoteDir.absolutePath,
                 builtinManifestFilepath = null,

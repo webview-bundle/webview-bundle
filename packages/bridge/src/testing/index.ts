@@ -21,12 +21,12 @@ export type { BridgeCommandMap, MockInvokeCommand, MockInvokeHandler } from './t
  * import { mockInvoke } from '@wvb/bridge/testing';
  * import { expect, test } from 'vitest';
  *
- * test('loads the active version', async () => {
- *   using _mock = mockInvoke('source.loadVersion', bundleName => {
+ * test('reads the current version', async () => {
+ *   using _mock = mockInvoke('source.getVersion', bundleName => {
  *     expect(bundleName).toBe('app');
- *     return { type: 'remote', version: '1.0.0' };
+ *     return { source: 'remote', version: '1.0.0' };
  *   });
- *   await expect(source.loadVersion('app')).resolves.toEqual({ type: 'remote', version: '1.0.0' });
+ *   await expect(source.getVersion('app')).resolves.toEqual({ source: 'remote', version: '1.0.0' });
  * });
  * ```
  */
@@ -96,14 +96,14 @@ class MockBridgeImpl implements MockBridge {
  * import { mockBridge } from '@wvb/bridge/testing';
  * import { expect, test } from 'vitest';
  *
- * test('loads the active version', async () => {
+ * test('reads the active version', async () => {
  *   using bridge = mockBridge()
- *     .mockInvoke('source.loadVersion', bundleName => {
+ *     .mockInvoke('source.getVersion', bundleName => {
  *       expect(bundleName).toBe('app');
- *       return { type: 'remote', version: '1.0.0' };
+ *       return { source: 'remote', version: '1.0.0' };
  *     });
  *
- *   await expect(source.loadVersion('app')).resolves.toEqual({ type: 'remote', version: '1.0.0' });
+ *   await expect(source.getVersion('app')).resolves.toEqual({ source: 'remote', version: '1.0.0' });
  * });
  */
 export function mockBridge(options?: MockBridgeOptions): MockBridge {

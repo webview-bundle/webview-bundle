@@ -1,7 +1,7 @@
-import type { IntegrityAlgorithm } from './bindings.ts';
+import type { IntegrityAlgorithm, IntegrityPolicy } from './bindings.ts';
 import { cstr, getLib, readResult } from './ffi.ts';
 
-export type { IntegrityAlgorithm };
+export type { IntegrityAlgorithm, IntegrityPolicy };
 
 /**
  * A digest over some bytes, serialized as `<algorithm>:<base64>` (e.g. `"sha256:n4bQ..."`).

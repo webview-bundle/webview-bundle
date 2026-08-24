@@ -1,120 +1,54 @@
-use crate::integrity::{IntegrityChecker, IntegrityPolicy};
-use crate::js::JsCallbackExt;
-use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
-use crate::signature::SignatureVerifier;
-use crate::source::BundleSource;
-use napi::bindgen_prelude::*;
+use crate::cancellation::Cancellation;
+use crate::error::ErrorCode;
+use crate::integrity::{IntegrityAlgorithm, IntegrityPolicy};
+use crate::remote::{BundleUpdate, Remote, Update};
+use crate::signature::SignatureVerifyKey;
+use crate::source::Source;
+use napi::Env;
 use napi_derive::napi;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::Path;
 use wvb::updater;
 
-/// Information about a bundle update.
-///
-/// @property {string} name - Bundle name
-/// @property {string} version - Remote version available
-/// @property {string} [localVersion] - Currently installed version
-/// @property {boolean} isAvailable - Whether an update is available
-/// @property {string} [etag] - ETag for caching
-/// @property {string} [integrity] - Integrity hash (e.g., "sha384-...")
-/// @property {string} [signature] - Digital signature
-/// @property {string} [lastModified] - Last modified timestamp
-///
-/// @example
-/// ```typescript
-/// const updateInfo = await updater.getUpdate('app');
-/// if (updateInfo.isAvailable) {
-///   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
-///   await updater.download('app');
-/// }
-/// ```
-#[napi(object)]
-pub struct BundleUpdateInfo {
-  pub name: String,
-  pub version: String,
-  pub local_version: Option<String>,
-  pub is_available: bool,
-  pub etag: Option<String>,
-  pub integrity: Option<String>,
-  pub signature: Option<String>,
-  pub last_modified: Option<String>,
+#[napi(object, object_to_js = false)]
+pub struct UpdaterIntegrityOptions {
+  pub policy: Option<IntegrityPolicy>,
+  pub algorithm: Option<IntegrityAlgorithm>,
 }
 
-impl From<updater::BundleUpdateInfo> for BundleUpdateInfo {
-  fn from(value: updater::BundleUpdateInfo) -> Self {
-    Self {
-      name: value.name,
-      version: value.version,
-      local_version: value.local_version,
-      is_available: value.is_available,
-      etag: value.etag,
-      integrity: value.integrity,
-      signature: value.signature,
-      last_modified: value.last_modified,
+impl From<UpdaterIntegrityOptions> for updater::UpdaterIntegrityOptions {
+  fn from(value: UpdaterIntegrityOptions) -> Self {
+    let mut options = updater::UpdaterIntegrityOptions::default();
+    if let Some(policy) = value.policy {
+      options = options.policy(policy.into());
     }
+    if let Some(algorithm) = value.algorithm {
+      options = options.algorithm(algorithm.into());
+    }
+    options
   }
 }
 
-impl From<BundleUpdateInfo> for updater::BundleUpdateInfo {
-  fn from(value: BundleUpdateInfo) -> Self {
-    Self {
-      name: value.name,
-      version: value.version,
-      local_version: value.local_version,
-      is_available: value.is_available,
-      etag: value.etag,
-      integrity: value.integrity,
-      signature: value.signature,
-      last_modified: value.last_modified,
+#[napi(object, object_to_js = false)]
+pub struct UpdaterSignatureOptions {
+  pub keys: Option<Vec<SignatureVerifyKey>>,
+}
+
+impl From<UpdaterSignatureOptions> for updater::UpdaterSignatureOptions {
+  fn from(value: UpdaterSignatureOptions) -> Self {
+    let mut options = updater::UpdaterSignatureOptions::default();
+    if let Some(key_sets) = value.keys {
+      options = options.add_keys(key_sets.into_iter().map(Into::into).collect::<Vec<_>>());
     }
+    options
   }
 }
 
-/// Configuration options for the updater.
-///
-/// @property {string} [channel] - Update channel (e.g., "stable", "beta")
-/// @property {IntegrityPolicy} [integrityPolicy] - Policy for integrity verification
-/// @property {Function} [integrityChecker] - Custom integrity verification function
-/// @property {SignatureVerifierOptions | Function} [signatureVerifier] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes. Verified independently of `integrityPolicy` — the signature signs the integrity string, not the bundle bytes, so keep the policy enabled ('strict' or 'optional') for the signature to also authenticate the downloaded bytes.
-///
-/// @example
-/// ```typescript
-/// const updater = new Updater(source, remote, {
-///   channel: 'stable',
-///   integrityPolicy: 'strict',
-///   signatureVerifier: {
-///     algorithm: 'ed25519',
-///     key: {
-///       format: 'spkiPem',
-///       data: publicKeyPem,
-///     },
-///   },
-/// });
-/// ```
-///
-/// @example
-/// ```typescript
-/// // Custom verification functions
-/// const updater = new Updater(source, remote, {
-///   integrityChecker: async (data, integrity) => {
-///     // Custom integrity verification
-///     return true;
-///   },
-///   signatureVerifier: async (message, signature) => {
-///     // Custom signature verification
-///     return true;
-///   },
-/// });
-/// ```
 #[napi(object, object_to_js = false)]
 pub struct UpdaterOptions {
   pub channel: Option<String>,
-  pub integrity_policy: Option<IntegrityPolicy>,
-  #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
-  pub integrity_checker: Option<IntegrityChecker>,
-  #[napi(
-    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
-  )]
-  pub signature_verifier: Option<SignatureVerifier>,
+  pub integrity: Option<UpdaterIntegrityOptions>,
+  pub signature: Option<UpdaterSignatureOptions>,
 }
 
 impl From<UpdaterOptions> for updater::UpdaterOptions {
@@ -123,75 +57,208 @@ impl From<UpdaterOptions> for updater::UpdaterOptions {
     if let Some(channel) = value.channel {
       options = options.channel(channel);
     }
-    let mut integrity_options = updater::UpdaterIntegrityOptions::default();
-    if let Some(policy) = value.integrity_policy {
-      integrity_options = integrity_options.policy(policy.into());
+    if let Some(integrity) = value.integrity {
+      options = options.integrity(integrity.into());
     }
-    if let Some(checker) = value.integrity_checker {
-      integrity_options = integrity_options.check(wvb::integrity::IntegrityCheck::Custom(
-        Arc::new(move |data, signature| {
-          let buffer = Buffer::from(data);
-          let signature = signature.to_string();
-          let callback = Arc::clone(&checker);
-          Box::pin(async move {
-            let ret = callback
-              .invoke_async((buffer, signature).into())
-              .await?
-              .await?;
-            Ok(ret)
-          })
-        }),
-      ));
-    }
-    options = options.integrity(integrity_options);
-    if let Some(verifier) = value.signature_verifier {
-      options =
-        options.signature(updater::UpdaterSignatureOptions::default().verify(verifier.inner));
+    if let Some(signature) = value.signature {
+      options = options.signature(signature.into());
     }
     options
   }
 }
 
-/// Bundle updater for managing updates from a remote server.
-///
-/// The updater coordinates between a local bundle source and remote server,
-/// handling update checks, downloads, integrity verification, and signature validation.
-///
-/// Integrity and signature are verified independently; because a signature signs the
-/// integrity string rather than the bundle bytes, keep `integrityPolicy` enabled so the
-/// signature also authenticates the downloaded bytes.
-///
-/// @example
-/// ```typescript
-/// import { Updater, BundleSource, Remote } from '@wvb/node';
-///
-/// const source = new BundleSource({
-///   builtinDir: './bundles/builtin',
-///   remoteDir: './bundles/remote',
-/// });
-///
-/// const remote = new Remote('https://updates.example.com');
-///
-/// const updater = new Updater(source, remote, {
-///   channel: 'stable',
-///   integrityPolicy: 'strict',
-///   signatureVerifier: {
-///     algorithm: 'ed25519',
-///     key: {
-///       format: 'spkiPem',
-///       data: publicKeyPem,
-///     },
-///   },
-/// });
-///
-/// // Check for updates
-/// const updateInfo = await updater.getUpdate('app');
-/// if (updateInfo.isAvailable) {
-///   console.log(`Update available: ${updateInfo.version}`);
-///   await updater.download('app');
-///   await updater.install('app', updateInfo.version);
-/// }
-/// ```
+#[napi(object, object_to_js = false)]
+pub struct UpdaterGetUpdateOptions {
+  pub expect_signature_key_id: Option<String>,
+}
+
+impl From<UpdaterGetUpdateOptions> for updater::UpdaterGetUpdateOptions {
+  fn from(value: UpdaterGetUpdateOptions) -> Self {
+    let mut options = updater::UpdaterGetUpdateOptions::default();
+    if let Some(key_id) = value.expect_signature_key_id {
+      options = options.expect_signature_key_id(key_id);
+    }
+    options
+  }
+}
+
+#[napi(object, object_to_js = false)]
+pub struct UpdaterDownloadOptions {
+  pub concurrency: Option<u32>,
+  pub timeout: Option<u32>,
+}
+
+#[napi(discriminant_case = "snake_case", object_from_js = false)]
+pub enum UpdaterDownloadResultKind {
+  Downloaded,
+  Error { code: ErrorCode, message: String },
+}
+
+#[napi(object, object_from_js = false)]
+pub struct UpdaterDownloadResult {
+  pub name: String,
+  pub version: String,
+  pub integrity: Option<String>,
+  pub metadata: Option<HashMap<String, String>>,
+  pub result: UpdaterDownloadResultKind,
+}
+
+impl From<updater::UpdaterDownloadResult> for UpdaterDownloadResult {
+  fn from(value: updater::UpdaterDownloadResult) -> Self {
+    let result = match value.result {
+      updater::UpdaterDownloadResultKind::Downloaded => UpdaterDownloadResultKind::Downloaded,
+      updater::UpdaterDownloadResultKind::Error(e) => UpdaterDownloadResultKind::Error {
+        code: e.code().into(),
+        message: e.to_string(),
+      },
+    };
+    Self {
+      name: value.name,
+      version: value.version,
+      integrity: value.integrity,
+      metadata: value.metadata,
+      result,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct UpdaterInstallTarget {
+  pub name: String,
+  pub version: Option<String>,
+}
+
+impl From<UpdaterInstallTarget> for updater::UpdaterInstallTarget {
+  fn from(value: UpdaterInstallTarget) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+    }
+  }
+}
+
+impl From<updater::UpdaterInstallTarget> for UpdaterInstallTarget {
+  fn from(value: updater::UpdaterInstallTarget) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+    }
+  }
+}
+
+#[napi(discriminant_case = "snake_case", object_from_js = false)]
+pub enum UpdaterInstallResultKind {
+  Installed,
+  StagedVersionNotMatched,
+  StagedBundleNotExists,
+  VerifyFailed,
+  Error { code: ErrorCode, message: String },
+}
+
+impl From<updater::UpdaterInstallResultKind> for UpdaterInstallResultKind {
+  fn from(value: updater::UpdaterInstallResultKind) -> Self {
+    match value {
+      updater::UpdaterInstallResultKind::Installed => Self::Installed,
+      updater::UpdaterInstallResultKind::StagedVersionNotMatched => Self::StagedVersionNotMatched,
+      updater::UpdaterInstallResultKind::StagedBundleNotExists => Self::StagedBundleNotExists,
+      updater::UpdaterInstallResultKind::VerifyFailed => Self::VerifyFailed,
+      updater::UpdaterInstallResultKind::Error(error) => Self::Error {
+        code: error.code().into(),
+        message: error.to_string(),
+      },
+    }
+  }
+}
+
+#[napi(object, object_from_js = false)]
+pub struct UpdaterInstallResult {
+  pub name: String,
+  pub target_version: Option<String>,
+  pub install_version: Option<String>,
+  pub result: UpdaterInstallResultKind,
+}
+
+impl From<updater::UpdaterInstallResult> for UpdaterInstallResult {
+  fn from(value: updater::UpdaterInstallResult) -> Self {
+    Self {
+      name: value.name,
+      target_version: value.target_version,
+      install_version: value.install_version,
+      result: value.result.into(),
+    }
+  }
+}
+
+#[napi(object)]
+pub struct UpdaterRollbackTarget {
+  pub name: String,
+  pub version: Option<String>,
+}
+
+impl From<UpdaterRollbackTarget> for updater::UpdaterRollbackTarget {
+  fn from(value: UpdaterRollbackTarget) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+    }
+  }
+}
+
+impl From<updater::UpdaterRollbackTarget> for UpdaterRollbackTarget {
+  fn from(value: updater::UpdaterRollbackTarget) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+    }
+  }
+}
+
+#[napi(discriminant_case = "snake_case", object_from_js = false)]
+pub enum UpdaterRollbackResultKind {
+  RolledBack,
+  PreviousVersionNotMatched,
+  PreviousBundleNotExists,
+  VerifyFailed,
+  GroupFailed { groups: Vec<String> },
+  Error { code: ErrorCode, message: String },
+}
+
+impl From<updater::UpdaterRollbackResultKind> for UpdaterRollbackResultKind {
+  fn from(value: updater::UpdaterRollbackResultKind) -> Self {
+    match value {
+      updater::UpdaterRollbackResultKind::RolledBack => Self::RolledBack,
+      updater::UpdaterRollbackResultKind::PreviousVersionNotMatched => {
+        Self::PreviousVersionNotMatched
+      }
+      updater::UpdaterRollbackResultKind::PreviousBundleNotExists => Self::PreviousBundleNotExists,
+      updater::UpdaterRollbackResultKind::VerifyFailed => Self::VerifyFailed,
+      updater::UpdaterRollbackResultKind::Error(error) => Self::Error {
+        code: error.code().into(),
+        message: error.to_string(),
+      },
+    }
+  }
+}
+
+#[napi(object, object_from_js = false)]
+pub struct UpdaterRollbackResult {
+  pub name: String,
+  pub target_version: Option<String>,
+  pub rollback_version: Option<String>,
+  pub result: UpdaterRollbackResultKind,
+}
+
+impl From<updater::UpdaterRollbackResult> for UpdaterRollbackResult {
+  fn from(value: updater::UpdaterRollbackResult) -> Self {
+    Self {
+      name: value.name,
+      target_version: value.target_version,
+      rollback_version: value.rollback_version,
+      result: value.result.into(),
+    }
+  }
+}
+
 #[napi]
 pub struct Updater {
   pub(crate) inner: updater::Updater,
@@ -199,139 +266,123 @@ pub struct Updater {
 
 #[napi]
 impl Updater {
-  /// Creates a new updater instance.
-  ///
-  /// @param {BundleSource} source - Bundle source for storing downloaded bundles
-  /// @param {Remote} remote - Remote client for fetching bundles
-  /// @param {UpdaterOptions} [options] - Optional updater configuration
-  ///
-  /// @example
-  /// ```typescript
-  /// const updater = new Updater(source, remote, {
-  ///   channel: 'stable',
-  ///   integrityPolicy: 'strict',
-  /// });
-  /// ```
   #[napi(constructor)]
-  pub fn new(source: &BundleSource, remote: &Remote, options: Option<UpdaterOptions>) -> Updater {
-    let source = source.inner.clone();
-    let remote = remote.inner.clone();
-    Updater {
-      inner: updater::Updater::new(source, remote, options.map(Into::into)),
-    }
+  pub fn new(
+    source: &Source,
+    remote: &Remote,
+    update_filepath: String,
+    options: Option<UpdaterOptions>,
+    env: Env,
+  ) -> napi::Result<Updater> {
+    crate::Outcome::from_fn(|| {
+      let mut builder = updater::Updater::builder()
+        .source(source.inner.clone())
+        .remote(remote.inner.clone())
+        .update_filepath(Path::new(&update_filepath));
+      if let Some(options) = options {
+        builder = builder.options(options.into());
+      }
+      Ok(Updater {
+        inner: builder.build()?,
+      })
+    })
+    .into_napi(env)
   }
 
-  /// Lists all available bundles on the remote server.
-  ///
-  /// @returns {Promise<ListRemoteBundleInfo[]>} Array of remote bundle information
-  ///
-  /// @example
-  /// ```typescript
-  /// const remotes = await updater.listRemotes();
-  /// for (const bundle of remotes) {
-  ///   console.log(`${bundle.name}: ${bundle.version}`);
-  /// }
-  /// ```
-  #[napi]
-  pub async fn list_remotes(&self) -> crate::Outcome<Vec<ListRemoteBundleInfo>> {
-    crate::Outcome::from_future(async move {
-      let remotes = self
+  #[napi(ts_return_type = "Promise<Update | null>")]
+  pub async fn get_update(
+    &self,
+    options: Option<UpdaterGetUpdateOptions>,
+  ) -> crate::Outcome<Option<Update>> {
+    crate::Outcome::from_future(async {
+      let update = self
         .inner
-        .list_remotes()
+        .get_update(options.map(Into::into))
         .await?
-        .into_iter()
-        .map(ListRemoteBundleInfo::from)
-        .collect::<Vec<_>>();
-      Ok(remotes)
+        .map(Update::from);
+      Ok(update)
     })
     .await
   }
 
-  /// Checks if an update is available for a specific bundle.
-  ///
-  /// Compares the local version with the remote version to determine if an update exists.
-  ///
-  /// @param {string} bundleName - Name of the bundle to check
-  /// @returns {Promise<BundleUpdateInfo>} Update information
-  ///
-  /// @example
-  /// ```typescript
-  /// const updateInfo = await updater.getUpdate('app');
-  /// if (updateInfo.isAvailable) {
-  ///   console.log(`Update available: ${updateInfo.localVersion} → ${updateInfo.version}`);
-  /// } else {
-  ///   console.log('Already up to date');
-  /// }
-  /// ```
-  #[napi]
-  pub async fn get_update(&self, bundle_name: String) -> crate::Outcome<BundleUpdateInfo> {
-    crate::Outcome::from_future(async move {
-      let update = self.inner.get_update(&bundle_name).await?;
-      Ok(BundleUpdateInfo::from(update))
-    })
-    .await
-  }
-
-  /// Downloads a bundle update from remote server.
-  ///
-  /// Downloads the specified bundle version (or the latest if not specified),
-  /// verifies integrity and signature if configured, and download it to the remote directory.
-  ///
-  /// @param {string} bundleName - Name of the bundle to download
-  /// @param {string} [version] - Specific version to download (defaults to latest)
-  /// @returns {Promise<RemoteBundleInfo>} Information about the downloaded bundle
-  ///
-  /// @example
-  /// ```typescript
-  /// // Download latest version
-  /// const info = await updater.download('app');
-  /// console.log(`Downloaded ${info.name} v${info.version}`);
-  /// ```
-  ///
-  /// @example
-  /// ```typescript
-  /// // Download specific version
-  /// const info = await updater.download('app', '1.2.3');
-  /// console.log(`Downloaded ${info.name} v${info.version}`);
-  /// ```
-  #[napi]
+  #[napi(ts_return_type = "Promise<UpdaterDownloadResult[]>")]
   pub async fn download(
     &self,
-    bundle_name: String,
-    version: Option<String>,
-  ) -> crate::Outcome<RemoteBundleInfo> {
-    crate::Outcome::from_future(async move {
-      let info = self.inner.download(bundle_name, version).await?;
-      Ok(info.into())
+    bundle_updates: Vec<BundleUpdate>,
+    options: Option<UpdaterDownloadOptions>,
+    cancellation: Option<&Cancellation>,
+  ) -> crate::Outcome<Vec<UpdaterDownloadResult>> {
+    crate::Outcome::from_future(async {
+      let bundle_updates = bundle_updates
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<wvb::remote::BundleUpdate>>();
+
+      let mut download_options = updater::UpdaterDownloadOptions::default();
+      if let Some(options) = options {
+        if let Some(concurrency) = options.concurrency {
+          download_options = download_options.concurrency(concurrency as usize);
+        }
+        if let Some(timeout) = options.timeout {
+          download_options = download_options.timeout(timeout as u64);
+        }
+      }
+      if let Some(cancellation) = cancellation {
+        download_options = download_options.cancellation(cancellation.inner.clone());
+      }
+
+      let results = self
+        .inner
+        .download(&bundle_updates, Some(download_options))
+        .await?
+        .into_iter()
+        .map(UpdaterDownloadResult::from)
+        .collect::<Vec<_>>();
+      Ok(results)
     })
     .await
   }
 
-  /// Activates a previously downloaded bundle version.
-  ///
-  /// The version must already be staged in the remote source (via
-  /// {@link Updater.download}). When integrity/signature verification is
-  /// configured, the staged bundle is verified before activation. On success the
-  /// current version is updated so the protocol begins serving it, the cached
-  /// descriptor is dropped, and stale staged versions are pruned.
-  ///
-  /// Concurrent `install`/`download` calls for the same bundle are serialized,
-  /// so this never races a download or another install of the same bundle.
-  ///
-  /// @param {string} bundleName - Name of the bundle to activate
-  /// @param {string} version - The downloaded version to activate
-  ///
-  /// @example
-  /// ```typescript
-  /// await updater.download('app', '1.2.0');
-  /// // ...later, active the latest version:
-  /// await updater.install('app', '1.2.0');
-  /// ```
-  #[napi]
-  pub async fn install(&self, bundle_name: String, version: String) -> crate::Outcome<()> {
-    crate::Outcome::from_future(async move {
-      self.inner.install(bundle_name, version).await?;
-      Ok(())
+  #[napi(ts_return_type = "Promise<UpdaterInstallResult[]>")]
+  pub async fn install(
+    &self,
+    targets: Vec<UpdaterInstallTarget>,
+  ) -> crate::Outcome<Vec<UpdaterInstallResult>> {
+    crate::Outcome::from_future(async {
+      let targets = targets
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<updater::UpdaterInstallTarget>>();
+      let results = self
+        .inner
+        .install(&targets)
+        .await?
+        .into_iter()
+        .map(UpdaterInstallResult::from)
+        .collect::<Vec<_>>();
+      Ok(results)
+    })
+    .await
+  }
+
+  #[napi(ts_return_type = "Promise<UpdaterRollbackResult[]>")]
+  pub async fn rollback(
+    &self,
+    targets: Vec<UpdaterRollbackTarget>,
+  ) -> crate::Outcome<Vec<UpdaterRollbackResult>> {
+    crate::Outcome::from_future(async {
+      let targets = targets
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<updater::UpdaterRollbackTarget>>();
+      let results = self
+        .inner
+        .rollback(&targets)
+        .await?
+        .into_iter()
+        .map(UpdaterRollbackResult::from)
+        .collect::<Vec<_>>();
+      Ok(results)
     })
     .await
   }

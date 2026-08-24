@@ -172,68 +172,20 @@ private let indexJsData = Data("console.log('hello')".utf8)
 
 // ── Remote ────────────────────────────────────────────────────────────────────
 
-@Test func remote_list_bundles() async throws {
-    try await withMockServer { port in
-        let remote = try Remote(endpoint: "http://localhost:\(port)")
-        let bundles = try await remote.listBundles(options: nil)
-        #expect(bundles.count == 1)
-        #expect(bundles[0].name == "bundle1")
-        #expect(bundles[0].version == "1.0.0")
-    }
-}
-
-@Test func remote_get_info() async throws {
-    try await withMockServer { port in
-        let remote = try Remote(endpoint: "http://localhost:\(port)")
-        let info = try await remote.getInfo(bundleName: "bundle1", options: nil)
-        #expect(info.name == "bundle1")
-        #expect(info.version == "1.0.0")
-    }
-}
-
 @Test func remote_download() async throws {
     try await withMockServer { port in
-        let remote = try Remote(endpoint: "http://localhost:\(port)")
-        let result = try await remote.download(bundleName: "bundle1", channel: nil)
-        #expect(result.info.name == "bundle1")
-        #expect(result.info.version == "1.0.0")
-        #expect(try result.bundle.getData(path: "/index.html") == indexHtmlData)
-    }
-}
+        let remote = try Remote(baseUrl: "http://localhost:\(port)")
+        let filepath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wvb-remote-\(UUID().uuidString).wvb")
+        defer { try? FileManager.default.removeItem(at: filepath) }
 
-@Test func remote_download_version() async throws {
-    try await withMockServer { port in
-        let remote = try Remote(endpoint: "http://localhost:\(port)")
-        let result = try await remote.downloadVersion(bundleName: "bundle1", version: "1.0.0")
-        #expect(result.info.name == "bundle1")
-        #expect(result.info.version == "1.0.0")
-        #expect(try result.bundle.getData(path: "/index.html") == indexHtmlData)
-    }
-}
+        try await remote.download(
+            url: "http://localhost:\(port)/bundles/bundle1/1.0.0",
+            filepath: filepath.path,
+        )
 
-@Test func remote_download_version_forbidden() async throws {
-    try await withMockServer(allowOnlyLatest: true) { port in
-        let remote = try Remote(endpoint: "http://localhost:\(port)")
-        var didThrow = false
-        do {
-            _ = try await remote.downloadVersion(bundleName: "bundle1", version: "1.0.0")
-        } catch WebviewBundleError.CoreRemoteForbidden {
-            didThrow = true
-        }
-        #expect(didThrow)
-    }
-}
-
-@Test func remote_bundle_not_found() async throws {
-    try await withMockServer { port in
-        let remote = try Remote(endpoint: "http://localhost:\(port)")
-        var didThrow = false
-        do {
-            _ = try await remote.download(bundleName: "not_found", channel: nil)
-        } catch WebviewBundleError.CoreRemoteBundleNotFound {
-            didThrow = true
-        }
-        #expect(didThrow)
+        let bundle = try await readBundle(filepath: filepath.path)
+        #expect(try bundle.getData(path: "/index.html") == indexHtmlData)
     }
 }
 

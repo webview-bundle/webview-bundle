@@ -2,168 +2,396 @@ use crate::bundle::Bundle;
 use crate::bundle::BundleDescriptor;
 use crate::bundle::BundleDescriptorInner;
 use crate::bundle::{DataReadOptions, HeaderReadOptions, IndexReadOptions};
-use crate::integrity::{IntegrityChecker, IntegrityPolicy};
-use crate::js::JsCallbackExt;
-use crate::signature::SignatureVerifier;
+use crate::integrity::IntegrityPolicy;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::sync::Arc;
 use wvb::source;
 
-/// The type of bundle source: builtin or remote.
-///
-/// @enum {string}
-#[napi(string_enum = "lowercase")]
-pub enum BundleSourceKind {
-  /// Bundles shipped with the application (read-only, fallback)
+#[napi(string_enum = "snake_case")]
+pub enum SourceKind {
   Builtin,
-  /// Downloaded bundles (takes priority over builtin)
   Remote,
 }
 
-impl From<source::BundleSourceKind> for BundleSourceKind {
-  fn from(value: source::BundleSourceKind) -> Self {
+impl From<source::SourceKind> for SourceKind {
+  fn from(value: source::SourceKind) -> Self {
     match value {
-      source::BundleSourceKind::Builtin => Self::Builtin,
-      source::BundleSourceKind::Remote => Self::Remote,
+      source::SourceKind::Builtin => Self::Builtin,
+      source::SourceKind::Remote => Self::Remote,
     }
   }
 }
 
-/// Bundle version with source kind information.
-///
-/// Indicates which source (builtin or remote) provides a bundle version.
-///
-/// @property {BundleSourceKind} type - The source kind
-/// @property {string} version - The version string (e.g., "1.0.0")
 #[napi(object)]
 pub struct BundleSourceVersion {
-  #[napi(js_name = "type")]
-  pub kind: BundleSourceKind,
+  pub source: SourceKind,
   pub version: String,
 }
 
 impl From<source::BundleSourceVersion> for BundleSourceVersion {
   fn from(value: source::BundleSourceVersion) -> Self {
     Self {
-      kind: value.kind.into(),
+      source: value.source.into(),
       version: value.version,
     }
   }
 }
 
-/// Metadata for a bundle version in the manifest.
-///
-/// Contains cache validation and integrity information.
-///
-/// @property {string} [etag] - HTTP ETag for cache validation
-/// @property {string} [integrity] - SHA3 integrity hash for verification
-/// @property {string} [signature] - Digital signature for authentication
-/// @property {string} [lastModified] - HTTP Last-Modified timestamp
-#[napi(object)]
-pub struct BundleManifestMetadata {
-  pub etag: Option<String>,
-  pub integrity: Option<String>,
-  pub signature: Option<String>,
-  pub last_modified: Option<String>,
-}
-
-impl From<source::BundleManifestMetadata> for BundleManifestMetadata {
-  fn from(value: source::BundleManifestMetadata) -> Self {
-    Self {
-      etag: value.etag,
-      integrity: value.integrity,
-      signature: value.signature,
-      last_modified: value.last_modified,
-    }
-  }
-}
-
-impl From<BundleManifestMetadata> for source::BundleManifestMetadata {
-  fn from(value: BundleManifestMetadata) -> Self {
-    Self {
-      etag: value.etag,
-      integrity: value.integrity,
-      signature: value.signature,
-      last_modified: value.last_modified,
-    }
-  }
-}
-
-/// Manifest format version.
-///
-/// @enum {number}
 #[napi]
-pub enum BundleManifestVersion {
+pub enum ManifestVersion {
   V1 = 1,
 }
 
-/// Entry for a single bundle in the manifest.
-///
-/// Contains all versions and the current active version.
-///
-/// @property {Record<string, BundleManifestMetadata>} versions - Available versions
-/// @property {string} currentVersion - Currently active version
-#[napi(object)]
-pub struct BundleManifestEntry {
-  pub versions: HashMap<String, BundleManifestMetadata>,
-  pub current_version: String,
-}
-
-/// Complete manifest data structure.
-///
-/// The manifest tracks all bundle versions and metadata.
-///
-/// @property {1} manifestVersion - Manifest format version (always 1)
-/// @property {Record<string, BundleManifestEntry>} entries - Bundle entries by name
-#[napi(object)]
-pub struct BundleManifestData {
-  #[napi(ts_type = "1")]
-  pub manifest_version: BundleManifestVersion,
-  pub entries: HashMap<String, BundleManifestEntry>,
-}
-
-/// Information about a bundle from list operations.
-///
-/// @property {BundleSourceKind} type - Source kind (builtin or remote)
-/// @property {string} name - Bundle name
-/// @property {string} version - Version string
-/// @property {boolean} current - Whether this is the current active version
-/// @property {BundleManifestMetadata} metadata - Bundle metadata
-#[napi(object)]
-pub struct ListBundleItem {
-  #[napi(js_name = "type")]
-  pub kind: BundleSourceKind,
-  pub name: String,
-  pub version: String,
-  pub current: bool,
-  pub metadata: BundleManifestMetadata,
-}
-
-impl From<source::ListBundleItem> for ListBundleItem {
-  fn from(value: source::ListBundleItem) -> Self {
-    Self {
-      kind: value.kind.into(),
-      name: value.item.name,
-      version: value.item.version,
-      current: value.item.current,
-      metadata: value.item.metadata.into(),
+impl From<source::ManifestVersion> for ManifestVersion {
+  fn from(value: source::ManifestVersion) -> Self {
+    match value {
+      source::ManifestVersion::V1 => Self::V1,
     }
   }
 }
 
-/// A descriptor loaded (and cached) by a [`BundleSource`].
-///
-/// Holds the parsed header/index together with the filepath it was loaded from, so
-/// reading entry data always targets the exact bundle version that produced this
-/// descriptor — even if the source's active version is swapped concurrently.
-///
-/// The instance owns a reference-counted handle to the cached descriptor. When the
-/// JavaScript object is garbage-collected, the handle is released automatically; the
-/// underlying descriptor stays alive only while the source cache (see
-/// {@link BundleSource.loadDescriptor}) or another `LoadedDescriptor` references it.
-/// No manual disposal is required and no memory is leaked.
+#[napi(object)]
+pub struct ManifestVersionData {
+  pub integrity: Option<String>,
+  pub metadata: Option<HashMap<String, String>>,
+}
+
+impl From<source::ManifestVersionData> for ManifestVersionData {
+  fn from(value: source::ManifestVersionData) -> Self {
+    Self {
+      integrity: value.integrity,
+      metadata: value.metadata,
+    }
+  }
+}
+
+impl From<ManifestVersionData> for source::ManifestVersionData {
+  fn from(value: ManifestVersionData) -> Self {
+    Self {
+      integrity: value.integrity,
+      metadata: value.metadata,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestBundleSet {
+  pub versions: HashMap<String, ManifestVersionData>,
+  pub current_version: Option<String>,
+  pub previous_version: Option<String>,
+  pub staged_version: Option<String>,
+}
+
+impl From<source::ManifestBundleSet> for ManifestBundleSet {
+  fn from(value: source::ManifestBundleSet) -> Self {
+    Self {
+      versions: value
+        .versions
+        .into_iter()
+        .map(|(version, data)| (version, data.into()))
+        .collect(),
+      current_version: value.current_version,
+      previous_version: value.previous_version,
+      staged_version: value.staged_version,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestData {
+  pub manifest_version: ManifestVersion,
+  pub bundles: HashMap<String, ManifestBundleSet>,
+}
+
+impl From<source::ManifestData> for ManifestData {
+  fn from(value: source::ManifestData) -> Self {
+    Self {
+      manifest_version: value.manifest_version.into(),
+      bundles: value
+        .bundles
+        .into_iter()
+        .map(|(name, set)| (name, set.into()))
+        .collect(),
+    }
+  }
+}
+
+#[napi(string_enum = "snake_case")]
+pub enum ManifestBundleItemStatus {
+  Current,
+  Previous,
+  Staged,
+  Orphan,
+}
+
+impl From<source::ManifestBundleItemStatus> for ManifestBundleItemStatus {
+  fn from(value: source::ManifestBundleItemStatus) -> Self {
+    match value {
+      source::ManifestBundleItemStatus::Current => Self::Current,
+      source::ManifestBundleItemStatus::Previous => Self::Previous,
+      source::ManifestBundleItemStatus::Staged => Self::Staged,
+      source::ManifestBundleItemStatus::Orphan => Self::Orphan,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestBundleItem {
+  pub name: String,
+  pub version: String,
+  pub status: ManifestBundleItemStatus,
+  pub data: ManifestVersionData,
+}
+
+impl From<source::ManifestBundleItem> for ManifestBundleItem {
+  fn from(value: source::ManifestBundleItem) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+      status: value.status.into(),
+      data: value.data.into(),
+    }
+  }
+}
+
+#[napi(object)]
+pub struct SourceListItem {
+  pub source: SourceKind,
+  pub item: ManifestBundleItem,
+}
+
+impl From<source::SourceListItem> for SourceListItem {
+  fn from(value: source::SourceListItem) -> Self {
+    Self {
+      source: value.source.into(),
+      item: value.item.into(),
+    }
+  }
+}
+
+#[napi(string_enum = "snake_case")]
+pub enum ManifestSetCurrentVersionResultKind {
+  Settled,
+  NotExists,
+  VersionNotExists,
+}
+
+impl From<source::ManifestSetCurrentVersionResultKind> for ManifestSetCurrentVersionResultKind {
+  fn from(value: source::ManifestSetCurrentVersionResultKind) -> Self {
+    match value {
+      source::ManifestSetCurrentVersionResultKind::Settled => Self::Settled,
+      source::ManifestSetCurrentVersionResultKind::NotExists => Self::NotExists,
+      source::ManifestSetCurrentVersionResultKind::VersionNotExists => Self::VersionNotExists,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestSetCurrentVersionResult {
+  pub name: String,
+  pub version: String,
+  pub kind: ManifestSetCurrentVersionResultKind,
+}
+
+impl From<source::ManifestSetCurrentVersionResult> for ManifestSetCurrentVersionResult {
+  fn from(value: source::ManifestSetCurrentVersionResult) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+      kind: value.kind.into(),
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestStageData {
+  pub version: String,
+  pub data: Option<ManifestVersionData>,
+}
+
+impl From<ManifestStageData> for source::ManifestStageData {
+  fn from(value: ManifestStageData) -> Self {
+    Self {
+      version: value.version,
+      data: value.data.map(Into::into),
+    }
+  }
+}
+
+#[napi(string_enum = "snake_case")]
+pub enum ManifestStageResultKind {
+  Staged,
+  InUse,
+}
+
+impl From<source::ManifestStageResultKind> for ManifestStageResultKind {
+  fn from(value: source::ManifestStageResultKind) -> Self {
+    match value {
+      source::ManifestStageResultKind::Staged => Self::Staged,
+      source::ManifestStageResultKind::InUse => Self::InUse,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestStageResult {
+  pub name: String,
+  pub version: String,
+  pub kind: ManifestStageResultKind,
+}
+
+impl From<source::ManifestStageResult> for ManifestStageResult {
+  fn from(value: source::ManifestStageResult) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+      kind: value.kind.into(),
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestRemoveData {
+  pub versions: Vec<String>,
+  pub force: Option<bool>,
+}
+
+impl From<ManifestRemoveData> for source::ManifestRemoveData {
+  fn from(value: ManifestRemoveData) -> Self {
+    Self {
+      versions: value.versions,
+      force: value.force,
+    }
+  }
+}
+
+#[napi(string_enum = "snake_case")]
+pub enum ManifestRemoveResultKind {
+  Removed,
+  NotExists,
+  VersionNotExists,
+  InUse,
+}
+
+impl From<source::ManifestRemoveResultKind> for ManifestRemoveResultKind {
+  fn from(value: source::ManifestRemoveResultKind) -> Self {
+    match value {
+      source::ManifestRemoveResultKind::Removed => Self::Removed,
+      source::ManifestRemoveResultKind::NotExists => Self::NotExists,
+      source::ManifestRemoveResultKind::VersionNotExists => Self::VersionNotExists,
+      source::ManifestRemoveResultKind::InUse => Self::InUse,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestRemoveResult {
+  pub name: String,
+  pub version: String,
+  pub kind: ManifestRemoveResultKind,
+}
+
+impl From<source::ManifestRemoveResult> for ManifestRemoveResult {
+  fn from(value: source::ManifestRemoveResult) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+      kind: value.kind.into(),
+    }
+  }
+}
+
+#[napi(object)]
+pub struct ManifestPruneResult {
+  pub name: String,
+  pub pruned_versions: Vec<String>,
+}
+
+impl From<source::ManifestPruneResult> for ManifestPruneResult {
+  fn from(value: source::ManifestPruneResult) -> Self {
+    Self {
+      name: value.name,
+      pruned_versions: value.pruned_versions,
+    }
+  }
+}
+
+#[napi(string_enum = "snake_case")]
+pub enum SourceIntegrityCheckMode {
+  All,
+  OnlyRemote,
+}
+
+impl From<SourceIntegrityCheckMode> for source::SourceIntegrityCheckMode {
+  fn from(value: SourceIntegrityCheckMode) -> Self {
+    match value {
+      SourceIntegrityCheckMode::All => Self::All,
+      SourceIntegrityCheckMode::OnlyRemote => Self::OnlyRemote,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct SourceIntegrityOptions {
+  pub policy: Option<IntegrityPolicy>,
+  pub check_mode: Option<SourceIntegrityCheckMode>,
+}
+
+impl From<SourceIntegrityOptions> for source::SourceIntegrityOptions {
+  fn from(value: SourceIntegrityOptions) -> Self {
+    let mut options = source::SourceIntegrityOptions::default();
+    if let Some(policy) = value.policy {
+      options = options.policy(policy.into());
+    }
+    if let Some(check_mode) = value.check_mode {
+      options = options.check_mode(check_mode.into());
+    }
+    options
+  }
+}
+
+#[napi(object)]
+pub struct SourceOptions {
+  pub header_read: Option<HeaderReadOptions>,
+  pub index_read: Option<IndexReadOptions>,
+  pub data_read: Option<DataReadOptions>,
+  pub integrity: Option<SourceIntegrityOptions>,
+  pub remove_bundle_chunk_size: Option<u32>,
+}
+
+impl From<SourceOptions> for source::SourceOptions {
+  fn from(value: SourceOptions) -> Self {
+    let mut options = source::SourceOptions::default();
+    if let Some(header_read) = value.header_read {
+      options = options.header_read(header_read.into());
+    }
+    if let Some(index_read) = value.index_read {
+      options = options.index_read(index_read.into());
+    }
+    if let Some(data_read) = value.data_read {
+      options = options.data_read(data_read.into());
+    }
+    if let Some(integrity) = value.integrity {
+      options = options.integrity(integrity.into());
+    }
+    if let Some(chunk_size) = value.remove_bundle_chunk_size {
+      options = options.remove_bundle_chunk_size(chunk_size as usize);
+    }
+    options
+  }
+}
+
+#[napi(object)]
+pub struct SourceConfig {
+  pub builtin_dir: String,
+  pub remote_dir: String,
+  pub builtin_manifest_filepath: Option<String>,
+  pub remote_manifest_filepath: Option<String>,
+  pub options: Option<SourceOptions>,
+}
+
 #[napi]
 pub struct LoadedDescriptor {
   pub(crate) inner: Arc<source::LoadedDescriptor>,
@@ -171,19 +399,6 @@ pub struct LoadedDescriptor {
 
 #[napi]
 impl LoadedDescriptor {
-  /// Returns the bundle descriptor
-  ///
-  /// The returned descriptor shares the same in-memory metadata and carries no
-  /// reference back to the source, so it can outlive this `LoadedDescriptor`.
-  ///
-  /// @returns {BundleDescriptor} Bundle metadata
-  ///
-  /// @example
-  /// ```typescript
-  /// const loaded = await source.loadDescriptor('app');
-  /// const index = loaded.descriptor().index();
-  /// console.log(index.containsPath('/index.html'));
-  /// ```
   #[napi]
   pub fn descriptor(&self) -> BundleDescriptor {
     BundleDescriptor {
@@ -191,376 +406,177 @@ impl LoadedDescriptor {
     }
   }
 
-  /// Reads file data for `path`, loading it lazily from disk.
-  ///
-  /// The read targets the bundle file this descriptor was loaded from, so the data
-  /// is always consistent with {@link LoadedDescriptor.descriptor} even if the
-  /// source's active version changes meanwhile. Returns `null` if the path does not
-  /// exist in the bundle.
-  ///
-  /// @param {string} path - File path in the bundle (e.g., "/index.html")
-  /// @returns {Promise<Buffer | null>} File contents or null if not found
-  ///
-  /// @example
-  /// ```typescript
-  /// const loaded = await source.loadDescriptor('app');
-  /// const html = await loaded.getData('/index.html');
-  /// if (html) {
-  ///   console.log(html.toString('utf-8'));
-  /// }
-  /// ```
   #[napi]
   pub async fn get_data(&self, path: String) -> crate::Outcome<Option<Buffer>> {
-    crate::Outcome::from_future(async move {
+    crate::Outcome::from_future(async {
       let data = self.inner.get_data(&path).await?;
       Ok(data.map(|x| x.into()))
     })
     .await
   }
 
-  /// Reads the checksum of file data for `path`, loading it lazily from disk.
-  ///
-  /// @param {string} path - File path in the bundle
-  /// @returns {Promise<number | null>} xxHash-32 checksum or null if not found
   #[napi]
-  pub async fn get_data_checksum(&self, path: String) -> crate::Outcome<Option<u32>> {
-    crate::Outcome::from_future(async move {
-      let checksum = self.inner.get_data_checksum(&path).await?;
-      Ok(checksum)
-    })
-    .await
+  pub async fn get_data_checksum(&self, path: String) -> crate::Result<Option<u32>> {
+    let checksum = self.inner.get_data_checksum(&path).await?;
+    Ok(checksum)
   }
-}
-
-/// Which bundles a load-time verification applies to.
-///
-/// @enum {string}
-#[napi(string_enum = "camelCase")]
-pub enum BundleSourceVerifyMode {
-  /// Verify both builtin and remote bundles. Builtin bundles ship inside the application,
-  /// so the builtin manifest must carry the metadata being verified for the check to have
-  /// anything to work with.
-  All,
-  /// Verify downloaded (remote) bundles only.
-  OnlyRemote,
-}
-
-impl From<BundleSourceVerifyMode> for source::BundleSourceVerifyMode {
-  fn from(value: BundleSourceVerifyMode) -> Self {
-    match value {
-      BundleSourceVerifyMode::All => Self::All,
-      BundleSourceVerifyMode::OnlyRemote => Self::OnlyRemote,
-    }
-  }
-}
-
-/// How bundles are checked against the integrity recorded for them in the manifest when
-/// they are loaded from disk.
-///
-/// @property {IntegrityPolicy} [policy] - How a bundle's integrity metadata is treated (default: 'optional'; 'off' disables the check)
-/// @property {Function} [check] - Custom checker that validates bundle bytes against an integrity string
-/// @property {BundleSourceVerifyMode} [checkMode] - Which bundles are checked on load (default: 'onlyRemote')
-#[napi(object, object_to_js = false)]
-pub struct BundleSourceIntegrityOptions {
-  pub policy: Option<IntegrityPolicy>,
-  #[napi(ts_type = "(data: Uint8Array, integrity: string) => Promise<boolean>")]
-  pub check: Option<IntegrityChecker>,
-  pub check_mode: Option<BundleSourceVerifyMode>,
-}
-
-/// How bundle signatures are verified when bundles are loaded from disk.
-///
-/// A bundle's signature signs its integrity string (e.g. `sha256:<base64>`), not the
-/// bundle bytes; verifying it proves the integrity string is authentic. It is verified
-/// independently of the integrity check, so pair it with an enabled integrity policy to
-/// also authenticate the bytes — signature verification alone does not read them.
-///
-/// @property {SignatureVerifierOptions | Function} [verify] - Signature verification config or custom function. A custom function receives `message` — the UTF-8 bytes of the bundle's integrity string (e.g. `sha256:<base64>`), which is what the signature covers — and NOT the bundle bytes.
-/// @property {BundleSourceVerifyMode} [verifyMode] - Which bundles have their signature verified on load (default: 'onlyRemote')
-#[napi(object, object_to_js = false)]
-pub struct BundleSourceSignatureOptions {
-  #[napi(
-    ts_type = "SignatureVerifierOptions | ((message: Uint8Array, signature: string) => Promise<boolean>)"
-  )]
-  pub verify: Option<SignatureVerifier>,
-  pub verify_mode: Option<BundleSourceVerifyMode>,
-}
-
-/// Configuration for creating a bundle source.
-///
-/// @property {string} builtinDir - Directory containing builtin bundles
-/// @property {string} remoteDir - Directory containing remote bundles
-/// @property {string} [builtinManifestFilepath] - Custom manifest path for builtin
-/// @property {string} [remoteManifestFilepath] - Custom manifest path for remote
-/// @property {BundleSourceIntegrityOptions} [integrity] - How bundles are checked against their manifest integrity metadata on load
-/// @property {BundleSourceSignatureOptions} [signature] - How bundle signatures are verified on load
-/// @property {DataReadOptions} [dataReadOptions] - Verify each entry's checksum when its data is read
-/// @property {HeaderReadOptions} [headerReadOptions] - Verify the header checksum when a bundle is loaded
-/// @property {IndexReadOptions} [indexReadOptions] - Verify the index checksum when a bundle is loaded
-///
-/// @example
-/// ```typescript
-/// const config = {
-///   builtinDir: './bundles/builtin',
-///   remoteDir: './bundles/remote',
-/// };
-/// const source = new BundleSource(config);
-/// ```
-///
-/// @example
-/// ```typescript
-/// // Require downloaded bundles to match the integrity recorded in the manifest.
-/// const source = new BundleSource({
-///   builtinDir: './bundles/builtin',
-///   remoteDir: './bundles/remote',
-///   integrity: { policy: 'strict' },
-/// });
-/// ```
-///
-/// @example
-/// ```typescript
-/// // Turn off data checksum verification and seed the index checksum.
-/// const source = new BundleSource({
-///   builtinDir: './bundles/builtin',
-///   remoteDir: './bundles/remote',
-///   dataReadOptions: { checksum: { verify: false } },
-///   indexReadOptions: { checksum: { seed: 42 } },
-/// });
-/// ```
-#[napi(object, object_to_js = false)]
-pub struct BundleSourceConfig {
-  pub builtin_dir: String,
-  pub remote_dir: String,
-  pub builtin_manifest_filepath: Option<String>,
-  pub remote_manifest_filepath: Option<String>,
-  pub integrity: Option<BundleSourceIntegrityOptions>,
-  pub signature: Option<BundleSourceSignatureOptions>,
-  pub data_read_options: Option<DataReadOptions>,
-  pub header_read_options: Option<HeaderReadOptions>,
-  pub index_read_options: Option<IndexReadOptions>,
-}
-
-fn source_options(config: &mut BundleSourceConfig) -> source::BundleSourceOptions {
-  let mut options = source::BundleSourceOptions::default();
-  if let Some(integrity) = config.integrity.take() {
-    let mut integrity_options = source::BundleSourceIntegrityOptions::default();
-    if let Some(policy) = integrity.policy {
-      integrity_options = integrity_options.policy(policy.into());
-    }
-    if let Some(checker) = integrity.check {
-      integrity_options = integrity_options.check(wvb::integrity::IntegrityCheck::Custom(
-        Arc::new(move |data, integrity| {
-          let buffer = Buffer::from(data);
-          let integrity = integrity.to_string();
-          let callback = Arc::clone(&checker);
-          Box::pin(async move {
-            let ret = callback
-              .invoke_async((buffer, integrity).into())
-              .await?
-              .await?;
-            Ok(ret)
-          })
-        }),
-      ));
-    }
-    if let Some(mode) = integrity.check_mode {
-      integrity_options = integrity_options.check_mode(mode.into());
-    }
-    options = options.integrity(integrity_options);
-  }
-  if let Some(signature) = config.signature.take() {
-    let mut signature_options = source::BundleSourceSignatureOptions::default();
-    if let Some(verifier) = signature.verify {
-      signature_options = signature_options.verify(verifier.inner);
-    }
-    if let Some(mode) = signature.verify_mode {
-      signature_options = signature_options.verify_mode(mode.into());
-    }
-    options = options.signature(signature_options);
-  }
-  if let Some(read) = config.data_read_options.take() {
-    options = options.data_read(read.into());
-  }
-  if let Some(read) = config.header_read_options.take() {
-    options = options.header_read(read.into());
-  }
-  if let Some(read) = config.index_read_options.take() {
-    options = options.index_read(read.into());
-  }
-  options
-}
-
-/// Bundle source for managing multiple bundle versions.
-///
-/// A source manages bundles in two directories:
-/// - **builtin**: Bundles shipped with the app (read-only, fallback)
-/// - **remote**: Downloaded bundles (takes priority)
-///
-/// The source automatically handles version selection, with remote bundles
-/// taking priority over builtin ones.
-///
-/// @example
-/// ```typescript
-/// const source = new BundleSource({
-///   builtinDir: './bundles/builtin',
-///   remoteDir: './bundles/remote',
-/// });
-///
-/// // List all bundles
-/// const bundles = await source.listBundles();
-///
-/// // Load current version
-/// const version = await source.loadVersion('app');
-///
-/// // Fetch bundle
-/// const bundle = await source.fetch('app');
-/// ```
-#[napi]
-pub struct BundleSource {
-  pub(crate) inner: Arc<source::BundleSource>,
 }
 
 #[napi]
-impl BundleSource {
-  /// Creates a new bundle source.
-  ///
-  /// @param {BundleSourceConfig} config - Source configuration
-  ///
-  /// @example
-  /// ```typescript
-  /// const source = new BundleSource({
-  ///   builtinDir: './builtin',
-  ///   remoteDir: './remote',
-  /// });
-  /// ```
+pub struct Source {
+  pub(crate) inner: Arc<source::Source>,
+}
+
+#[napi]
+impl Source {
   #[napi(constructor)]
-  pub fn new(mut config: BundleSourceConfig) -> BundleSource {
-    let options = source_options(&mut config);
-    let mut builder = source::BundleSource::builder()
+  pub fn new(config: SourceConfig) -> Source {
+    let mut builder = source::Source::builder()
       .builtin_dir(config.builtin_dir)
-      .remote_dir(config.remote_dir)
-      .options(options);
-    if let Some(builtin_manifest) = config.builtin_manifest_filepath {
-      builder = builder.builtin_manifest_filepath(builtin_manifest);
+      .remote_dir(config.remote_dir);
+    if let Some(filepath) = config.builtin_manifest_filepath {
+      builder = builder.builtin_manifest_filepath(filepath);
     }
-    if let Some(remote_manifest) = config.remote_manifest_filepath {
-      builder = builder.remote_manifest_filepath(remote_manifest);
+    if let Some(filepath) = config.remote_manifest_filepath {
+      builder = builder.remote_manifest_filepath(filepath);
     }
-    let source = builder.build();
-    BundleSource {
-      inner: Arc::new(source),
+    if let Some(options) = config.options {
+      builder = builder.options(options.into());
+    }
+    Source {
+      inner: Arc::new(builder.build()),
     }
   }
 
-  /// Lists all available bundles from both sources.
-  ///
-  /// Returns bundles from both builtin and remote directories, including
-  /// all versions and metadata.
-  ///
-  /// @returns {Promise<ListBundleItem[]>} List of bundle items
-  ///
-  /// @example
-  /// ```typescript
-  /// const bundles = await source.listBundles();
-  /// for (const bundle of bundles) {
-  ///   console.log(`${bundle.name}@${bundle.version} (${bundle.type})`);
-  /// }
-  /// ```
   #[napi]
-  pub async fn list_bundles(&self) -> crate::Outcome<Vec<ListBundleItem>> {
-    crate::Outcome::from_future(async move {
-      let items = self
-        .inner
-        .list_bundles()
-        .await?
-        .into_iter()
-        .map(ListBundleItem::from)
-        .collect::<Vec<_>>();
-      Ok(items)
-    })
-    .await
+  pub async fn list_bundles(&self) -> crate::Result<Vec<SourceListItem>> {
+    let items = self
+      .inner
+      .list_bundles()
+      .await?
+      .into_iter()
+      .map(SourceListItem::from)
+      .collect::<Vec<_>>();
+    Ok(items)
   }
 
-  /// Loads the current version for a bundle.
-  ///
-  /// Returns the version from remote if available, otherwise from builtin.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<BundleSourceVersion | null>} Version info or null if not found
-  ///
-  /// @example
-  /// ```typescript
-  /// const version = await source.loadVersion('app');
-  /// if (version) {
-  ///   console.log(`Current version: ${version.version} (${version.type})`);
-  /// }
-  /// ```
   #[napi]
-  pub async fn load_version(
+  pub async fn list_builtin_bundles(&self) -> crate::Result<Vec<SourceListItem>> {
+    let items = self
+      .inner
+      .list_builtin_bundles()
+      .await?
+      .into_iter()
+      .map(SourceListItem::from)
+      .collect::<Vec<_>>();
+    Ok(items)
+  }
+
+  #[napi]
+  pub async fn list_remote_bundles(&self) -> crate::Result<Vec<SourceListItem>> {
+    let items = self
+      .inner
+      .list_remote_bundles()
+      .await?
+      .into_iter()
+      .map(SourceListItem::from)
+      .collect::<Vec<_>>();
+    Ok(items)
+  }
+
+  #[napi]
+  pub async fn get_version(
     &self,
     bundle_name: String,
-  ) -> crate::Outcome<Option<BundleSourceVersion>> {
-    crate::Outcome::from_future(async move {
-      let version = self.inner.load_version(&bundle_name).await?;
-      Ok(version.map(Into::into))
-    })
-    .await
+  ) -> crate::Result<Option<BundleSourceVersion>> {
+    let version = self.inner.get_version(&bundle_name).await?;
+    Ok(version.map(Into::into))
   }
 
-  /// Updates the current version for a remote bundle.
-  ///
-  /// Changes which version is considered "current" in the manifest.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version to set as current
-  ///
-  /// @example
-  /// ```typescript
-  /// await source.updateRemoteVersion('app', '1.2.0');
-  /// ```
+  #[napi]
+  pub async fn get_remote_staged_version(
+    &self,
+    bundle_name: String,
+  ) -> crate::Result<Option<String>> {
+    let version = self.inner.get_remote_staged_version(&bundle_name).await?;
+    Ok(version)
+  }
+
+  #[napi]
+  pub async fn get_remote_previous_version(
+    &self,
+    bundle_name: String,
+  ) -> crate::Result<Option<String>> {
+    let version = self.inner.get_remote_previous_version(&bundle_name).await?;
+    Ok(version)
+  }
+
   #[napi]
   pub async fn update_remote_version(
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Outcome<()> {
-    crate::Outcome::from_future(async move {
-      self
-        .inner
-        .update_remote_version(&bundle_name, &version)
-        .await?;
-      Ok(())
-    })
-    .await
+  ) -> crate::Result<ManifestSetCurrentVersionResult> {
+    let result = self
+      .inner
+      .update_remote_version(&bundle_name, &version)
+      .await?;
+    Ok(result.into())
   }
 
-  /// Gets the file path for a bundle.
-  ///
-  /// Returns the path to the `.wvb` file for the current version,
-  /// preferring remote over builtin.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<string>} Absolute file path
-  ///
-  /// @example
-  /// ```typescript
-  /// const path = await source.resolveFilepath('app');
-  /// console.log(`Bundle at: ${path}`);
-  /// ```
   #[napi]
-  pub async fn resolve_filepath(&self, bundle_name: String) -> crate::Outcome<String> {
-    crate::Outcome::from_future(async move {
-      let filepath = self.inner.resolve_filepath(&bundle_name).await?;
-      Ok(filepath.to_string_lossy().to_string())
-    })
-    .await
+  pub async fn update_remote_versions(
+    &self,
+    items: HashMap<String, String>,
+  ) -> crate::Result<Vec<ManifestSetCurrentVersionResult>> {
+    let results = self
+      .inner
+      .update_remote_versions(items)
+      .await?
+      .into_iter()
+      .map(ManifestSetCurrentVersionResult::from)
+      .collect::<Vec<_>>();
+    Ok(results)
   }
 
-  /// Get the file path for a builtin bundle.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version of the bundle
-  /// @returns {string} Absolute file path
+  #[napi]
+  pub async fn stage_remote_bundle(
+    &self,
+    bundle_name: String,
+    data: ManifestStageData,
+  ) -> crate::Result<ManifestStageResult> {
+    let result = self
+      .inner
+      .stage_remote_bundle(&bundle_name, data.into())
+      .await?;
+    Ok(result.into())
+  }
+
+  #[napi]
+  pub async fn stage_remote_bundles(
+    &self,
+    items: HashMap<String, ManifestStageData>,
+  ) -> crate::Result<Vec<ManifestStageResult>> {
+    let items = items
+      .into_iter()
+      .map(|(name, data)| (name, data.into()))
+      .collect::<HashMap<String, source::ManifestStageData>>();
+    let results = self
+      .inner
+      .stage_remote_bundles(items)
+      .await?
+      .into_iter()
+      .map(ManifestStageResult::from)
+      .collect::<Vec<_>>();
+    Ok(results)
+  }
+
+  #[napi]
+  pub async fn resolve_filepath(&self, bundle_name: String) -> crate::Result<String> {
+    let filepath = self.inner.resolve_filepath(&bundle_name).await?;
+    Ok(filepath.to_string_lossy().to_string())
+  }
+
   #[napi]
   pub fn get_builtin_bundle_filepath(
     &self,
@@ -575,11 +591,6 @@ impl BundleSource {
     })
   }
 
-  /// Get the file path for a remote bundle.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version of the bundle
-  /// @returns {string} Absolute file path
   #[napi]
   pub fn get_remote_bundle_filepath(
     &self,
@@ -594,252 +605,142 @@ impl BundleSource {
     })
   }
 
-  /// Fetches a bundle.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<Bundle>} Fetched bundle
-  ///
-  /// @example
-  /// ```typescript
-  /// const bundle = await source.fetchBundle('app');
-  /// const html = bundle.getData('/index.html');
-  /// ```
   #[napi]
-  pub async fn fetch_bundle(&self, bundle_name: String) -> crate::Outcome<Bundle> {
-    crate::Outcome::from_future(async move {
-      let inner = self.inner.fetch_bundle(&bundle_name).await?;
-      Ok(Bundle { inner })
-    })
-    .await
+  pub async fn fetch_bundle(&self, bundle_name: String) -> crate::Result<Bundle> {
+    let inner = self.inner.fetch_bundle(&bundle_name).await?;
+    Ok(Bundle { inner })
   }
 
-  /// Fetches a builtin bundle.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version of the bundle
-  /// @returns {Promise<Bundle>} Fetched bundle
   #[napi]
   pub async fn fetch_builtin_bundle(
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Outcome<Bundle> {
-    crate::Outcome::from_future(async move {
-      let inner = self
-        .inner
-        .fetch_builtin_bundle(&bundle_name, &version)
-        .await?;
-      Ok(Bundle { inner })
-    })
-    .await
+  ) -> crate::Result<Bundle> {
+    let inner = self
+      .inner
+      .fetch_builtin_bundle(&bundle_name, &version)
+      .await?;
+    Ok(Bundle { inner })
   }
 
-  /// Fetches a remote bundle.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version of the bundle
-  /// @returns {Promise<Bundle>} Fetched bundle
   #[napi]
   pub async fn fetch_remote_bundle(
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Outcome<Bundle> {
-    crate::Outcome::from_future(async move {
-      let inner = self
-        .inner
-        .fetch_remote_bundle(&bundle_name, &version)
-        .await?;
-      Ok(Bundle { inner })
-    })
-    .await
+  ) -> crate::Result<Bundle> {
+    let inner = self
+      .inner
+      .fetch_remote_bundle(&bundle_name, &version)
+      .await?;
+    Ok(Bundle { inner })
   }
 
-  /// Fetches only the bundle descriptor.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<BundleDescriptor>} Bundle descriptor
-  ///
-  /// @example
-  /// ```typescript
-  /// const descriptor = await source.fetchDescriptor('app');
-  /// const index = descriptor.index();
-  /// console.log(`Files: ${Object.keys(index.entries()).length}`);
-  /// ```
   #[napi]
-  pub async fn fetch_descriptor(&self, bundle_name: String) -> crate::Outcome<BundleDescriptor> {
-    crate::Outcome::from_future(async move {
-      let inner = self.inner.fetch_descriptor(&bundle_name).await?;
-      Ok(BundleDescriptor {
-        inner: BundleDescriptorInner::Owned(inner),
-      })
+  pub async fn fetch_descriptor(&self, bundle_name: String) -> crate::Result<BundleDescriptor> {
+    let inner = self.inner.fetch_descriptor(&bundle_name).await?;
+    Ok(BundleDescriptor {
+      inner: BundleDescriptorInner::Owned(inner),
     })
-    .await
   }
 
-  /// Load builtin bundle metadata.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version of the bundle
-  /// @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
   #[napi]
-  pub async fn load_builtin_metadata(
+  pub async fn get_builtin_version_data(
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Outcome<Option<BundleManifestMetadata>> {
-    crate::Outcome::from_future(async move {
-      let metadata = self
-        .inner
-        .load_builtin_metadata(&bundle_name, &version)
-        .await?
-        .map(BundleManifestMetadata::from);
-      Ok(metadata)
-    })
-    .await
+  ) -> crate::Result<Option<ManifestVersionData>> {
+    let data = self
+      .inner
+      .get_builtin_version_data(&bundle_name, &version)
+      .await?
+      .map(ManifestVersionData::from);
+    Ok(data)
   }
 
-  /// Load remote bundle metadata.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version of the bundle
-  /// @returns {Promise<BundleManifestMetadata | null>} Loaded metadata
   #[napi]
-  pub async fn load_remote_metadata(
+  pub async fn get_remote_version_data(
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Outcome<Option<BundleManifestMetadata>> {
-    crate::Outcome::from_future(async move {
-      let metadata = self
-        .inner
-        .load_remote_metadata(&bundle_name, &version)
-        .await?
-        .map(BundleManifestMetadata::from);
-      Ok(metadata)
-    })
-    .await
+  ) -> crate::Result<Option<ManifestVersionData>> {
+    let data = self
+      .inner
+      .get_remote_version_data(&bundle_name, &version)
+      .await?
+      .map(ManifestVersionData::from);
+    Ok(data)
   }
 
-  /// Writes a bundle to the remote directory.
-  ///
-  /// Installs a new bundle version to the remote directory and updates
-  /// the manifest.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version string
-  /// @param {Bundle} bundle - Bundle to write
-  /// @param {BundleManifestMetadata} metadata - Bundle metadata
-  ///
-  /// @example
-  /// ```typescript
-  /// await source.writeRemoteBundle('app', '1.2.0', bundle, {
-  ///   integrity: 'sha3-384-...',
-  ///   etag: 'abc123',
-  /// });
-  /// ```
   #[napi]
-  pub async fn write_remote_bundle(
-    &self,
-    bundle_name: String,
-    version: String,
-    bundle: &Bundle,
-    metadata: BundleManifestMetadata,
-  ) -> crate::Outcome<()> {
-    crate::Outcome::from_future(async move {
-      self
-        .inner
-        .write_remote_bundle(&bundle_name, &version, &bundle.inner, metadata.into())
-        .await?;
-      Ok(())
-    })
-    .await
-  }
-
-  /// Loads (and caches) the descriptor for the current version of a bundle.
-  ///
-  /// The descriptor reads entry data lazily from disk via
-  /// {@link LoadedDescriptor.getData}, avoiding loading the full bundle into memory.
-  /// Concurrent calls for the same bundle share a single load (single-flight) and
-  /// return the cached descriptor until the active version changes or
-  /// {@link BundleSource.unloadDescriptor} is called.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<LoadedDescriptor>} Loaded descriptor
-  ///
-  /// @example
-  /// ```typescript
-  /// const loaded = await source.loadDescriptor('app');
-  /// const html = await loaded.getData('/index.html');
-  /// ```
-  #[napi]
-  pub async fn load_descriptor(&self, bundle_name: String) -> crate::Outcome<LoadedDescriptor> {
-    crate::Outcome::from_future(async move {
-      let inner = self.inner.load_descriptor(&bundle_name).await?;
+  pub async fn load(&self, bundle_name: String) -> crate::Outcome<LoadedDescriptor> {
+    crate::Outcome::from_future(async {
+      let inner = self.inner.load(&bundle_name).await?;
       Ok(LoadedDescriptor { inner })
     })
     .await
   }
 
-  /// Drops the cached descriptor for a bundle, if present.
-  ///
-  /// Already-returned {@link LoadedDescriptor} handles keep working; they hold their
-  /// own reference and are unaffected. The next {@link BundleSource.loadDescriptor}
-  /// reloads from disk.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {boolean} True if a cached descriptor was removed
   #[napi]
-  pub fn unload_descriptor(&self, bundle_name: String) -> bool {
-    self.inner.unload_descriptor(&bundle_name)
+  pub fn unload(&self, bundle_name: String) -> bool {
+    self.inner.unload(&bundle_name)
   }
 
-  /// Removes a single staged remote bundle version.
-  ///
-  /// Drops its manifest entry and deletes its file from disk.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Version to remove
-  /// @returns {Promise<boolean>} True if the entry existed and was removed
   #[napi]
   pub async fn remove_remote_bundle(
     &self,
     bundle_name: String,
     version: String,
-  ) -> crate::Outcome<bool> {
-    crate::Outcome::from_future(async move {
-      let removed = self
-        .inner
-        .remove_remote_bundle(&bundle_name, &version)
-        .await?;
-      Ok(removed)
-    })
-    .await
+    force: Option<bool>,
+  ) -> crate::Result<ManifestRemoveResult> {
+    let result = self
+      .inner
+      .remove_remote_bundle(&bundle_name, &version, force)
+      .await?;
+    Ok(result.into())
   }
 
-  /// Returns the remote versions that pruning retains (the current and previous versions).
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<string[]>} Retained version strings
   #[napi]
-  pub async fn remote_retained_versions(&self, bundle_name: String) -> crate::Outcome<Vec<String>> {
-    crate::Outcome::from_future(async move {
-      let versions = self.inner.remote_retained_versions(&bundle_name).await?;
-      Ok(versions)
-    })
-    .await
+  pub async fn remove_remote_bundles(
+    &self,
+    items: HashMap<String, ManifestRemoveData>,
+  ) -> crate::Result<Vec<ManifestRemoveResult>> {
+    let items = items
+      .into_iter()
+      .map(|(name, data)| (name, data.into()))
+      .collect::<HashMap<String, source::ManifestRemoveData>>();
+    let results = self
+      .inner
+      .remove_remote_bundles(items)
+      .await?
+      .into_iter()
+      .map(ManifestRemoveResult::from)
+      .collect::<Vec<_>>();
+    Ok(results)
   }
 
-  /// Removes every staged remote version except the retained set (current and previous).
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @returns {Promise<string[]>} Versions that were removed
   #[napi]
-  pub async fn prune_remote_bundles(&self, bundle_name: String) -> crate::Outcome<Vec<String>> {
-    crate::Outcome::from_future(async move {
-      let removed = self.inner.prune_remote_bundles(&bundle_name).await?;
-      Ok(removed)
-    })
-    .await
+  pub async fn prune_remote_bundle(
+    &self,
+    bundle_name: String,
+  ) -> crate::Result<ManifestPruneResult> {
+    let result = self.inner.prune_remote_bundle(&bundle_name).await?;
+    Ok(result.into())
+  }
+
+  #[napi]
+  pub async fn prune_remote_bundles(
+    &self,
+    bundle_names: Vec<String>,
+  ) -> crate::Result<Vec<ManifestPruneResult>> {
+    let results = self
+      .inner
+      .prune_remote_bundles(&bundle_names)
+      .await?
+      .into_iter()
+      .map(ManifestPruneResult::from)
+      .collect::<Vec<_>>();
+    Ok(results)
   }
 }

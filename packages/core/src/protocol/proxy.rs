@@ -152,6 +152,9 @@ impl ProxyProtocol {
     if let Some(client) = self.client.get() {
       return Ok(client);
     }
+    // See `remote::HttpOptions::apply`: this feature selects the Ring provider explicitly
+    // instead of compiling AWS-LC for every cross target.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::ClientBuilder::new().build()?;
     Ok(self.client.get_or_init(|| client))
   }

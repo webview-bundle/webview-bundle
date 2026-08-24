@@ -39,8 +39,8 @@ export class ServeCommand extends BaseCommand {
   readonly pathResolver = Option.String('--path-resolver', {
     description:
       'How the request path is resolved to an entry path of the bundle. ' +
-      '["exact", "directoryIndex", "htmlExtension"] [Default: "directoryIndex"]',
-    validator: isEnum(['exact', 'directoryIndex', 'htmlExtension'] as const),
+      '["exact", "directory_index", "html_extension"] [Default: "directory_index"]',
+    validator: isEnum(['exact', 'directory_index', 'html_extension'] as const),
   });
   readonly configFile = Option.String('--config,-C', {
     description: 'Path to the config file.',
@@ -64,7 +64,7 @@ export class ServeCommand extends BaseCommand {
     }
     const silent = this.silent ?? config.serve?.silent ?? false;
     const port = this.port ?? config.serve?.port ?? 4312;
-    const pathResolver = this.pathResolver ?? config.serve?.pathResolver ?? 'directoryIndex';
+    const pathResolver = this.pathResolver ?? config.serve?.pathResolver ?? 'directory_index';
     const instance = await serve({
       file,
       hostname: this.hostname,

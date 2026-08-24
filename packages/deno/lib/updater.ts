@@ -1,120 +1,178 @@
-import { encodeBase64 } from '@std/encoding/base64';
 import type {
-  BundleUpdateInfo,
+  BundleUpdate,
+  IntegrityAlgorithm,
   IntegrityPolicy,
-  SignatureAlgorithm,
-  VerifyingKeyFormat,
+  Update,
+  UpdaterDownloadOptions,
+  UpdaterGetUpdateOptions,
+  UpdaterInstallTarget,
+  UpdaterIntegrityOptions,
+  UpdaterRollbackTarget,
 } from './bindings.ts';
-import { WebviewBundleError } from './error.ts';
-import { cstr, getLib, readResult } from './ffi.ts';
-import type { ListRemoteBundleInfo, Remote, RemoteBundleInfo } from './remote.ts';
-import type { BundleSource } from './source.ts';
+import type { Cancellation } from './cancellation.ts';
+import type { ErrorCode } from './error-codes.ts';
+import { cstr, getLib, readHandle, readJsonAsync, requireHandle } from './ffi.ts';
+import type { Remote } from './remote.ts';
+import { type SignatureVerifyKey, serializeSignatureVerifyKey } from './signature.ts';
+import type { Source } from './source.ts';
 
-export type { BundleUpdateInfo, IntegrityPolicy, SignatureAlgorithm, VerifyingKeyFormat };
+export type {
+  IntegrityAlgorithm,
+  IntegrityPolicy,
+  UpdaterDownloadOptions,
+  UpdaterGetUpdateOptions,
+  UpdaterInstallTarget,
+  UpdaterIntegrityOptions,
+  UpdaterRollbackTarget,
+};
 
-export interface SignatureVerifyingKeyOptions {
-  format: VerifyingKeyFormat;
-  data: string | Uint8Array;
-}
-
-export interface SignatureVerifierOptions {
-  algorithm: SignatureAlgorithm;
-  key: SignatureVerifyingKeyOptions;
+/**
+ * The keys an update response may be signed with, each published under its own id.
+ *
+ * The signature signs the update document, not the bundle bytes; keep
+ * {@link UpdaterIntegrityOptions.policy} enabled (not `'off'`) so the integrity strings it carries
+ * also authenticate what is downloaded.
+ */
+export interface UpdaterSignatureOptions {
+  keys?: SignatureVerifyKey[];
 }
 
 export interface UpdaterOptions {
+  /** Fetch updates from this release channel. */
   channel?: string;
-  integrityPolicy?: IntegrityPolicy;
-  /**
-   * Verify that a downloaded bundle's integrity string was signed by the matching key.
-   *
-   * The signature signs the bundle's integrity string, not the bundle bytes, so verifying it
-   * proves the integrity string is authentic — not that the downloaded bytes match it. It is
-   * verified independently of {@link UpdaterOptions.integrityPolicy}, so keep the policy enabled
-   * (not `'off'`) for the signature to also authenticate the downloaded bytes.
-   */
-  signatureVerifier?: SignatureVerifierOptions;
+  /** How a downloaded bundle is checked against the integrity the update advertises. */
+  integrity?: UpdaterIntegrityOptions;
+  /** Recommended in production: verify the update document before acting on it. */
+  signature?: UpdaterSignatureOptions;
 }
 
-/**
- * @internal Encodes a verifier for the JSON wire, shared with {@link BundleSource} so both
- * sides of the FFI agree on one encoding.
- */
-export function serializeSignatureVerifier(
-  verifier: SignatureVerifierOptions
-): SignatureVerifierOptions {
-  const { key } = verifier;
-  // PEM formats carry text; binary formats (Uint8Array) are base64-encoded for the JSON wire.
-  const data = typeof key.data === 'string' ? key.data : encodeBase64(key.data);
-  return {
-    algorithm: verifier.algorithm,
-    key: { format: key.format, data },
-  };
+/** The outcome of downloading one bundle. */
+export type UpdaterDownloadResultKind =
+  | { type: 'downloaded' }
+  | { type: 'error'; code: ErrorCode; message: string };
+
+export interface UpdaterDownloadResult {
+  name: string;
+  version: string;
+  integrity?: string;
+  metadata?: Record<string, string>;
+  result: UpdaterDownloadResultKind;
+}
+
+/** The outcome of installing one staged bundle. */
+export type UpdaterInstallResultKind =
+  | { type: 'installed' }
+  | { type: 'staged_version_not_matched' }
+  | { type: 'staged_bundle_not_exists' }
+  | { type: 'verify_failed' }
+  | { type: 'error'; code: ErrorCode; message: string };
+
+export interface UpdaterInstallResult {
+  name: string;
+  targetVersion?: string;
+  installVersion?: string;
+  result: UpdaterInstallResultKind;
+}
+
+/** The outcome of rolling one bundle back to its previous version. */
+export type UpdaterRollbackResultKind =
+  | { type: 'rolled_back' }
+  | { type: 'previous_version_not_matched' }
+  | { type: 'previous_bundle_not_exists' }
+  | { type: 'verify_failed' }
+  | { type: 'error'; code: ErrorCode; message: string };
+
+export interface UpdaterRollbackResult {
+  name: string;
+  targetVersion?: string;
+  rollbackVersion?: string;
+  result: UpdaterRollbackResultKind;
 }
 
 function serializeOptions(options: UpdaterOptions): string {
-  const { signatureVerifier, ...rest } = options;
-  if (signatureVerifier == null) {
-    return JSON.stringify(rest);
+  const { signature, ...rest } = options;
+  if (signature?.keys == null) {
+    return JSON.stringify(options);
   }
   return JSON.stringify({
     ...rest,
-    signatureVerifier: serializeSignatureVerifier(signatureVerifier),
+    signature: { ...signature, keys: signature.keys.map(serializeSignatureVerifyKey) },
   });
 }
 
+/**
+ * Drives the update cycle over a {@link Source} and a {@link Remote}: ask what is available,
+ * download it, then install (or roll back) what was downloaded.
+ *
+ * Owns a native handle — call {@link Updater.free} (or `using updater = new Updater(...)`) when done.
+ */
 export class Updater {
   #ptr: Deno.PointerValue;
 
-  constructor(source: BundleSource, remote: Remote, options?: UpdaterOptions) {
+  constructor(source: Source, remote: Remote, updateFilepath: string, options?: UpdaterOptions) {
     const lib = getLib();
-    this.#ptr = lib.symbols.wvb_updater_new(
-      source.pointer,
-      remote.pointer,
-      cstr(options != null ? serializeOptions(options) : '')
+    // A key the native side cannot build fails here rather than serving updates unverified.
+    this.#ptr = readHandle(
+      lib,
+      lib.symbols.wvb_updater_new(
+        source.pointer,
+        remote.pointer,
+        cstr(updateFilepath),
+        cstr(options != null ? serializeOptions(options) : '')
+      )
     );
-    if (this.#ptr === null) {
-      // A null updater means an option was ill-formed — an `integrityPolicy` value the native
-      // side rejected, or a `signatureVerifier` it couldn't build. Fail closed rather than serve
-      // updates unverified; only blame the key when one was actually given.
-      throw options?.signatureVerifier != null
-        ? new WebviewBundleError(
-            'invalid_signature_options',
-            'wvb: failed to create Updater (check signatureVerifier algorithm/key)'
-          )
-        : new WebviewBundleError(
-            'unknown',
-            'wvb: failed to create Updater (check integrityPolicy)'
-          );
-    }
   }
 
-  async listRemotes(): Promise<ListRemoteBundleInfo[]> {
-    const lib = getLib();
-    const ptr = await lib.symbols.wvb_updater_list_remotes(this.#ptr);
-    return JSON.parse(readResult(lib, ptr).json) as ListRemoteBundleInfo[];
+  /** @internal Native handle. Throws if already freed. */
+  get pointer(): Deno.PointerValue {
+    return requireHandle(this.#ptr, 'Updater');
   }
 
-  async getUpdate(bundleName: string): Promise<BundleUpdateInfo> {
+  /** The bundles this source is missing, or `null` when it is already up to date. */
+  getUpdate(options?: UpdaterGetUpdateOptions): Promise<Update | null> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_updater_get_update(this.#ptr, cstr(bundleName));
-    return JSON.parse(readResult(lib, ptr).json) as BundleUpdateInfo;
-  }
-
-  async download(bundleName: string, version?: string): Promise<RemoteBundleInfo> {
-    const lib = getLib();
-    const ptr = await lib.symbols.wvb_updater_download(
-      this.#ptr,
-      cstr(bundleName),
-      cstr(version ?? '')
+    return readJsonAsync(
+      lib.symbols.wvb_updater_get_update(
+        this.pointer,
+        cstr(options != null ? JSON.stringify(options) : '')
+      )
     );
-    return JSON.parse(readResult(lib, ptr).json) as RemoteBundleInfo;
   }
 
-  async install(bundleName: string, version: string): Promise<void> {
+  /**
+   * Downloads the given bundle updates. This only stages them on disk — {@link Updater.install} is
+   * what activates them for the protocol to serve.
+   */
+  download(
+    bundleUpdates: BundleUpdate[],
+    options?: UpdaterDownloadOptions,
+    cancellation?: Cancellation
+  ): Promise<UpdaterDownloadResult[]> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_updater_install(this.#ptr, cstr(bundleName), cstr(version));
-    readResult(lib, ptr);
+    return readJsonAsync(
+      lib.symbols.wvb_updater_download(
+        this.pointer,
+        cstr(JSON.stringify(bundleUpdates)),
+        cstr(options != null ? JSON.stringify(options) : ''),
+        cancellation?.pointer ?? null
+      )
+    );
+  }
+
+  /** Activates the staged version of each target. */
+  install(targets: UpdaterInstallTarget[]): Promise<UpdaterInstallResult[]> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_updater_install(this.pointer, cstr(JSON.stringify(targets)))
+    );
+  }
+
+  /** Puts each target back on the previous version recorded for it. */
+  rollback(targets: UpdaterRollbackTarget[]): Promise<UpdaterRollbackResult[]> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_updater_rollback(this.pointer, cstr(JSON.stringify(targets)))
+    );
   }
 
   free(): void {

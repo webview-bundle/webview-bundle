@@ -23,6 +23,7 @@ fn base_dir() -> &'static Path {
     .as_ref()
 }
 
+#[derive(Debug, Clone)]
 pub struct TempDir {
   dir: PathBuf,
 }

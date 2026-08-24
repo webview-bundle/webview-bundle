@@ -5,13 +5,14 @@ edition      = { workspace = true }
 license      = { workspace = true }
 name         = "wvb"
 repository   = { workspace = true }
-rust-version = "1.85.0"
+rust-version = "1.87.0"
 version      = "0.2.0"
 
 [lib]
 bench = false
 
 [dependencies]
+anyhow           = { workspace = true, optional = true }
 async-trait      = { workspace = true }
 base64ct         = { workspace = true, optional = true }
 bincode          = { workspace = true }
@@ -29,6 +30,7 @@ p384             = { workspace = true, optional = true }
 percent-encoding = { workspace = true, optional = true }
 reqwest          = { workspace = true, default-features = false, optional = true }
 rsa              = { workspace = true, optional = true }
+rustls           = { workspace = true, default-features = false, optional = true }
 semver           = { workspace = true, optional = true }
 serde            = { workspace = true, optional = true }
 serde_json       = { workspace = true, optional = true }
@@ -37,6 +39,7 @@ sha2             = { workspace = true, optional = true }
 thiserror        = { workspace = true }
 time             = { workspace = true, features = ["formatting", "local-offset", "large-dates"], optional = true }
 tokio            = { workspace = true, optional = true }
+tokio-util       = { workspace = true, optional = true }
 tracing          = { workspace = true, optional = true }
 twox-hash        = { workspace = true, features = ["serialize"] }
 urlencoding      = { workspace = true, optional = true }
@@ -50,7 +53,16 @@ tokio      = { workspace = true, features = ["full"] }
 [features]
 _reqwest = ["dep:reqwest"]
 _serde = ["dep:serde", "dep:serde_json", "dep:serde_repr"]
-async = ["dep:tokio", "tokio/io-util", "tokio/rt", "tokio/rt-multi-thread", "tokio/fs", "tokio/sync", "tokio/time"]
+async = [
+  "dep:tokio",
+  "tokio/io-util",
+  "tokio/rt",
+  "tokio/rt-multi-thread",
+  "tokio/fs",
+  "tokio/sync",
+  "tokio/time",
+  "dep:tokio-util",
+]
 full = [
   "serde",
   "async",
@@ -61,38 +73,41 @@ full = [
   "remote",
   "integrity",
   "signature",
-  "signature-ecdsa_secp256r1",
-  "signature-ecdsa_secp384r1",
-  "signature-edd25519",
-  "signature-rsa_pkcs1_v1_5",
-  "signature-rsa_pss",
+  "signature-rsa-pkcs1-v1_5-sha256",
+  "signature-rsa-pss-sha256",
+  "signature-ecdsa-secp256r1",
+  "signature-ecdsa-secp384r1",
+  "signature-ed25519",
   "tracing",
   "testing",
 ]
 integrity = ["_serde", "sha2", "base64ct", "base64ct/alloc"]
 protocol = ["source", "dep:bytes", "dep:percent-encoding", "dep:http-range", "dep:getrandom"]
-protocol-proxy = ["protocol", "_reqwest", "reqwest/rustls-tls", "reqwest/macos-system-configuration", "reqwest/charset"]
+protocol-proxy = ["protocol", "_reqwest", "dep:rustls", "reqwest/rustls-no-provider", "rustls/ring", "reqwest/charset"]
 remote = [
   "async",
   "_reqwest",
   "_serde",
-  "reqwest/rustls-tls",
+  "dep:rustls",
+  "reqwest/rustls-no-provider",
+  "rustls/ring",
   "reqwest/json",
   "reqwest/stream",
+  "tokio/macros",
   "dep:urlencoding",
   "dep:futures-util",
 ]
 serde = ["_serde"]
 signature = ["integrity"]
-signature-ecdsa_secp256r1 = ["dep:p256"]
-signature-ecdsa_secp384r1 = ["dep:p384"]
-signature-edd25519 = ["dep:ed25519-dalek", "ed25519-dalek/pem"]
-signature-rsa_pkcs1_v1_5 = ["dep:rsa", "rsa/sha2"]
-signature-rsa_pss = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
+signature-ecdsa-secp256r1 = ["dep:p256"]
+signature-ecdsa-secp384r1 = ["dep:p384"]
+signature-ed25519 = ["dep:ed25519-dalek", "ed25519-dalek/pem"]
+signature-rsa-pkcs1-v1_5-sha256 = ["dep:rsa", "rsa/sha2"]
+signature-rsa-pss-sha256 = ["dep:rsa", "rsa/sha2", "rsa/getrandom"]
 source = ["dep:dashmap", "async", "_serde", "dep:semver", "tokio/macros"]
-testing = ["source", "remote", "dep:httpmock", "dep:time"]
+testing = ["source", "remote", "integrity", "dep:httpmock", "dep:time", "dep:anyhow"]
 tracing = ["dep:tracing"]
-updater = ["remote", "source"]
+updater = ["remote", "source", "dep:time", "time/parsing"]
 
 [lints.clippy]
 module_inception = "allow"

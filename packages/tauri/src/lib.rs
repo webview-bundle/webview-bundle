@@ -6,13 +6,12 @@ use tauri::{
 
 pub use config::*;
 pub use wvb::signature::{
-  EcdsaSecp256r1Verifier, EcdsaSecp384r1Verifier, Ed25519Verifier, RsaPkcs1V15Verifier,
-  RsaPssVerifier,
+  EcdsaSecp256r1, EcdsaSecp384r1, Ed25519, RsaPkcs1V15Sha256, RsaPssSha256,
 };
 
 #[cfg(target_os = "android")]
-mod android;
-mod commands;
+pub mod android;
+mod command;
 mod config;
 mod error;
 mod state;
@@ -62,8 +61,6 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
         let app = ctx.app_handle().clone();
         let scheme = scheme.clone();
         tauri::async_runtime::spawn(async move {
-          // Logs the URI the handler actually receives — useful for confirming the
-          // per-platform custom-protocol URL shape (e.g. on mobile).
           tracing::debug!(
             scheme = %scheme,
             method = %req.method(),
@@ -71,10 +68,8 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             "webview-bundle protocol request"
           );
           let wvb = app.webview_bundle();
-          // Android serves builtin bundles from extracted assets, so copy the
-          // requested bundle out (if not already) before the protocol reads it.
           #[cfg(target_os = "android")]
-          if let Err(e) = wvb.ensure_builtin_bundle(&scheme, req.uri()) {
+          if let Err(e) = wvb.ensure_builtin_bundle(&scheme, req.uri()).await {
             res.respond(wvb.error_response(&scheme, &e));
             return;
           }
@@ -92,28 +87,34 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
   builder
     .invoke_handler(tauri::generate_handler![
       // source
-      commands::source_list_bundles,
-      commands::source_load_version,
-      commands::source_update_version,
-      commands::source_resolve_filepath,
-      commands::source_get_builtin_bundle_filepath,
-      commands::source_get_remote_bundle_filepath,
-      commands::source_load_builtin_metadata,
-      commands::source_load_remote_metadata,
-      commands::source_unload_descriptor,
-      commands::source_remove_remote_bundle,
-      commands::source_remote_retained_versions,
-      commands::source_prune_remote_bundles,
+      command::source::source_list_bundles,
+      command::source::source_list_builtin_bundles,
+      command::source::source_list_remote_bundles,
+      command::source::source_get_version,
+      command::source::source_get_remote_staged_version,
+      command::source::source_get_remote_previous_version,
+      command::source::source_get_builtin_version_data,
+      command::source::source_get_remote_version_data,
+      command::source::source_update_remote_version,
+      command::source::source_update_remote_versions,
+      command::source::source_stage_remote_bundle,
+      command::source::source_stage_remote_bundles,
+      command::source::source_remove_remote_bundle,
+      command::source::source_remove_remote_bundles,
+      command::source::source_prune_remote_bundle,
+      command::source::source_prune_remote_bundles,
+      command::source::source_resolve_filepath,
+      command::source::source_get_builtin_bundle_filepath,
+      command::source::source_get_remote_bundle_filepath,
+      command::source::source_unload,
       // remote
-      commands::remote_list_bundles,
-      commands::remote_get_info,
-      commands::remote_download,
-      commands::remote_download_version,
+      command::remote::remote_get_update,
+      command::remote::remote_download,
       // updater
-      commands::updater_list_remotes,
-      commands::updater_get_update,
-      commands::updater_download,
-      commands::updater_install,
+      command::updater::updater_get_update,
+      command::updater::updater_download,
+      command::updater::updater_install,
+      command::updater::updater_rollback,
     ])
     .build()
 }

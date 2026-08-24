@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-source-list-remote-bundles"
+description = "Enables the source_list_remote_bundles command without any pre-configured scope."
+commands.allow = ["source_list_remote_bundles"]
+
+[[permission]]
+identifier = "deny-source-list-remote-bundles"
+description = "Denies the source_list_remote_bundles command without any pre-configured scope."
+commands.deny = ["source_list_remote_bundles"]

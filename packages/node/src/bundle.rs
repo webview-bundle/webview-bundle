@@ -11,8 +11,8 @@ use std::sync::Arc;
 use tokio::fs;
 use wvb::http::HeaderMap;
 use wvb::{
-  AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, BundleBuilderOptions,
-  BundleEntry, BundleReader, BundleWriter, HeaderWriterOptions, IndexWriterOptions, Reader, Writer,
+  AsyncBundleReader, AsyncBundleWriter, AsyncReader, AsyncWriter, BundleEntry, BundleReader,
+  BundleWriter, Reader, Writer,
 };
 
 /// Bundle header containing format metadata.
@@ -204,22 +204,18 @@ impl BundleDescriptor {
   ///
   /// @returns {Header} Bundle header with format metadata
   #[napi]
-  pub fn header(&self, this: Reference<BundleDescriptor>, env: Env) -> crate::Outcome<Header> {
-    crate::Outcome::from_fn(|| {
-      let inner = this.share_with(env, |manifest| Ok(manifest.inner.header()))?;
-      Ok(Header { inner })
-    })
+  pub fn header(&self, this: Reference<BundleDescriptor>, env: Env) -> crate::Result<Header> {
+    let inner = this.share_with(env, |manifest| Ok(manifest.inner.header()))?;
+    Ok(Header { inner })
   }
 
   /// Returns the bundle index.
   ///
   /// @returns {Index} Bundle index with file metadata
   #[napi]
-  pub fn index(&self, this: Reference<BundleDescriptor>, env: Env) -> crate::Outcome<Index> {
-    crate::Outcome::from_fn(|| {
-      let inner = this.share_with(env, |manifest| Ok(manifest.inner.index()))?;
-      Ok(Index { inner })
-    })
+  pub fn index(&self, this: Reference<BundleDescriptor>, env: Env) -> crate::Result<Index> {
+    let inner = this.share_with(env, |manifest| Ok(manifest.inner.index()))?;
+    Ok(Index { inner })
   }
 
   /// Read data from the bundle.
@@ -228,12 +224,10 @@ impl BundleDescriptor {
   /// @param {string} path - Path to the bundle data
   /// @returns {Buffer | null} Data from the bundle or `null` if not found
   #[napi]
-  pub fn get_data(&self, filepath: String, path: String) -> crate::Outcome<Option<Buffer>> {
-    crate::Outcome::from_fn(|| {
-      let file = Self::open_file(&filepath)?;
-      let data = self.inner.get_data(file, &path)?;
-      Ok(data.map(Buffer::from))
-    })
+  pub fn get_data(&self, filepath: String, path: String) -> crate::Result<Option<Buffer>> {
+    let file = Self::open_file(&filepath)?;
+    let data = self.inner.get_data(file, &path)?;
+    Ok(data.map(Buffer::from))
   }
 
   /// Read checksum from the bundle.
@@ -242,12 +236,10 @@ impl BundleDescriptor {
   /// @param {string} path - Path to the bundle data
   /// @returns {number | null} Checksum for the bundle data or `null` if not found
   #[napi]
-  pub fn get_data_checksum(&self, filepath: String, path: String) -> crate::Outcome<Option<u32>> {
-    crate::Outcome::from_fn(|| {
-      let file = Self::open_file(&filepath)?;
-      let checksum = self.inner.get_data_checksum(file, &path)?;
-      Ok(checksum)
-    })
+  pub fn get_data_checksum(&self, filepath: String, path: String) -> crate::Result<Option<u32>> {
+    let file = Self::open_file(&filepath)?;
+    let checksum = self.inner.get_data_checksum(file, &path)?;
+    Ok(checksum)
   }
 
   /// Asynchronously read data from the bundle.
@@ -260,13 +252,10 @@ impl BundleDescriptor {
     &self,
     filepath: String,
     path: String,
-  ) -> crate::Outcome<Option<Buffer>> {
-    crate::Outcome::from_future(async move {
-      let file = Self::async_open_file(&filepath).await?;
-      let data = self.inner.async_get_data(file, &path).await?;
-      Ok(data.map(Buffer::from))
-    })
-    .await
+  ) -> crate::Result<Option<Buffer>> {
+    let file = Self::async_open_file(&filepath).await?;
+    let data = self.inner.async_get_data(file, &path).await?;
+    Ok(data.map(Buffer::from))
   }
 
   /// Asynchronously read checksum from the bundle.
@@ -279,13 +268,10 @@ impl BundleDescriptor {
     &self,
     filepath: String,
     path: String,
-  ) -> crate::Outcome<Option<u32>> {
-    crate::Outcome::from_future(async move {
-      let file = Self::async_open_file(&filepath).await?;
-      let checksum = self.inner.async_get_data_checksum(file, &path).await?;
-      Ok(checksum)
-    })
-    .await
+  ) -> crate::Result<Option<u32>> {
+    let file = Self::async_open_file(&filepath).await?;
+    let checksum = self.inner.async_get_data_checksum(file, &path).await?;
+    Ok(checksum)
   }
 
   fn open_file(filepath: &str) -> crate::Result<std::fs::File> {
@@ -332,12 +318,10 @@ impl Bundle {
   /// const index = descriptor.index();
   /// ```
   #[napi]
-  pub fn descriptor(&self, this: Reference<Bundle>, env: Env) -> crate::Outcome<BundleDescriptor> {
-    crate::Outcome::from_fn(|| {
-      let inner = this.share_with(env, |bundle| Ok(bundle.inner.descriptor()))?;
-      Ok(BundleDescriptor {
-        inner: BundleDescriptorInner::Bundle(inner),
-      })
+  pub fn descriptor(&self, this: Reference<Bundle>, env: Env) -> crate::Result<BundleDescriptor> {
+    let inner = this.share_with(env, |bundle| Ok(bundle.inner.descriptor()))?;
+    Ok(BundleDescriptor {
+      inner: BundleDescriptorInner::Bundle(inner),
     })
   }
 
@@ -356,11 +340,9 @@ impl Bundle {
   /// }
   /// ```
   #[napi]
-  pub fn get_data(&self, path: String) -> crate::Outcome<Option<Buffer>> {
-    crate::Outcome::from_fn(|| {
-      let buf = self.inner.get_data(&path)?.map(|x| x.into());
-      Ok(buf)
-    })
+  pub fn get_data(&self, path: String) -> crate::Result<Option<Buffer>> {
+    let buf = self.inner.get_data(&path)?.map(|x| x.into());
+    Ok(buf)
   }
 
   /// Retrieves the checksum of file data by path.
@@ -368,11 +350,9 @@ impl Bundle {
   /// @param {string} path - File path in the bundle
   /// @returns {number | null} xxHash-32 checksum or null if not found
   #[napi]
-  pub fn get_data_checksum(&self, path: String) -> crate::Outcome<Option<u32>> {
-    crate::Outcome::from_fn(|| {
-      let checksum = self.inner.get_data_checksum(&path)?;
-      Ok(checksum)
-    })
+  pub fn get_data_checksum(&self, path: String) -> crate::Result<Option<u32>> {
+    let checksum = self.inner.get_data_checksum(&path)?;
+    Ok(checksum)
   }
 }
 
@@ -389,12 +369,10 @@ impl Bundle {
 /// const bundle = readBundleFromBuffer(buffer);
 /// ```
 #[napi]
-pub fn read_bundle_from_buffer(buffer: BufferSlice) -> crate::Outcome<Bundle> {
-  crate::Outcome::from_fn(|| {
-    let cursor = Cursor::new(buffer.as_ref());
-    let bundle = Reader::<wvb::Bundle>::read(&mut BundleReader::new(cursor))?;
-    Ok(Bundle { inner: bundle })
-  })
+pub fn read_bundle_from_buffer(buffer: BufferSlice) -> crate::Result<Bundle> {
+  let cursor = Cursor::new(buffer.as_ref());
+  let bundle = Reader::<wvb::Bundle>::read(&mut BundleReader::new(cursor))?;
+  Ok(Bundle { inner: bundle })
 }
 
 /// Reads a bundle from a file asynchronously.
@@ -409,15 +387,12 @@ pub fn read_bundle_from_buffer(buffer: BufferSlice) -> crate::Outcome<Bundle> {
 /// const html = bundle.getData('/index.html');
 /// ```
 #[napi]
-pub async fn read_bundle(filepath: String) -> crate::Outcome<Bundle> {
-  crate::Outcome::from_future(async move {
-    let mut file = fs::File::open(&filepath)
-      .await
-      .map_err(|e| crate::Error::Core(wvb::Error::from(e)))?;
-    let bundle = AsyncReader::<wvb::Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
-    Ok(Bundle { inner: bundle })
-  })
-  .await
+pub async fn read_bundle(filepath: String) -> crate::Result<Bundle> {
+  let mut file = fs::File::open(&filepath)
+    .await
+    .map_err(|e| crate::Error::Core(wvb::Error::from(e)))?;
+  let bundle = AsyncReader::<wvb::Bundle>::read(&mut AsyncBundleReader::new(&mut file)).await?;
+  Ok(Bundle { inner: bundle })
 }
 
 /// Writes a bundle to a file asynchronously.
@@ -435,17 +410,14 @@ pub async fn read_bundle(filepath: String) -> crate::Outcome<Bundle> {
 /// await writeBundle(bundle, 'output.wvb');
 /// ```
 #[napi]
-pub async fn write_bundle(bundle: &Bundle, filepath: String) -> crate::Outcome<usize> {
-  crate::Outcome::from_future(async move {
-    let mut file = fs::File::create(&filepath)
-      .await
-      .map_err(|e| crate::Error::Core(wvb::Error::from(e)))?;
-    let size =
-      AsyncWriter::<wvb::Bundle>::write(&mut AsyncBundleWriter::new(&mut file), &bundle.inner)
-        .await?;
-    Ok(size)
-  })
-  .await
+pub async fn write_bundle(bundle: &Bundle, filepath: String) -> crate::Result<usize> {
+  let mut file = fs::File::create(&filepath)
+    .await
+    .map_err(|e| crate::Error::Core(wvb::Error::from(e)))?;
+  let size =
+    AsyncWriter::<wvb::Bundle>::write(&mut AsyncBundleWriter::new(&mut file), &bundle.inner)
+      .await?;
+  Ok(size)
 }
 
 /// Writes a bundle to a buffer synchronously.
@@ -460,12 +432,10 @@ pub async fn write_bundle(bundle: &Bundle, filepath: String) -> crate::Outcome<u
 /// console.log(`Bundle size: ${buffer.length} bytes`);
 /// ```
 #[napi]
-pub fn write_bundle_into_buffer(bundle: &Bundle) -> crate::Outcome<Buffer> {
-  crate::Outcome::from_fn(|| {
-    let mut buf = vec![];
-    Writer::<wvb::Bundle>::write(&mut BundleWriter::new(&mut buf), &bundle.inner)?;
-    Ok(buf.into())
-  })
+pub fn write_bundle_into_buffer(bundle: &Bundle) -> crate::Result<Buffer> {
+  let mut buf = vec![];
+  Writer::<wvb::Bundle>::write(&mut BundleWriter::new(&mut buf), &bundle.inner)?;
+  Ok(buf.into())
 }
 
 /// Checksum verification for the data section.
@@ -547,19 +517,19 @@ impl From<IndexReadOptions> for wvb::IndexReadOptions {
 
 /// Options for building a bundle.
 ///
-/// @property {BuildHeaderOptions} [header] - Header generation options
-/// @property {BuildIndexOptions} [index] - Index generation options
+/// @property {HeaderWriterOptions} [header] - Header generation options
+/// @property {IndexWriterOptions} [index] - Index generation options
 /// @property {ChecksumWriteOptions} [dataChecksum] - Checksum generation for the data section
 #[napi(object)]
-pub struct BuildOptions {
-  pub header: Option<BuildHeaderOptions>,
-  pub index: Option<BuildIndexOptions>,
+pub struct BundleBuilderOptions {
+  pub header: Option<HeaderWriterOptions>,
+  pub index: Option<IndexWriterOptions>,
   pub data_checksum: Option<ChecksumWriteOptions>,
 }
 
-impl From<BuildOptions> for BundleBuilderOptions {
-  fn from(value: BuildOptions) -> Self {
-    let mut options = BundleBuilderOptions::default();
+impl From<BundleBuilderOptions> for wvb::BundleBuilderOptions {
+  fn from(value: BundleBuilderOptions) -> Self {
+    let mut options = wvb::BundleBuilderOptions::default();
     if let Some(header) = value.header {
       options = options.header(header.into());
     }
@@ -595,13 +565,13 @@ impl From<ChecksumWriteOptions> for wvb::ChecksumWriteOptions {
 ///
 /// @property {ChecksumWriteOptions} [checksum] - Checksum generation for the header section
 #[napi(object)]
-pub struct BuildHeaderOptions {
+pub struct HeaderWriterOptions {
   pub checksum: Option<ChecksumWriteOptions>,
 }
 
-impl From<BuildHeaderOptions> for HeaderWriterOptions {
-  fn from(value: BuildHeaderOptions) -> Self {
-    let mut options = HeaderWriterOptions::default();
+impl From<HeaderWriterOptions> for wvb::HeaderWriterOptions {
+  fn from(value: HeaderWriterOptions) -> Self {
+    let mut options = wvb::HeaderWriterOptions::default();
     if let Some(checksum) = value.checksum {
       options = options.checksum(checksum.into());
     }
@@ -613,13 +583,13 @@ impl From<BuildHeaderOptions> for HeaderWriterOptions {
 ///
 /// @property {ChecksumWriteOptions} [checksum] - Checksum generation for the index section
 #[napi(object)]
-pub struct BuildIndexOptions {
+pub struct IndexWriterOptions {
   pub checksum: Option<ChecksumWriteOptions>,
 }
 
-impl From<BuildIndexOptions> for IndexWriterOptions {
-  fn from(value: BuildIndexOptions) -> Self {
-    let mut options = IndexWriterOptions::default();
+impl From<IndexWriterOptions> for wvb::IndexWriterOptions {
+  fn from(value: IndexWriterOptions) -> Self {
+    let mut options = wvb::IndexWriterOptions::default();
     if let Some(checksum) = value.checksum {
       options = options.checksum(checksum.into());
     }
@@ -722,24 +692,22 @@ impl BundleBuilder {
     data: Buffer,
     content_type: Option<String>,
     headers: Option<HashMap<String, String>>,
-  ) -> crate::Outcome<bool> {
-    crate::Outcome::from_fn(|| {
-      let headers = if let Some(h) = headers {
-        Some(HeaderMap::try_from(HttpHeaders::from(h))?)
-      } else {
-        None
-      };
-      let content_type = content_type.unwrap_or_else(|| {
-        let mime = MimeType::parse_with_fallback(data.as_ref(), &path, MimeType::OctetStream);
-        mime.to_string()
-      });
-      Ok(
-        self
-          .inner
-          .insert_entry(path, BundleEntry::new(data.as_ref(), content_type, headers))
-          .is_some(),
-      )
-    })
+  ) -> crate::Result<bool> {
+    let headers = if let Some(h) = headers {
+      Some(HeaderMap::try_from(HttpHeaders::from(h))?)
+    } else {
+      None
+    };
+    let content_type = content_type.unwrap_or_else(|| {
+      let mime = MimeType::parse_with_fallback(data.as_ref(), &path, MimeType::OctetStream);
+      mime.to_string()
+    });
+    Ok(
+      self
+        .inner
+        .insert_entry(path, BundleEntry::new(data.as_ref(), content_type, headers))
+        .is_some(),
+    )
   }
 
   /// Removes a file from the bundle.
@@ -777,7 +745,7 @@ impl BundleBuilder {
   /// This consumes the builder's entries and creates a complete bundle with
   /// compressed data.
   ///
-  /// @param {BuildOptions} [options] - Build options
+  /// @param {BundleBuilderOptions} [options] - Build options
   /// @returns {Bundle} The built bundle
   ///
   /// @example
@@ -786,13 +754,11 @@ impl BundleBuilder {
   /// await writeBundle(bundle, 'output.wvb');
   /// ```
   #[napi]
-  pub fn build(&mut self, options: Option<BuildOptions>) -> crate::Outcome<Bundle> {
-    crate::Outcome::from_fn(|| {
-      if let Some(options) = options {
-        self.inner.set_options(options.into());
-      }
-      let bundle = self.inner.build()?;
-      Ok(Bundle { inner: bundle })
-    })
+  pub fn build(&mut self, options: Option<BundleBuilderOptions>) -> crate::Result<Bundle> {
+    if let Some(options) = options {
+      self.inner.set_options(options.into());
+    }
+    let bundle = self.inner.build()?;
+    Ok(Bundle { inner: bundle })
   }
 }

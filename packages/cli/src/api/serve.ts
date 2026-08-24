@@ -1,5 +1,5 @@
 import type { ServerType } from '@hono/node-server';
-import { type PathResolver, readBundle } from '@wvb/node';
+import { readBundle, type UriPathResolver } from '@wvb/node';
 import { c, isColorEnabled } from '../console.js';
 import { pathExists, toAbsolutePath, withWvbExtension } from '../fs.js';
 import type { Logger } from '../log.js';
@@ -10,7 +10,7 @@ export interface ServeParams {
   hostname?: string;
   port?: number;
   silent?: boolean;
-  pathResolver?: PathResolver;
+  pathResolver?: UriPathResolver;
   cwd?: string;
   logger?: Logger;
   colorEnabled?: boolean;
@@ -29,7 +29,7 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
     file,
     hostname,
     port = 4312,
-    pathResolver = 'directoryIndex',
+    pathResolver = 'directory_index',
     cwd = process.cwd(),
     silent = false,
     logger,
@@ -95,19 +95,19 @@ export async function serve(params: ServeParams): Promise<ServeInstance> {
   return instance;
 }
 
-function resolvePath(path: string, resolver: PathResolver): string {
+function resolvePath(path: string, resolver: UriPathResolver): string {
   const decoded = decodePath(path);
   switch (resolver) {
     case 'exact':
       return decoded;
-    case 'directoryIndex': {
+    case 'directory_index': {
       const p = decoded === '' ? '/' : decoded;
       if (p.endsWith('/')) {
         return `${p}index.html`;
       }
       return isExtensionless(p) ? `${p}/index.html` : p;
     }
-    case 'htmlExtension': {
+    case 'html_extension': {
       if (decoded === '' || decoded === '/') {
         return '/index.html';
       }

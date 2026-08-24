@@ -181,7 +181,7 @@ final class TestRunner: ObservableObject {
 
         // ── Protocol ─────────────────────────────────────────────────────
         await testAsync("BundleProtocolHandler: 200 index.html") {
-            try await withBundleSource { source in
+            try await withSource { source in
                 let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .get, uri: "https://app.wvb/index.html", headers: nil)
                 guard response.status == 200 else { throw Fail("status=\(response.status)") }
@@ -191,7 +191,7 @@ final class TestRunner: ObservableObject {
         }
 
         await testAsync("BundleProtocolHandler: 200 root redirect") {
-            try await withBundleSource { source in
+            try await withSource { source in
                 let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .get, uri: "https://app.wvb/", headers: nil)
                 guard response.status == 200 else { throw Fail("status=\(response.status)") }
@@ -199,7 +199,7 @@ final class TestRunner: ObservableObject {
         }
 
         await testAsync("BundleProtocolHandler: 404 not found") {
-            try await withBundleSource { source in
+            try await withSource { source in
                 let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .get, uri: "https://app.wvb/not_found.html", headers: nil)
                 guard response.status == 404 else { throw Fail("status=\(response.status)") }
@@ -207,7 +207,7 @@ final class TestRunner: ObservableObject {
         }
 
         await testAsync("BundleProtocolHandler: HEAD 200") {
-            try await withBundleSource { source in
+            try await withSource { source in
                 let handler = BundleProtocolHandler(source: source)
                 let response = try await handler.handle(method: .head, uri: "https://app.wvb/index.html", headers: nil)
                 guard response.status == 200 else { throw Fail("status=\(response.status)") }
@@ -216,7 +216,7 @@ final class TestRunner: ObservableObject {
         }
 
         // ── Builtin bundle ───────────────────────────────────────────────
-        await testAsync("BundleSource: fetch builtin bundle") {
+        await testAsync("Source: fetch builtin bundle") {
             try await withBuiltinSource { source in
                 let bundle = try await source.fetchBundle(bundleName: "app")
                 guard try bundle.getData(path: "/index.html") != nil else {
@@ -225,7 +225,7 @@ final class TestRunner: ObservableObject {
             }
         }
 
-        await testAsync("BundleSource: fetchDescriptor builtin") {
+        await testAsync("Source: fetchDescriptor builtin") {
             try await withBuiltinSource { source in
                 let descriptor = try await source.fetchDescriptor(bundleName: "app")
                 guard descriptor.containsPath(path: "/index.html") else {
@@ -244,7 +244,7 @@ final class TestRunner: ObservableObject {
         }
 
         await testAsync("BundleProtocolHandler: exact path resolver does not rewrite to index.html") {
-            try await withBundleSource { source in
+            try await withSource { source in
                 let options = BundleProtocolOptions(pathResolver: .exact)
                 let handler = BundleProtocolHandler(source: source, options: options)
                 let served = try await handler.handle(method: .get, uri: "https://app.wvb/index.html", headers: nil)
@@ -255,7 +255,7 @@ final class TestRunner: ObservableObject {
         }
 
         await testAsync("BundleProtocolHandler: allowWvbSuffixOnly rejects other hosts") {
-            try await withBundleSource { source in
+            try await withSource { source in
                 let options = BundleProtocolOptions(
                     bundleResolver: .hostname(segment: .first, allowWvbSuffixOnly: true)
                 )
@@ -277,7 +277,7 @@ final class TestRunner: ObservableObject {
         }
 
         await testAsync("BundleProtocolHandler: a request body is accepted") {
-            try await withBundleSource { source in
+            try await withSource { source in
                 let handler = BundleProtocolHandler(source: source)
                 // The bundle protocol serves GET/HEAD only, but the body still travels over the FFI.
                 let response = try await handler.handle(
@@ -320,7 +320,7 @@ final class TestRunner: ObservableObject {
         isRunning = false
     }
 
-    private func withBuiltinSource(_ block: (BundleSource) async throws -> Void) async throws {
+    private func withBuiltinSource(_ block: (Source) async throws -> Void) async throws {
         print("resource url: \(Bundle.main.resourceURL?.absoluteString ?? "none")")
         guard let builtinDir = Bundle.main.resourceURL?.appendingPathComponent("assets").appendingPathComponent("bundles").appendingPathComponent("builtin") else {
             throw Fail("builtin resource directory not found in app bundle")
@@ -330,10 +330,10 @@ final class TestRunner: ObservableObject {
         try FileManager.default.createDirectory(at: remoteDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: remoteDir) }
 
-        let emptyManifest = #"{"manifestVersion":1,"entries":{}}"#
+        let emptyManifest = #"{"manifestVersion":1,"bundles":{}}"#
         try Data(emptyManifest.utf8).write(to: remoteDir.appendingPathComponent("manifest.json"))
 
-        let source = try BundleSource(config: BundleSourceConfig(
+        let source = try Source(config: SourceConfig(
             builtinDir: builtinDir.path,
             remoteDir: remoteDir.path,
             builtinManifestFilepath: nil,
@@ -342,7 +342,7 @@ final class TestRunner: ObservableObject {
         try await block(source)
     }
 
-    private func withBundleSource(_ block: (BundleSource) async throws -> Void) async throws {
+    private func withSource(_ block: (Source) async throws -> Void) async throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("wvb-fixture-\(Int.random(in: 0..<Int.max))")
         let remoteDir = tmpDir.appendingPathComponent("remote")
@@ -350,19 +350,19 @@ final class TestRunner: ObservableObject {
         try FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let manifest = #"{"manifestVersion":1,"entries":{"app":{"versions":{"1.0.0":{}},"currentVersion":"1.0.0"}}}"#
+        let manifest = #"{"manifestVersion":1,"bundles":{"app":{"versions":{"1.0.0":{}},"currentVersion":"1.0.0"}}}"#
         try Data(manifest.utf8).write(to: remoteDir.appendingPathComponent("manifest.json"))
 
         let builder = BundleBuilder(version: nil)
         _ = try builder.insertEntry(path: "/index.html", data: indexHtml, contentType: "text/html", headers: nil)
         let bundle = try builder.build(options: nil)
         let bundleBytes = try writeBundleToBytes(bundle: bundle)
-        try bundleBytes.write(to: appDir.appendingPathComponent("app_1.0.0.wvb"))
+        try bundleBytes.write(to: appDir.appendingPathComponent("1.0.0.wvb"))
 
         let builtinDir = tmpDir.appendingPathComponent("builtin")
         try FileManager.default.createDirectory(at: builtinDir, withIntermediateDirectories: true)
 
-        let source = try BundleSource(config: BundleSourceConfig(
+        let source = try Source(config: SourceConfig(
             builtinDir: builtinDir.path,
             remoteDir: remoteDir.path,
             builtinManifestFilepath: nil,

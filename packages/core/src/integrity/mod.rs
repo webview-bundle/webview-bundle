@@ -12,8 +12,9 @@
 //!
 //! ```no_run
 //! # #[cfg(feature = "integrity")]
-//! # async {
-//! use wvb::integrity::{Integrity, IntegrityAlgorithm, IntegrityCheck};
+//! # {
+//! use std::str::FromStr;
+//! use wvb::integrity::{Integrity, IntegrityAlgorithm};
 //!
 //! let data = b"<html></html>";
 //!
@@ -22,8 +23,8 @@
 //! println!("Integrity: {integrity}");
 //!
 //! // Verify bytes against it.
-//! IntegrityCheck::Default.check(&integrity, data).await.unwrap();
-//! # };
+//! assert!(Integrity::from_str(&integrity).unwrap().validate(data));
+//! # }
 //! ```
 //!
 //! ## Integrity Policy
@@ -31,26 +32,26 @@
 //! [`IntegrityPolicy`] controls how a bundle's integrity metadata is treated when the
 //! check runs — required ([`IntegrityPolicy::Strict`]), checked when present
 //! ([`IntegrityPolicy::Optional`]), or disabled ([`IntegrityPolicy::Off`]). It is applied
-//! through [`crate::source::BundleSourceOptions::integrity`] (on load) and
-//! [`crate::updater::UpdaterOptions::integrity_policy`] (on download/install).
+//! through [`crate::source::SourceOptions::integrity`] (on load) and
+//! [`crate::updater::UpdaterOptions::integrity`] (on install).
 //!
 //! ```no_run
 //! # #[cfg(all(feature = "integrity", feature = "source"))]
 //! # {
 //! use wvb::integrity::IntegrityPolicy;
-//! use wvb::source::{BundleSourceIntegrityOptions, BundleSourceOptions};
+//! use wvb::source::{SourceIntegrityOptions, SourceOptions};
 //!
 //! // Require integrity metadata on every bundle this source verifies on load.
-//! let options = BundleSourceOptions::default()
-//!     .integrity(BundleSourceIntegrityOptions::default().policy(IntegrityPolicy::Strict));
+//! let options = SourceOptions::default()
+//!     .integrity(SourceIntegrityOptions::default().policy(IntegrityPolicy::Strict));
 //! # let _ = options;
 //! # }
 //! ```
 
-mod check;
 mod integrity;
 mod policy;
+mod verify;
 
-pub use check::*;
 pub use integrity::*;
 pub use policy::*;
+pub(crate) use verify::*;

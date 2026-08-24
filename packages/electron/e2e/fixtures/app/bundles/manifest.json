@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "entries": {
+  "bundles": {
     "hacker-news": { "versions": { "0.0.1": {} }, "currentVersion": "0.0.1" }
   }
 }

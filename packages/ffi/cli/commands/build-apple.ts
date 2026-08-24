@@ -82,6 +82,12 @@ export class BuildAppleCommand extends Command {
     await runCommand('cargo', args, {
       cwd: ROOT_DIR,
       prefix: `[build:${target}]`,
+      env:
+        getApplePlatformFromTarget(target) === 'macos'
+          ? undefined
+          : {
+              IPHONEOS_DEPLOYMENT_TARGET: '14.0',
+            },
     });
 
     const libPath = path.join(getProfileTargetDir(profile, target), `lib${LIB_NAME}.a`);
