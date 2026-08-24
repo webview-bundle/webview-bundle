@@ -1,13 +1,13 @@
-// bundleSource — construct a @wvb/deno BundleSource with Deno desktop defaults (mirrors
+// bundleSource — construct a @wvb/deno Source with Deno desktop defaults (mirrors
 // @wvb/electron's source.ts):
 //   • builtin bundles are READ from inside the app — `bundles` next to the entry module
 //     (the `deno desktop --include`d, self-extracted dir), like Electron's `resourcesPath/bundles`.
 //   • remote (downloaded) bundles are WRITTEN under the OS application-data directory, so they
 //     persist across runs and app updates — like Electron's `app.getPath('userData')/bundles`.
 import { fromFileUrl } from '@std/path';
-import { BundleSource, type BundleSourceConfig } from '@wvb/deno';
+import { Source, type SourceConfig } from '@wvb/deno';
 
-export interface SourceOptions extends Omit<BundleSourceConfig, 'builtinDir' | 'remoteDir'> {
+export interface BundleSourceConfig extends Omit<SourceConfig, 'builtinDir' | 'remoteDir'> {
   /**
    * Read-only builtin bundles directory. Defaults to `bundles` next to the app's entry module
    * (`Deno.mainModule`) — i.e. the `deno desktop --include`d, self-extracted dir inside the app.
@@ -22,13 +22,21 @@ export interface SourceOptions extends Omit<BundleSourceConfig, 'builtinDir' | '
   appName?: string;
 }
 
-export function bundleSource(options: SourceOptions = {}): BundleSource {
-  const { appName, builtinDir, remoteDir, ...otherOptions } = options;
-  return new BundleSource({
+/**
+ * The {@link SourceConfig} the defaults resolve to. Split out from {@link bundleSource} so a host
+ * can reuse the directories it picked — the updater's default update filepath sits next to them.
+ */
+export function resolveSourceConfig(config: BundleSourceConfig = {}): SourceConfig {
+  const { appName, builtinDir, remoteDir, ...rest } = config;
+  return {
+    ...rest,
     builtinDir: builtinDir ?? defaultBuiltinDir(),
     remoteDir: ensureDir(remoteDir ?? defaultRemoteDir(appName ?? defaultAppName())),
-    ...otherOptions,
-  });
+  };
+}
+
+export function bundleSource(config: BundleSourceConfig = {}): Source {
+  return new Source(resolveSourceConfig(config));
 }
 
 /** `bundles` next to the app's entry module — the in-app, read-only builtin bundles. */
@@ -103,16 +111,16 @@ function defaultAppName(): string {
 }
 
 /**
- * Ensure the writable remote dir exists and has a manifest. The bundle source reads remote versions
- * from `<remoteDir>/manifest.json`; seed an empty one so builtin-only apps work out of the box
- * (an existing manifest is left untouched).
+ * Ensure the writable remote dir exists and has a manifest. The source reads remote versions from
+ * `<remoteDir>/manifest.json`; seed an empty one so builtin-only apps work out of the box (an
+ * existing manifest is left untouched).
  */
 function ensureDir(dir: string): string {
   Deno.mkdirSync(dir, { recursive: true });
   const manifest = `${dir}/manifest.json`;
   // createNew seeds atomically: never clobber a manifest written concurrently (first-run update).
   try {
-    Deno.writeTextFileSync(manifest, JSON.stringify({ manifestVersion: 1, entries: {} }), {
+    Deno.writeTextFileSync(manifest, JSON.stringify({ manifestVersion: 1, bundles: {} }), {
       createNew: true,
     });
   } catch (error) {

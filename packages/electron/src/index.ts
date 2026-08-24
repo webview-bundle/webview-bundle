@@ -7,14 +7,14 @@ export type {
 export { isWebviewBundleError } from '@wvb/node/binding';
 export type {
   BundleProtocolConfig,
-  BundleResolverOptions,
   HostnameSegment,
-  PathResolver,
   Protocol,
   ProtocolHandler,
   ProtocolOptions,
   ProxyProtocolConfig,
   ProxyResolver,
+  UriBundleResolver,
+  UriPathResolver,
 } from './protocol.js';
 export { bundleProtocol, proxyProtocol } from './protocol.js';
 export type { RemoteOptions } from './remote.js';

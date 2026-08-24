@@ -22,7 +22,10 @@
     "binding.cjs",
     "binding.d.cts",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "!*.node",
+    "!artifacts/**/*",
+    "!npm/**/*"
   ],
   "type": "module",
   "main": "./dist/index.js",

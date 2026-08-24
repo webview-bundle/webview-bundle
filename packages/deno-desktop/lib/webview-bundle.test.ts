@@ -44,12 +44,12 @@ Deno.test('webviewBundle.fetch forwards Range (206) and returns 404', async () =
 });
 
 Deno.test('a route forwards its path resolver to the bundle', async () => {
-  // The default (directoryIndex) looks for `/index/index.html`, which the bundle does not have.
+  // The default (directory_index) looks for `/index/index.html`, which the bundle does not have.
   const byDirectory = makeApp();
   assertEquals((await byDirectory.fetch(new Request('http://127.0.0.1/index'))).status, 404);
 
-  // `htmlExtension` resolves `/index` to `/index.html`.
-  const byExtension = makeApp({ '/': { bundle: 'app', pathResolver: 'htmlExtension' } });
+  // `html_extension` resolves `/index` to `/index.html`.
+  const byExtension = makeApp({ '/': { bundle: 'app', pathResolver: 'html_extension' } });
   const res = await byExtension.fetch(new Request('http://127.0.0.1/index'));
   assertEquals(res.status, 200);
   assertEquals(res.headers.get('content-type'), 'text/html');
@@ -86,7 +86,7 @@ Deno.test('the longest matching mount path wins', async () => {
   assertEquals((await app.fetch(new Request('http://127.0.0.1/docs/'))).status, 404);
   // Served by the `/docs` mount → `/index.html` → 200.
   assertEquals((await app.fetch(new Request('http://127.0.0.1/docs/index.html'))).status, 200);
-  // Served by the root mount (directoryIndex) → 200.
+  // Served by the root mount (directory_index) → 200.
   assertEquals((await app.fetch(new Request('http://127.0.0.1/'))).status, 200);
 });
 

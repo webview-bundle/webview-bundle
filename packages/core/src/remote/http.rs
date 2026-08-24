@@ -1,9 +1,6 @@
 use reqwest::header::HeaderMap;
 
-/// Default total request timeout (milliseconds) applied when `HttpOptions::timeout` is
-/// not set. Bounds an otherwise-unbounded download: without it a stalled transfer would
-/// hang forever and keep holding the updater's per-bundle transaction lock. Override
-/// with [`HttpOptions::timeout`].
+/// Default total request timeout (milliseconds)
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 120_000;
 
 #[derive(Debug, Clone, Default)]
@@ -70,6 +67,11 @@ impl HttpOptions {
   }
 
   pub(crate) fn apply(&self, mut http: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    // `reqwest/rustls-no-provider` keeps the TLS provider selectable, which avoids compiling
+    // AWS-LC for cross targets. Installing Ring is idempotent in the common case; a concurrent
+    // installer only means another caller has already selected the process-wide provider.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     if let Some(default_headers) = self.default_headers.as_ref() {
       http = http.default_headers(default_headers.clone());
     }

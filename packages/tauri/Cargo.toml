@@ -10,24 +10,11 @@ rust-version = "1.85.0"
 version      = "0.1.0"
 
 [dependencies]
-serde = { workspace = true }
-tauri = { workspace = true, features = ["unstable"] }
+serde     = { workspace = true }
+tauri     = { workspace = true, features = ["unstable"] }
 thiserror = { workspace = true }
-tracing = { workspace = true }
-wvb = { workspace = true, features = [
-  "source",
-  "protocol",
-  "protocol-proxy",
-  "remote",
-  "updater",
-  "integrity",
-  "signature",
-  "signature-ecdsa_secp256r1",
-  "signature-ecdsa_secp384r1",
-  "signature-edd25519",
-  "signature-rsa_pkcs1_v1_5",
-  "signature-rsa_pss",
-] }
+tracing   = { workspace = true }
+wvb       = { workspace = true, features = ["full"] }
 
 [build-dependencies]
 tauri-plugin = { workspace = true, features = ["build"] }

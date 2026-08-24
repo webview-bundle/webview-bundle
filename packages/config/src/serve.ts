@@ -1,4 +1,4 @@
-import type { PathResolver } from '@wvb/node';
+import type { UriPathResolver } from '@wvb/node';
 
 export interface ServeConfig {
   /**
@@ -26,5 +26,5 @@ export interface ServeConfig {
    *
    * @default "directoryIndex"
    */
-  pathResolver?: PathResolver;
+  pathResolver?: UriPathResolver;
 }

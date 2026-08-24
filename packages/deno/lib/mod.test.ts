@@ -1,70 +1,29 @@
 import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { decodeBase64 } from '@std/encoding/base64';
-import { fromFileUrl } from '@std/path';
+import { dirname } from '@std/path';
 import {
   BundleBuilder,
   BundleProtocol,
   type BundleProtocolOptions,
-  BundleSource,
-  type BundleSourceConfig,
-  type BundleSourceVerifyMode,
   computeIntegrity,
   type HttpResponse,
   type IntegrityAlgorithm,
   type IntegrityPolicy,
-  loadLib,
-  type PathResolver,
   ProxyProtocol,
   parseIntegrity,
-  Remote,
   readBundle,
   readBundleFromBytes,
-  Updater,
+  Source,
+  type SourceIntegrityCheckMode,
+  type SourceOptions,
+  type UriPathResolver,
   WebviewBundleError,
   writeBundle,
   writeBundleToBytes,
 } from './mod.ts';
+import { buildBundleData, loadTestLib, tempDir, testSource } from './testing.ts';
 
-// Resolve the locally-built cdylib and the committed builtin fixture (bundle "app" v1.0.0).
-const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';
-const prefix = Deno.build.os === 'windows' ? '' : 'lib';
-const DYLIB = fromFileUrl(
-  new URL(`../../../target/release/${prefix}wvb_deno.${ext}`, import.meta.url)
-);
-const BUILTIN_DIR = fromFileUrl(new URL('../fixtures/builtin', import.meta.url));
-
-loadLib(DYLIB);
-
-/**
- * A {@link BundleSource} over the builtin fixture, backed by a temp remote dir. Disposing it frees
- * the handle and removes the temp dir, so tests only need `using source = testSource()`.
- */
-function testSource(
-  options: Omit<BundleSourceConfig, 'builtinDir' | 'remoteDir'> = {}
-): BundleSource {
-  const remoteDir = Deno.makeTempDirSync({ prefix: 'wvb-deno-test-' });
-  const removeRemoteDir = () => Deno.removeSync(remoteDir, { recursive: true });
-  try {
-    Deno.writeTextFileSync(
-      `${remoteDir}/manifest.json`,
-      JSON.stringify({ manifestVersion: 1, entries: {} })
-    );
-    const source = new BundleSource({ builtinDir: BUILTIN_DIR, remoteDir, ...options });
-    return Object.assign(source, {
-      [Symbol.dispose]: () => {
-        try {
-          source.free();
-        } finally {
-          removeRemoteDir();
-        }
-      },
-    });
-  } catch (e) {
-    // The source never took ownership of the temp dir, so nothing else will remove it.
-    removeRemoteDir();
-    throw e;
-  }
-}
+loadTestLib();
 
 Deno.test('BundleProtocol serves the builtin bundle index via directory-index', async () => {
   using source = testSource();
@@ -117,12 +76,12 @@ Deno.test('an HttpResponse carries the status, headers and body of a web Respons
   assert((await res.text()).includes('Pagination with SSG'));
 });
 
-Deno.test('BundleProtocol resolves an extensionless path with the htmlExtension resolver', async () => {
+Deno.test('BundleProtocol resolves an extensionless path with the html_extension resolver', async () => {
   using source = testSource();
-  using protocol = new BundleProtocol(source, { pathResolver: 'htmlExtension' });
+  using protocol = new BundleProtocol(source, { pathResolver: 'html_extension' });
   // `/index` -> `/index.html`
   assertEquals((await protocol.handle('get', 'bundle://app/index')).status, 200);
-  // The default (directoryIndex) would look for `/index/index.html` instead.
+  // The default (directory_index) would look for `/index/index.html` instead.
   using byDirectory = new BundleProtocol(source);
   assertEquals((await byDirectory.handle('get', 'bundle://app/index')).status, 404);
 });
@@ -149,7 +108,7 @@ Deno.test('BundleProtocol resolves the bundle name from a path segment', async (
 
 Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', () => {
   using source = testSource();
-  assertThrows(() => new BundleProtocol(source, { pathResolver: 'nope' as PathResolver }));
+  assertThrows(() => new BundleProtocol(source, { pathResolver: 'nope' as UriPathResolver }));
   assertThrows(
     () =>
       new BundleProtocol(source, {
@@ -159,7 +118,7 @@ Deno.test('BundleProtocol rejects an unknown resolver option (fails closed)', ()
   );
   // Options that are not an object would otherwise read as "no options" and serve with the defaults.
   assertThrows(
-    () => new BundleProtocol(source, 'directoryIndex' as unknown as BundleProtocolOptions)
+    () => new BundleProtocol(source, 'directory_index' as unknown as BundleProtocolOptions)
   );
 });
 
@@ -170,7 +129,7 @@ Deno.test("the source's data-checksum options flow through what the protocol ser
 
   // The seed is part of the checksum, so a source configured with a seed the bundle was not packed
   // with mismatches when the protocol reads through it.
-  using wrongSeedSource = testSource({ dataReadOptions: { checksum: { seed: 1 } } });
+  using wrongSeedSource = testSource({ dataRead: { checksum: { seed: 1 } } });
   using wrongSeed = new BundleProtocol(wrongSeedSource);
   const error = await assertRejects(
     () => wrongSeed.handle('get', 'bundle://app/index.html'),
@@ -178,49 +137,38 @@ Deno.test("the source's data-checksum options flow through what the protocol ser
   );
   assertEquals(error.code, 'core.checksum_mismatch');
 
-  using unverifiedSource = testSource({
-    dataReadOptions: { checksum: { verify: false, seed: 1 } },
-  });
+  using unverifiedSource = testSource({ dataRead: { checksum: { verify: false, seed: 1 } } });
   using unverified = new BundleProtocol(unverifiedSource);
   assertEquals((await unverified.handle('get', 'bundle://app/index.html')).status, 200);
 });
 
-Deno.test('BundleSource accepts verification options and fails closed on a bad one', () => {
+Deno.test('Source accepts verification options and fails closed on a bad one', () => {
   {
     using _configured = testSource({
-      integrity: { policy: 'optional', checkMode: 'onlyRemote' },
-      dataReadOptions: { checksum: { verify: true, seed: 0 } },
-      headerReadOptions: { checksum: { verify: true } },
-      indexReadOptions: { checksum: { verify: false, seed: 2 } },
+      integrity: { policy: 'optional', checkMode: 'only_remote' },
+      dataRead: { checksum: { verify: true, seed: 0 } },
+      headerRead: { checksum: { verify: true } },
+      indexRead: { checksum: { verify: false, seed: 2 } },
+      removeBundleChunkSize: 8,
     });
-    using _off = testSource({ integrity: { policy: 'off' }, signature: { verifyMode: 'all' } });
+    using _off = testSource({ integrity: { policy: 'off' } });
   }
   const badMode = assertThrows(
-    () => testSource({ integrity: { checkMode: 'sometimes' as BundleSourceVerifyMode } }),
+    () => testSource({ integrity: { checkMode: 'sometimes' as SourceIntegrityCheckMode } }),
     WebviewBundleError
   );
-  // No verifier was given, so this is not a key failure.
-  assertEquals(badMode.code, 'unknown');
+  assertEquals(badMode.code, 'invalid_request');
   const badPolicy = assertThrows(
     // 'none' was the old spelling of 'off'; it must fail closed rather than pick a default.
     () => testSource({ integrity: { policy: 'none' as IntegrityPolicy } }),
     WebviewBundleError
   );
-  assertEquals(badPolicy.code, 'unknown');
-  const badKey = assertThrows(
-    () =>
-      testSource({
-        // A key too short to be an ed25519 public key: the source must not fall back to unverified.
-        signature: { verify: { algorithm: 'ed25519', key: { format: 'raw', data: 'AAAA' } } },
-      }),
-    WebviewBundleError
-  );
-  assertEquals(badKey.code, 'invalid_signature_options');
+  assertEquals(badPolicy.code, 'invalid_request');
 });
 
 Deno.test('integrity options round-trip: strict + all rejects the unhashed builtin on load', async () => {
   // The builtin fixture manifest carries no integrity string, so `strict` must refuse to load it
-  // when `checkMode: 'all'` selects builtin bundles — while the default `'onlyRemote'` mode
+  // when `checkMode: 'all'` selects builtin bundles — while the default `'only_remote'` mode
   // leaves them alone.
   using strict = testSource({ integrity: { policy: 'strict', checkMode: 'all' } });
   using strictProtocol = new BundleProtocol(strict);
@@ -237,12 +185,9 @@ Deno.test('integrity options round-trip: strict + all rejects the unhashed built
 
 Deno.test('a misspelled option is rejected instead of silently ignored', () => {
   const sourceError = assertThrows(
-    // A dropped `dataReadOptions.checksum.verify` would leave verification in a state the caller did
-    // not ask for.
-    () =>
-      testSource({
-        dataReadOptions: { checksum: { verifyy: true } },
-      } as unknown as BundleSourceConfig),
+    // A dropped `dataRead.checksum.verify` would leave verification in a state the caller did not
+    // ask for.
+    () => testSource({ dataRead: { checksum: { verifyy: true } } } as unknown as SourceOptions),
     WebviewBundleError
   );
   assert(sourceError.message.includes('verifyy'), sourceError.message);
@@ -250,7 +195,7 @@ Deno.test('a misspelled option is rejected instead of silently ignored', () => {
   const nestedError = assertThrows(
     // A dropped `integrity.checkMode` would leave builtin bundles unverified while the caller
     // believes they are covered.
-    () => testSource({ integrity: { checkmode: 'all' } } as unknown as BundleSourceConfig),
+    () => testSource({ integrity: { checkmode: 'all' } } as unknown as SourceOptions),
     WebviewBundleError
   );
   assert(nestedError.message.includes('checkmode'), nestedError.message);
@@ -266,11 +211,11 @@ Deno.test('a misspelled option is rejected instead of silently ignored', () => {
   assert(protocolError.message.includes('verifyChecksum'), protocolError.message);
 });
 
-Deno.test('BundleSource takes a data-checksum seed without disabling verification', () => {
+Deno.test('Source takes a data-checksum seed without disabling verification', () => {
   // The source verifies entry checksums by default; passing only the seed must keep it on (the
-  // native default is pinned in `src/lib.rs`, where the read options are observable).
-  using seeded = testSource({ dataReadOptions: { checksum: { seed: 1 } } });
-  assert(seeded instanceof BundleSource);
+  // native default is pinned in `src/source.rs`, where the read options are observable).
+  using seeded = testSource({ dataRead: { checksum: { seed: 1 } } });
+  assert(seeded instanceof Source);
 });
 
 Deno.test('ProxyProtocol constructs and is disposable', () => {
@@ -287,113 +232,83 @@ Deno.test('ProxyProtocol fails on a host that is not mapped', async () => {
   assertEquals(error.code, 'core.cannot_resolve_proxy_server');
 });
 
-Deno.test('Remote constructs and rejects (error path through FFI) on an unreachable endpoint', async () => {
-  using remote = new Remote('http://127.0.0.1:59999', { http: { connectTimeout: 2000 } });
-  await assertRejects(() => remote.listBundles());
-});
-
-Deno.test('Updater constructs with a source + remote and propagates errors', async () => {
+Deno.test('Source exposes source operations over the builtin fixture', async () => {
   using source = testSource();
-  using remote = new Remote('http://127.0.0.1:59999', { http: { connectTimeout: 2000 } });
-  using updater = new Updater(source, remote, { channel: 'stable', integrityPolicy: 'strict' });
-  assert(updater instanceof Updater);
-  await assertRejects(() => updater.listRemotes());
-});
-
-Deno.test('Updater fails closed on an unknown integrityPolicy value', () => {
-  using source = testSource();
-  using remote = new Remote('http://127.0.0.1:59999', { http: { connectTimeout: 2000 } });
-  // 'none' was the old spelling of 'off'; it must fail construction rather than be ignored.
-  assertThrows(
-    () => new Updater(source, remote, { integrityPolicy: 'none' as IntegrityPolicy }),
-    WebviewBundleError
-  );
-});
-
-Deno.test('BundleSource exposes source operations over the builtin fixture', async () => {
-  using source = testSource();
-  const app = (await source.listBundles()).find(b => b.name === 'app');
+  const app = (await source.listBundles()).find(b => b.item.name === 'app');
   assert(app != null, 'app bundle is listed');
-  assertEquals(app.type, 'builtin');
-  assertEquals(app.version, '1.0.0');
-  assertEquals(app.current, true);
+  assertEquals(app.source, 'builtin');
+  assertEquals(app.item.version, '1.0.0');
+  assertEquals(app.item.status, 'current');
 
-  assertEquals(await source.loadVersion('app'), { type: 'builtin', version: '1.0.0' });
+  assertEquals(await source.listRemoteBundles(), []);
+  assertEquals(await source.getVersion('app'), { source: 'builtin', version: '1.0.0' });
+  assertEquals(await source.getRemoteStagedVersion('app'), null);
+  assertEquals(await source.getRemotePreviousVersion('app'), null);
 
   const path = await source.resolveFilepath('app');
-  assert(path.endsWith('app_1.0.0.wvb'), path);
+  assert(path.endsWith('1.0.0.wvb'), path);
   assertEquals(source.getBuiltinBundleFilepath('app', '1.0.0'), path);
 
-  // Metadata exists (the manifest entry is present, even if empty).
-  assert((await source.loadBuiltinMetadata('app', '1.0.0')) != null);
+  // Version data exists (the manifest entry is present, even if empty).
+  assert((await source.getBuiltinVersionData('app', '1.0.0')) != null);
+  assertEquals(await source.getRemoteVersionData('app', '1.0.0'), null);
 
   // A descriptor that was never loaded → unload is a no-op.
-  assertEquals(source.unloadDescriptor('app'), false);
+  assertEquals(source.unload('app'), false);
 });
 
-// A valid Ed25519 SPKI public key (PEM) for exercising the signatureVerifier wiring.
-const ED25519_PUBLIC_PEM = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAzUROGx/OqiO9ZwxWsaG3ChmBqEGpXKTC9DmAVx86J5E=
------END PUBLIC KEY-----`;
-
-Deno.test('Updater accepts a declarative ed25519 signatureVerifier (PEM text + DER bytes)', () => {
+Deno.test('Source stages, activates, removes and prunes a remote version', async () => {
   using source = testSource();
-  using remote = new Remote('http://127.0.0.1:59999', { http: { connectTimeout: 2000 } });
-  using pem = new Updater(source, remote, {
-    signatureVerifier: {
-      algorithm: 'ed25519',
-      key: { format: 'spkiPem', data: ED25519_PUBLIC_PEM },
-    },
+  const html = new TextEncoder().encode('<h1>app@2.0.0</h1>');
+  await stageRemote(source, '2.0.0');
+
+  assertEquals(await source.getRemoteStagedVersion('app'), '2.0.0');
+  // Staged, not activated: the current version is still the builtin.
+  assertEquals(await source.getVersion('app'), { source: 'builtin', version: '1.0.0' });
+
+  assertEquals(await source.updateRemoteVersion('app', '2.0.0'), {
+    name: 'app',
+    version: '2.0.0',
+    kind: 'settled',
   });
-  assert(pem instanceof Updater);
-  // Same key as raw DER bytes — exercises the Uint8Array → base64 → FFI base64-decode path.
-  const der = decodeBase64(
-    ED25519_PUBLIC_PEM.split('\n')
-      .filter(line => !line.startsWith('-'))
-      .join('')
-  );
-  using derUpdater = new Updater(source, remote, {
-    signatureVerifier: { algorithm: 'ed25519', key: { format: 'spkiDer', data: der } },
-  });
-  assert(derUpdater instanceof Updater);
+  assertEquals(await source.getVersion('app'), { source: 'remote', version: '2.0.0' });
+
+  using fetched = await source.fetchRemoteBundle('app', '2.0.0');
+  assertEquals(fetched.getData('/index.html'), html);
+
+  // The version in use is kept unless the removal is forced.
+  assertEquals((await source.removeRemoteBundle('app', '2.0.0')).kind, 'in_use');
+  await stageRemote(source, '2.1.0');
+  await source.updateRemoteVersion('app', '2.1.0');
+  // 2.0.0 is now the previous version, so pruning leaves it in place.
+  assertEquals(await source.pruneRemoteBundle('app'), { name: 'app', prunedVersions: [] });
+  assertEquals((await source.removeRemoteBundle('app', '2.0.0', true)).kind, 'removed');
 });
 
-Deno.test('Updater fails closed on an invalid signatureVerifier key', () => {
+Deno.test('Source applies batched manifest operations', async () => {
   using source = testSource();
-  using remote = new Remote('http://127.0.0.1:59999', { http: { connectTimeout: 2000 } });
-  assertThrows(
-    () =>
-      new Updater(source, remote, {
-        signatureVerifier: {
-          algorithm: 'ed25519',
-          key: { format: 'spkiPem', data: 'not a valid key' },
-        },
-      })
-  );
+  await stageRemote(source, '2.0.0');
+  await stageRemote(source, '2.1.0');
+
+  assertEquals(await source.updateRemoteVersions({ app: '2.1.0' }), [
+    { name: 'app', version: '2.1.0', kind: 'settled' },
+  ]);
+  assertEquals(await source.updateRemoteVersions({ nope: '1.0.0' }), [
+    { name: 'nope', version: '1.0.0', kind: 'not_exists' },
+  ]);
+  assertEquals(await source.removeRemoteBundles({ app: { versions: ['2.0.0'] } }), [
+    { name: 'app', version: '2.0.0', kind: 'removed' },
+  ]);
+  assertEquals(await source.pruneRemoteBundles(['app']), [{ name: 'app', prunedVersions: [] }]);
 });
 
-Deno.test('Remote sends the configured http options on every request', async () => {
-  let seen: Headers | undefined;
-  const server = Deno.serve({ port: 0, onListen: () => {} }, req => {
-    seen = req.headers;
-    return Response.json([{ name: 'app', version: '1.0.0' }]);
-  });
-  try {
-    using remote = new Remote(`http://127.0.0.1:${server.addr.port}`, {
-      http: {
-        defaultHeaders: { authorization: 'Bearer tok-123', 'x-tenant': 'acme' },
-        userAgent: 'wvb-deno-test/1.0',
-      },
-    });
-    await remote.listBundles();
-
-    assertEquals(seen?.get('authorization'), 'Bearer tok-123');
-    assertEquals(seen?.get('x-tenant'), 'acme');
-    assertEquals(seen?.get('user-agent'), 'wvb-deno-test/1.0');
-  } finally {
-    await server.shutdown();
-  }
-});
+/** Writes a `.wvb` into the remote dir and records it in the manifest, without activating it. */
+async function stageRemote(source: Source, version: string): Promise<void> {
+  const filepath = source.getRemoteBundleFilepath('app', version);
+  await Deno.mkdir(dirname(filepath), { recursive: true });
+  await Deno.writeFile(filepath, buildBundleData('app', version));
+  await source.stageRemoteBundle('app', { version });
+}
 
 Deno.test('computeIntegrity produces the string core produces', () => {
   // Same vector as core's own integrity_serialize test.
@@ -467,20 +382,16 @@ Deno.test('writeBundle and readBundle round-trip through a file', async () => {
   builder.insertEntry('/style.css', css);
   using bundle = builder.build();
 
-  const dir = await Deno.makeTempDir({ prefix: 'wvb-deno-bundle-' });
-  try {
-    const file = `${dir}/out.wvb`;
-    const written = await writeBundle(bundle, file);
-    assert(written > 0, 'writeBundle reports the bytes written');
-    using read = await readBundle(file);
-    assertEquals(read.getData('/style.css'), css);
-    assertEquals(read.index()['/style.css'].contentType, 'text/css');
-  } finally {
-    await Deno.remove(dir, { recursive: true });
-  }
+  using dir = tempDir('wvb-deno-bundle-');
+  const file = `${dir.path}/out.wvb`;
+  const written = await writeBundle(bundle, file);
+  assert(written > 0, 'writeBundle reports the bytes written');
+  using read = await readBundle(file);
+  assertEquals(read.getData('/style.css'), css);
+  assertEquals(read.index()['/style.css'].contentType, 'text/css');
 });
 
-Deno.test('BundleSource fetches the builtin bundle and reads it via descriptors', async () => {
+Deno.test('Source fetches the builtin bundle and reads it via descriptors', async () => {
   using source = testSource();
   using bundle = await source.fetchBundle('app');
   const paths = Object.keys(bundle.index());
@@ -496,28 +407,10 @@ Deno.test('BundleSource fetches the builtin bundle and reads it via descriptors'
   assertEquals(await descriptor.getData(filepath, path), data);
   assertEquals(await descriptor.getData(filepath, '/nope'), null);
 
-  // loadDescriptor: remembers its own filepath, so getData takes only a path.
-  using loaded = await source.loadDescriptor('app');
+  // load: remembers its own filepath, so getData takes only a path.
+  using loaded = await source.load('app');
   assertEquals(await loaded.getData(path), data);
   assertEquals(loaded.header().version, 'v1');
   // The descriptor is cached now, so unload reports it removed one.
-  assertEquals(source.unloadDescriptor('app'), true);
-});
-
-Deno.test('writeRemoteBundleData stages a downloaded bundle for activation', async () => {
-  using source = testSource();
-  using builder = new BundleBuilder();
-  const html = new TextEncoder().encode('<h1>v2</h1>');
-  builder.insertEntry('/index.html', html);
-  using bundle = builder.build();
-  const bytes = writeBundleToBytes(bundle);
-
-  await source.writeRemoteBundleData('app', '2.0.0', bytes);
-  // Staged, not activated: the current version is still the builtin.
-  assertEquals(await source.loadVersion('app'), { type: 'builtin', version: '1.0.0' });
-  await source.updateRemoteVersion('app', '2.0.0');
-  assertEquals(await source.loadVersion('app'), { type: 'remote', version: '2.0.0' });
-
-  using fetched = await source.fetchRemoteBundle('app', '2.0.0');
-  assertEquals(fetched.getData('/index.html'), html);
+  assertEquals(source.unload('app'), true);
 });

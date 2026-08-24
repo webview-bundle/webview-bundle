@@ -43,42 +43,52 @@ function ensureUpdater(wvb: WebviewBundle): Updater {
 type Params = Record<string, any>;
 type Handler = (wvb: WebviewBundle, params: Params) => Promise<unknown> | unknown;
 
+// The command names and their parameters mirror the Tauri plugin's, so `@wvb/bridge` speaks one
+// vocabulary across hosts. A verifying key is never accepted from the webview: `remoteGetUpdate`
+// forwards only the etag/channel, and the keys the updater checks against come from the host config.
 const handlers: Record<string, Handler> = {
   // source
   sourceListBundles: wvb => wvb.source.listBundles(),
-  sourceLoadVersion: (wvb, { bundleName }) => wvb.source.loadVersion(bundleName),
-  sourceUpdateVersion: (wvb, { bundleName, version }) =>
+  sourceListBuiltinBundles: wvb => wvb.source.listBuiltinBundles(),
+  sourceListRemoteBundles: wvb => wvb.source.listRemoteBundles(),
+  sourceGetVersion: (wvb, { bundleName }) => wvb.source.getVersion(bundleName),
+  sourceGetRemoteStagedVersion: (wvb, { bundleName }) =>
+    wvb.source.getRemoteStagedVersion(bundleName),
+  sourceGetRemotePreviousVersion: (wvb, { bundleName }) =>
+    wvb.source.getRemotePreviousVersion(bundleName),
+  sourceGetBuiltinVersionData: (wvb, { bundleName, version }) =>
+    wvb.source.getBuiltinVersionData(bundleName, version),
+  sourceGetRemoteVersionData: (wvb, { bundleName, version }) =>
+    wvb.source.getRemoteVersionData(bundleName, version),
+  sourceUpdateRemoteVersion: (wvb, { bundleName, version }) =>
     wvb.source.updateRemoteVersion(bundleName, version),
+  sourceUpdateRemoteVersions: (wvb, { items }) => wvb.source.updateRemoteVersions(items),
+  sourceStageRemoteBundle: (wvb, { bundleName, data }) =>
+    wvb.source.stageRemoteBundle(bundleName, data),
+  sourceStageRemoteBundles: (wvb, { items }) => wvb.source.stageRemoteBundles(items),
+  sourceRemoveRemoteBundle: (wvb, { bundleName, version, force }) =>
+    wvb.source.removeRemoteBundle(bundleName, version, force),
+  sourceRemoveRemoteBundles: (wvb, { items }) => wvb.source.removeRemoteBundles(items),
+  sourcePruneRemoteBundle: (wvb, { bundleName }) => wvb.source.pruneRemoteBundle(bundleName),
+  sourcePruneRemoteBundles: (wvb, { bundleNames }) => wvb.source.pruneRemoteBundles(bundleNames),
   sourceResolveFilepath: (wvb, { bundleName }) => wvb.source.resolveFilepath(bundleName),
   sourceGetBuiltinBundleFilepath: (wvb, { bundleName, version }) =>
     wvb.source.getBuiltinBundleFilepath(bundleName, version),
   sourceGetRemoteBundleFilepath: (wvb, { bundleName, version }) =>
     wvb.source.getRemoteBundleFilepath(bundleName, version),
-  sourceLoadBuiltinMetadata: (wvb, { bundleName, version }) =>
-    wvb.source.loadBuiltinMetadata(bundleName, version),
-  sourceLoadRemoteMetadata: (wvb, { bundleName, version }) =>
-    wvb.source.loadRemoteMetadata(bundleName, version),
-  sourceUnloadDescriptor: (wvb, { bundleName }) => wvb.source.unloadDescriptor(bundleName),
-  sourceRemoveRemoteBundle: (wvb, { bundleName, version }) =>
-    wvb.source.removeRemoteBundle(bundleName, version),
-  sourceRemoteRetainedVersions: (wvb, { bundleName }) =>
-    wvb.source.remoteRetainedVersions(bundleName),
-  sourcePruneRemoteBundles: (wvb, { bundleName }) => wvb.source.pruneRemoteBundles(bundleName),
+  sourceUnload: (wvb, { bundleName }) => wvb.source.unload(bundleName),
   // remote
-  remoteListBundles: (wvb, { channel }) => ensureRemote(wvb).listBundles(channel),
-  remoteGetInfo: (wvb, { bundleName, channel }) => ensureRemote(wvb).getInfo(bundleName, channel),
-  remoteDownload: async (wvb, { bundleName, channel }) =>
-    (await ensureRemote(wvb).download(bundleName, channel)).info,
-  remoteDownloadVersion: async (wvb, { bundleName, version }) =>
-    (await ensureRemote(wvb).downloadVersion(bundleName, version)).info,
-  // updater
-  updaterListRemotes: wvb => ensureUpdater(wvb).listRemotes(),
-  updaterGetUpdate: (wvb, { bundleName }) => ensureUpdater(wvb).getUpdate(bundleName),
-  updaterDownload: (wvb, { bundleName, version }) =>
-    ensureUpdater(wvb).download(bundleName, version),
-  updaterInstall: async (wvb, { bundleName, version }) => {
-    await ensureUpdater(wvb).install(bundleName, version);
+  remoteGetUpdate: (wvb, { options }) =>
+    ensureRemote(wvb).getUpdate({ etag: options?.etag, channel: options?.channel }),
+  remoteDownload: async (wvb, { url, filepath }) => {
+    await ensureRemote(wvb).download(url, filepath);
   },
+  // updater
+  updaterGetUpdate: (wvb, { options }) => ensureUpdater(wvb).getUpdate(options),
+  updaterDownload: (wvb, { bundleUpdates, options }) =>
+    ensureUpdater(wvb).download(bundleUpdates, options),
+  updaterInstall: (wvb, { targets }) => ensureUpdater(wvb).install(targets),
+  updaterRollback: (wvb, { targets }) => ensureUpdater(wvb).rollback(targets),
 };
 
 function toErrorData(error: unknown): BridgeErrorData {

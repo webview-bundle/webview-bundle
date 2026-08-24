@@ -73,13 +73,17 @@ Use \`remote download\` if you need the actual bundle file.
       this.logger.error('"bundleName" is required for remote operations.');
       return 1;
     }
-    const remote = new Remote(endpoint);
-    const info = await remote.getInfo(bundleName, { channel: this.channel });
+    const remote = new Remote({ baseUrl: endpoint });
+    const update = await remote.getUpdate({ channel: this.channel });
+    const info = update?.update.bundles.find(bundle => bundle.name === bundleName);
+    if (info == null) {
+      this.logger.error(`Bundle not found in the current update: ${bundleName}`);
+      return 1;
+    }
     this.logger.info(`Remote Webview Bundle info for ${c.info(bundleName)}`);
     this.logger.info(`  Version: ${c.bold(c.info(info.version))}`);
-    this.logger.info(`  ETag: ${c.bold(c.info(info.etag ?? '(none)'))}`);
+    this.logger.info(`  ETag: ${c.bold(c.info(update?.etag ?? '(none)'))}`);
     this.logger.info(`  Integrity: ${c.bold(c.info(info.integrity ?? '(none)'))}`);
-    this.logger.info(`  Signature: ${c.bold(c.info(info.signature ?? '(none)'))}`);
-    this.logger.info(`  Last-Modified: ${c.bold(c.info(info.lastModified ?? '(none)'))}`);
+    this.logger.info(`  Download URL: ${c.bold(c.info(info.downloadUrl ?? '(default)'))}`);
   }
 }

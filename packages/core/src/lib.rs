@@ -77,16 +77,16 @@
 //!
 //! ## Bundle Source
 //!
-//! Organize multiple bundle versions with the `BundleSource` API:
+//! Organize multiple bundle versions with the `Source` API:
 //!
 //! ```no_run
 //! # #[cfg(feature = "source")]
 //! # async {
-//! use wvb::source::BundleSource;
+//! use wvb::source::Source;
 //!
-//! let source = BundleSource::builder()
-//!     .builtin_dir("./builtin")  // Shipped with app
-//!     .remote_dir("./remote")     // Downloaded updates
+//! let source = Source::builder()
+//!     .builtin_dir("./builtin")
+//!     .remote_dir("./remote")
 //!     .build();
 //!
 //! // Load current version (remote takes priority)
@@ -99,38 +99,42 @@
 //! Download and verify bundles from a remote server:
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "remote", feature = "source"))]
+//! # #[cfg(all(feature = "updater", feature = "source"))]
 //! # async {
+//! use std::path::Path;
+//! use std::sync::Arc;
 //! use wvb::remote::Remote;
-//! use wvb::source::{BundleManifestMetadata, BundleSource};
+//! use wvb::source::Source;
+//! use wvb::updater::{Updater, UpdaterInstallTarget};
 //!
-//! let remote = Remote::builder()
-//!     .endpoint("https://updates.example.com")
+//! let source = Arc::new(Source::builder().remote_dir("./remote").build());
+//! let remote = Arc::new(
+//!     Remote::builder()
+//!         .base_url("https://updates.example.com")
+//!         .build()
+//!         .unwrap(),
+//! );
+//! let updater = Updater::builder()
+//!     .source(source.clone())
+//!     .remote(remote)
+//!     .update_filepath(Path::new("./remote/update.json"))
 //!     .build()
 //!     .unwrap();
-//! let source = BundleSource::builder()
-//!     .remote_dir("./remote")
-//!     .build();
 //!
-//! // Download the current version, then write the bytes exactly as received: the
-//! // integrity string covers those bytes, so storing them verbatim keeps the file
-//! // verifiable on every later load.
-//! let (info, _bundle, data) = remote.download("app", None).await.unwrap();
-//! source
-//!     .write_remote_bundle_data(
-//!         "app",
-//!         &info.version,
-//!         &data,
-//!         BundleManifestMetadata {
-//!             etag: info.etag,
-//!             integrity: info.integrity,
-//!             signature: info.signature,
-//!             last_modified: info.last_modified,
-//!         },
-//!     )
-//!     .await
-//!     .unwrap();
-//! source.update_remote_version("app", &info.version).await.unwrap();
+//! // The update names the bundles this source is missing. Downloading only stages them
+//! // on disk; installing is what activates them for the protocol to serve.
+//! if let Some(update) = updater.get_update(None).await.unwrap() {
+//!     updater.download(&update.bundles, None).await.unwrap();
+//!     let targets = update
+//!         .bundles
+//!         .iter()
+//!         .map(|bundle| UpdaterInstallTarget {
+//!             name: bundle.name.clone(),
+//!             version: Some(bundle.version.clone()),
+//!         })
+//!         .collect::<Vec<_>>();
+//!     updater.install(&targets).await.unwrap();
+//! }
 //! # };
 //! ```
 
@@ -173,3 +177,4 @@ pub mod source;
 pub mod testing;
 #[cfg(feature = "updater")]
 pub mod updater;
+pub mod util;

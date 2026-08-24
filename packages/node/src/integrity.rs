@@ -1,10 +1,7 @@
-use crate::js::JsCallback;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::str::FromStr;
 use wvb::integrity;
-
-pub(crate) type IntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Promise<bool>>;
 
 /// Hash algorithm for bundle integrity verification.
 ///
@@ -17,7 +14,7 @@ pub(crate) type IntegrityChecker = JsCallback<FnArgs<(Buffer, String)>, Promise<
 /// // "sha384:def456..." - SHA-384 (recommended)
 /// // "sha512:ghi789..." - SHA-512
 /// ```
-#[napi(string_enum = "camelCase")]
+#[napi(string_enum = "lowercase")]
 pub enum IntegrityAlgorithm {
   /// SHA-256 (256-bit hash)
   Sha256,
@@ -81,7 +78,7 @@ pub fn compute_integrity(algorithm: IntegrityAlgorithm, data: Buffer) -> Integri
 ///
 /// const isValid = parseIntegrity(advertised).validate(data);
 /// ```
-#[napi]
+#[napi(ts_return_type = "Integrity")]
 pub fn parse_integrity(integrity: String) -> crate::Outcome<Integrity> {
   crate::Outcome::from_fn(|| {
     Ok(Integrity {
@@ -129,22 +126,7 @@ impl Integrity {
 /// Policy for enforcing integrity verification during bundle operations.
 ///
 /// Controls when integrity hashes are required and how missing hashes are handled.
-///
-/// @example
-/// ```typescript
-/// import { Updater } from '@wvb/node';
-///
-/// // Require integrity for all bundles
-/// const updater = new Updater(source, remote, {
-///   integrityPolicy: 'strict',
-/// });
-///
-/// // Optional integrity (warn if missing)
-/// const updater2 = new Updater(source, remote, {
-///   integrityPolicy: 'optional',
-/// });
-/// ```
-#[napi(string_enum = "camelCase")]
+#[napi(string_enum = "snake_case")]
 pub enum IntegrityPolicy {
   /// Require integrity verification for all bundles. Operations fail if integrity is missing or invalid.
   Strict,

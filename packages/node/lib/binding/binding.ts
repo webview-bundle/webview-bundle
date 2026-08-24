@@ -23,7 +23,7 @@ let cached: WvbNodeBinding | undefined;
  * import { loadBinding } from '@wvb/node/binding';
  *
  * const wvbNode = loadBinding(nodeBindingsDir);
- * const source = new wvbNode.BundleSource({ builtinDir, remoteDir });
+ * const source = new wvbNode.Source({ builtinDir, remoteDir });
  * ```
  */
 export function loadBinding(dirOrFile: string): WvbNodeBinding {

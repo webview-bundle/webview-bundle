@@ -30,4 +30,5 @@ artifacts-merged/
 .wvb/
 
 # AI
-.claude/*.local.json
+.claude/
+.codex/

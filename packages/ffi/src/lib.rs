@@ -5,6 +5,8 @@
 //! types that UniFFI can project into Kotlin, Swift, and other target languages.
 
 pub mod bundle;
+pub mod cancellation;
+pub mod consts;
 pub mod error;
 pub mod http;
 pub mod integrity;

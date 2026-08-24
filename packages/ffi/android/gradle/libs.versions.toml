@@ -4,6 +4,7 @@
 [versions]
 android-gradle-plugin = "8.10.1"
 androidx-appcompat    = "1.7.0"
+androidx-annotation   = "1.9.1"
 androidx-lifecycle    = "2.8.7"
 jna                   = "5.17.0"
 junit-jupiter-engine  = "6.0.1"
@@ -12,6 +13,7 @@ kotlinx-coroutines    = "1.10.2"
 
 [libraries]
 androidx-appcompat             = { module = "androidx.appcompat:appcompat", version.ref = "androidx-appcompat" }
+androidx-annotation             = { module = "androidx.annotation:annotation", version.ref = "androidx-annotation" }
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidx-lifecycle" }
 jna                            = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 junit-jupiter-engine           = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit-jupiter-engine" }

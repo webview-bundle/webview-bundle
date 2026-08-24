@@ -1,157 +1,161 @@
-use crate::bundle::Bundle;
+use crate::cancellation::Cancellation;
 use crate::js::{JsCallback, JsCallbackExt};
 use crate::remote::HttpOptions;
-use napi::bindgen_prelude::*;
+use crate::signature::SignatureVerifyKey;
+use napi::Env;
 use napi_derive::napi;
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use wvb::remote;
 
-/// Options for creating a remote client.
-///
-/// @property {HttpOptions} [http] - HTTP client configuration
-/// @property {(data: RemoteOnDownloadData) => void} [onDownload] - Download progress callback
-///
-/// @example
-/// ```typescript
-/// const options = {
-///   http: { timeout: 30000 },
-///   onDownload: data => {
-///     console.log(`Downloaded ${data.downloadedBytes}/${data.totalBytes}`);
-///   },
-/// };
-/// const remote = new Remote('https://updates.example.com', options);
-/// ```
-#[napi(object, object_to_js = false)]
-pub struct RemoteOptions {
-  pub http: Option<HttpOptions>,
-  #[napi(ts_type = "(data: RemoteOnDownloadData) => void")]
-  pub on_download: Option<JsCallback<RemoteOnDownloadData, ()>>,
+#[napi(object)]
+pub struct RemoteUpdateResponse {
+  pub update: Update,
+  pub etag: Option<String>,
+  pub signature: Option<UpdateSignature>,
+}
+
+impl From<remote::RemoteUpdateResponse> for RemoteUpdateResponse {
+  fn from(value: remote::RemoteUpdateResponse) -> Self {
+    Self {
+      update: value.update.into(),
+      etag: value.etag,
+      signature: value.signature.map(Into::into),
+    }
+  }
+}
+
+#[napi(object)]
+pub struct Update {
+  pub id: String,
+  pub created_at: String,
+  pub runtime_version: u8,
+  pub bundles: Vec<BundleUpdate>,
+  pub metadata: HashMap<String, String>,
+}
+
+impl From<remote::Update> for Update {
+  fn from(value: remote::Update) -> Self {
+    Self {
+      id: value.id,
+      created_at: value.created_at,
+      runtime_version: value.runtime_version,
+      bundles: value
+        .bundles
+        .into_iter()
+        .map(BundleUpdate::from)
+        .collect::<Vec<_>>(),
+      metadata: value.metadata,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct BundleUpdate {
+  pub name: String,
+  pub version: String,
+  pub download_url: Option<String>,
+  pub integrity: Option<String>,
+  pub metadata: Option<HashMap<String, String>>,
+}
+
+impl From<remote::BundleUpdate> for BundleUpdate {
+  fn from(value: remote::BundleUpdate) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+      download_url: value.download_url,
+      integrity: value.integrity,
+      metadata: value.metadata,
+    }
+  }
+}
+
+impl From<BundleUpdate> for remote::BundleUpdate {
+  fn from(value: BundleUpdate) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+      download_url: value.download_url,
+      integrity: value.integrity,
+      metadata: value.metadata,
+    }
+  }
+}
+
+#[napi(object)]
+pub struct UpdateSignature {
+  pub key_id: String,
+  pub sig: String,
+  pub alg: String,
+}
+
+impl From<remote::UpdateSignature> for UpdateSignature {
+  fn from(value: remote::UpdateSignature) -> Self {
+    Self {
+      key_id: value.key_id,
+      sig: value.sig,
+      alg: value.alg,
+    }
+  }
 }
 
 /// Download progress data.
 ///
 /// @property {number} downloadedBytes - Bytes downloaded so far
 /// @property {number} totalBytes - Total bytes to download
-/// @property {string} endpoint - Endpoint being downloaded from
+/// @property {string} url - URL being downloaded from
 #[napi(object)]
 pub struct RemoteOnDownloadData {
   pub downloaded_bytes: u32,
   pub total_bytes: Option<u32>,
-  pub endpoint: String,
+  pub url: String,
 }
 
-/// Bundle information from list operations.
-///
-/// @property {string} name - Bundle name
-/// @property {string} version - Version string
-#[napi(object)]
-pub struct ListRemoteBundleInfo {
-  pub name: String,
-  pub version: String,
+#[napi(object, object_to_js = false)]
+pub struct RemoteConfig {
+  pub base_url: String,
+  pub http: Option<HttpOptions>,
+  #[napi(ts_type = "(data: RemoteOnDownloadData) => void")]
+  pub on_download: Option<JsCallback<RemoteOnDownloadData, ()>>,
 }
 
-impl From<remote::ListRemoteBundleInfo> for ListRemoteBundleInfo {
-  fn from(value: remote::ListRemoteBundleInfo) -> Self {
-    Self {
-      name: value.name,
-      version: value.version,
-    }
-  }
-}
-
-/// Complete bundle information from remote server.
-///
-/// Contains version, cache validation, and integrity data.
-///
-/// @property {string} name - Bundle name
-/// @property {string} version - Version string
-/// @property {string} [etag] - HTTP ETag for cache validation
-/// @property {string} [integrity] - SHA3 integrity hash
-/// @property {string} [signature] - Digital signature
-/// @property {string} [lastModified] - Last-Modified timestamp
-#[napi(object)]
-pub struct RemoteBundleInfo {
-  pub name: String,
-  pub version: String,
+#[napi(object, object_to_js = false)]
+pub struct RemoteGetUpdateOptions {
   pub etag: Option<String>,
-  pub integrity: Option<String>,
-  pub signature: Option<String>,
-  pub last_modified: Option<String>,
-}
-
-impl From<remote::RemoteBundleInfo> for RemoteBundleInfo {
-  fn from(value: remote::RemoteBundleInfo) -> Self {
-    Self {
-      name: value.name,
-      version: value.version,
-      etag: value.etag,
-      integrity: value.integrity,
-      signature: value.signature,
-      last_modified: value.last_modified,
-    }
-  }
-}
-
-impl From<RemoteBundleInfo> for remote::RemoteBundleInfo {
-  fn from(value: RemoteBundleInfo) -> Self {
-    Self {
-      name: value.name,
-      version: value.version,
-      etag: value.etag,
-      integrity: value.integrity,
-      signature: value.signature,
-      last_modified: value.last_modified,
-    }
-  }
-}
-
-/// Remote fetch options.
-///
-/// @property {string} [channel] - Channel to use for fetching bundles.
-#[napi(object)]
-pub struct RemoteFetchOptions {
   pub channel: Option<String>,
+  pub expect_signature: Option<SignatureVerifyKey>,
 }
 
-impl From<RemoteFetchOptions> for remote::RemoteFetchOptions {
-  fn from(value: RemoteFetchOptions) -> Self {
-    let mut options = remote::RemoteFetchOptions::default();
+impl From<RemoteGetUpdateOptions> for remote::RemoteGetUpdateOptions {
+  fn from(value: RemoteGetUpdateOptions) -> Self {
+    let mut options = remote::RemoteGetUpdateOptions::default();
+    if let Some(etag) = value.etag {
+      options = options.etag(etag);
+    }
     if let Some(channel) = value.channel {
       options = options.channel(channel);
+    }
+    if let Some(expect_signature) = value.expect_signature {
+      options = options.expect_signature(expect_signature.into());
     }
     options
   }
 }
 
-impl From<remote::RemoteFetchOptions> for RemoteFetchOptions {
-  fn from(value: remote::RemoteFetchOptions) -> Self {
-    Self {
-      channel: value.channel,
-    }
-  }
-}
-
-/// HTTP client for downloading bundles from a remote server.
-///
-/// The remote client implements the bundle HTTP protocol, allowing you to:
-/// - List available bundles
-/// - Get bundle metadata
-/// - Download specific versions
-/// - Track download progress
+/// HTTP client for getting updates and downloading bundles from a remote server.
 ///
 /// @example
 /// ```typescript
-/// const remote = new Remote('https://updates.example.com');
+/// const remote = new Remote({ baseUrl: 'https://updates.example.com' });
 ///
-/// // List all bundles
-/// const bundles = await remote.listBundles();
-///
-/// // Get current version info
-/// const info = await remote.getInfo('app');
-/// console.log(`Latest version: ${info.version}`);
-///
-/// // Download bundle
-/// const [bundleInfo, bundle, data] = await remote.download('app');
+/// const response = await remote.getUpdate();
+/// if (response != null) {
+///   for (const bundle of response.update.bundles) {
+///     await remote.download(bundle.downloadUrl, `./remote/${bundle.name}/${bundle.version}.wvb`);
+///   }
+/// }
 /// ```
 #[napi]
 pub struct Remote {
@@ -162,18 +166,12 @@ pub struct Remote {
 impl Remote {
   /// Creates a new remote client.
   ///
-  /// @param {string} endpoint - Base URL of the remote server
-  /// @param {RemoteOptions} [options] - Client options
+  /// @param {RemoteConfig} config - Client config
   ///
   /// @example
   /// ```typescript
-  /// const remote = new Remote('https://updates.example.com');
-  /// ```
-  ///
-  /// @example
-  /// ```typescript
-  /// // With options
-  /// const remote = new Remote('https://updates.example.com', {
+  /// const remote = new Remote({
+  ///   baseUrl: 'https://updates.example.com',
   ///   http: { timeout: 60000 },
   ///   onDownload: data => {
   ///     const percent = (data.downloadedBytes / data.totalBytes) * 100;
@@ -182,23 +180,21 @@ impl Remote {
   /// });
   /// ```
   #[napi(constructor)]
-  pub fn new(env: Env, endpoint: String, options: Option<RemoteOptions>) -> napi::Result<Remote> {
+  pub fn new(env: Env, config: RemoteConfig) -> napi::Result<Remote> {
     crate::Outcome::from_fn(|| {
-      let mut builder = remote::Remote::builder().endpoint(endpoint);
-      if let Some(options) = options {
-        if let Some(http) = options.http {
-          builder = builder.http(remote::HttpOptions::try_from(http)?);
-        }
-        if let Some(on_download) = options.on_download {
-          builder = builder.on_download(move |downloaded_bytes, total_bytes, endpoint| {
-            let on_download_fn = Arc::clone(&on_download);
-            let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
-              downloaded_bytes: downloaded_bytes as u32,
-              total_bytes: total_bytes.map(|t| t as u32),
-              endpoint,
-            });
+      let mut builder = remote::Remote::builder().base_url(config.base_url);
+      if let Some(http) = config.http {
+        builder = builder.http(remote::HttpOptions::try_from(http)?);
+      }
+      if let Some(on_download) = config.on_download {
+        builder = builder.on_download(move |downloaded_bytes, total_bytes, url| {
+          let on_download_fn = Arc::clone(&on_download);
+          let _ = on_download_fn.fire_and_forgot(RemoteOnDownloadData {
+            downloaded_bytes: downloaded_bytes as u32,
+            total_bytes: total_bytes.map(|t| t as u32),
+            url,
           });
-        }
+        });
       }
       let inner = builder.build()?;
       Ok(Remote {
@@ -208,118 +204,48 @@ impl Remote {
     .into_napi(env)
   }
 
-  /// Lists all available bundles on the server.
+  /// Gets update information from the remote server.
   ///
-  /// @param {RemoteFetchOptions} [options] - Options for fetching
-  /// @returns {Promise<ListRemoteBundleInfo[]>} List of bundles
-  ///
-  /// @example
-  /// ```typescript
-  /// const bundles = await remote.listBundles();
-  /// for (const bundle of bundles) {
-  ///   console.log(`${bundle.name}@${bundle.version}`);
-  /// }
-  /// ```
-  #[napi]
-  pub async fn list_bundles(
+  /// @param {RemoteGetUpdateOptions} [options] - Request options
+  /// @returns {Promise<RemoteUpdateResponse | null>} Update response, or null when not modified
+  #[napi(ts_return_type = "Promise<RemoteUpdateResponse | null>")]
+  pub async fn get_update(
     &self,
-    options: Option<RemoteFetchOptions>,
-  ) -> crate::Outcome<Vec<ListRemoteBundleInfo>> {
-    crate::Outcome::from_future(async move {
-      let bundles = self
+    options: Option<RemoteGetUpdateOptions>,
+  ) -> crate::Outcome<Option<RemoteUpdateResponse>> {
+    crate::Outcome::from_future(async {
+      let update = self
         .inner
-        .list_bundles(options.map(Into::into))
+        .get_update(options.map(Into::into))
         .await?
-        .into_iter()
-        .map(ListRemoteBundleInfo::from)
-        .collect::<Vec<_>>();
-      Ok(bundles)
+        .map(RemoteUpdateResponse::from);
+      Ok(update)
     })
     .await
   }
 
-  /// Gets bundle metadata for the current version.
+  /// Downloads a bundle into the given file path.
   ///
-  /// Fetches metadata without downloading the bundle itself.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {RemoteFetchOptions} [options] - Options for fetching
-  /// @returns {Promise<RemoteBundleInfo>} Bundle information
-  ///
-  /// @example
-  /// ```typescript
-  /// const info = await remote.getInfo('app');
-  /// console.log(`Current version: ${info.version}`);
-  /// if (info.integrity) {
-  ///   console.log(`Integrity: ${info.integrity}`);
-  /// }
-  /// ```
-  #[napi]
-  pub async fn get_info(
-    &self,
-    bundle_name: String,
-    options: Option<RemoteFetchOptions>,
-  ) -> crate::Outcome<RemoteBundleInfo> {
-    crate::Outcome::from_future(async move {
-      let info = self
-        .inner
-        .get_current_info(&bundle_name, options.map(Into::into))
-        .await?;
-      Ok(info.into())
-    })
-    .await
-  }
-
-  /// Downloads the current version of a bundle.
-  ///
-  /// Returns bundle info, parsed bundle, and raw data.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {RemoteFetchOptions} [options] - Options for fetching
-  /// @returns {Promise<[RemoteBundleInfo, Bundle, Buffer]>} Tuple of info, bundle, and data
-  ///
-  /// @example
-  /// ```typescript
-  /// const [info, bundle, data] = await remote.download('app');
-  /// console.log(`Downloaded ${info.name}@${info.version}`);
-  /// console.log(`Size: ${data.length} bytes`);
-  ///
-  /// // Save to file
-  /// await writeBundle(bundle, 'app.wvb');
-  /// ```
-  #[napi]
+  /// @param {string} url - URL to download from
+  /// @param {string} filepath - Destination file path
+  /// @param {Cancellation} [cancellation] - Cancels the download when triggered
+  #[napi(ts_return_type = "Promise<void>")]
   pub async fn download(
     &self,
-    bundle_name: String,
-    channel: Option<String>,
-  ) -> crate::Outcome<(RemoteBundleInfo, Bundle, Buffer)> {
-    crate::Outcome::from_future(async move {
-      let (info, inner, data) = self.inner.download(&bundle_name, channel.as_ref()).await?;
-      Ok((info.into(), Bundle { inner }, data.into()))
-    })
-    .await
-  }
-
-  /// Downloads a specific version of a bundle.
-  ///
-  /// @param {string} bundleName - Name of the bundle
-  /// @param {string} version - Specific version to download
-  /// @returns {Promise<[RemoteBundleInfo, Bundle, Buffer]>} Tuple of info, bundle, and data
-  ///
-  /// @example
-  /// ```typescript
-  /// const [info, bundle, data] = await remote.downloadVersion('app', '1.0.0');
-  /// console.log(`Downloaded specific version: ${info.version}`);
-  /// ```
-  #[napi]
-  pub async fn download_version(
-    &self,
-    bundle_name: String,
-    version: String,
-  ) -> crate::Outcome<(RemoteBundleInfo, Bundle, Buffer)> {
-    crate::Outcome::from_future(async move {
-      let (info, inner, data) = self.inner.download_version(&bundle_name, &version).await?;
-      Ok((info.into(), Bundle { inner }, data.into()))
+    url: String,
+    filepath: String,
+    cancellation: Option<&Cancellation>,
+  ) -> crate::Outcome<()> {
+    crate::Outcome::from_future(async {
+      self
+        .inner
+        .download(
+          url,
+          Path::new(&filepath),
+          cancellation.map(|x| x.inner.clone()),
+        )
+        .await?;
+      Ok(())
     })
     .await
   }

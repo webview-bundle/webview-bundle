@@ -1,15 +1,27 @@
 import type {
-  BundleManifestMetadata,
   BundleSourceVersion,
-  BundleUpdateInfo,
-  ListBundleItem,
-  ListRemoteBundleInfo,
-  RemoteBundleInfo,
+  BundleUpdate,
+  ManifestPruneResult,
+  ManifestRemoveData,
+  ManifestRemoveResult,
+  ManifestSetCurrentVersionResult,
+  ManifestStageData,
+  ManifestStageResult,
+  ManifestVersionData,
+  RemoteGetUpdateOptions,
+  RemoteUpdateResponse,
+  SourceListItem,
+  Update,
+  UpdaterDownloadOptions,
+  UpdaterDownloadResult,
+  UpdaterGetUpdateOptions,
+  UpdaterInstallResult,
+  UpdaterInstallTarget,
+  UpdaterRollbackResult,
+  UpdaterRollbackTarget,
 } from '@wvb/node';
 
-/**
- * Single IPC channel backing the `@wvb/bridge` electron transport.
- */
+/** Single IPC channel backing the `@wvb/bridge` Electron transport. */
 export const INVOKE_CHANNEL = 'webview-bundle:invoke';
 
 export interface BridgeErrorData {
@@ -19,72 +31,64 @@ export interface BridgeErrorData {
 
 export type InvokeResult = { ok: true; value: unknown } | { ok: false; error: BridgeErrorData };
 
-/**
- * Wire protocol for `window.wvbElectron.invoke`.
- */
+/** Wire protocol for `window.wvbElectron.invoke`. */
 export interface InvokeSpecs {
-  // source
-  sourceListBundles: { params: undefined; ok: ListBundleItem[] };
-  sourceLoadVersion: {
-    params: { bundleName: string };
-    ok: BundleSourceVersion | null;
-  };
-  sourceUpdateVersion: {
+  sourceListBundles: { params: undefined; ok: SourceListItem[] };
+  sourceListBuiltinBundles: { params: undefined; ok: SourceListItem[] };
+  sourceListRemoteBundles: { params: undefined; ok: SourceListItem[] };
+  sourceGetVersion: { params: { bundleName: string }; ok: BundleSourceVersion | null };
+  sourceGetRemoteStagedVersion: { params: { bundleName: string }; ok: string | null };
+  sourceGetRemotePreviousVersion: { params: { bundleName: string }; ok: string | null };
+  sourceGetBuiltinVersionData: {
     params: { bundleName: string; version: string };
-    ok: void;
+    ok: ManifestVersionData | null;
   };
-  sourceResolveFilepath: { params: { bundleName: string }; ok: string };
-  sourceGetBuiltinBundleFilepath: {
+  sourceGetRemoteVersionData: {
     params: { bundleName: string; version: string };
-    ok: string;
+    ok: ManifestVersionData | null;
   };
-  sourceGetRemoteBundleFilepath: {
+  sourceUpdateRemoteVersion: {
     params: { bundleName: string; version: string };
-    ok: string;
+    ok: ManifestSetCurrentVersionResult;
   };
-  sourceLoadBuiltinMetadata: {
-    params: { bundleName: string; version: string };
-    ok: BundleManifestMetadata | null;
+  sourceUpdateRemoteVersions: {
+    params: { items: Record<string, string> };
+    ok: ManifestSetCurrentVersionResult[];
   };
-  sourceLoadRemoteMetadata: {
-    params: { bundleName: string; version: string };
-    ok: BundleManifestMetadata | null;
+  sourceStageRemoteBundle: {
+    params: { bundleName: string; data: ManifestStageData };
+    ok: ManifestStageResult;
   };
-  sourceUnloadDescriptor: { params: { bundleName: string }; ok: boolean };
+  sourceStageRemoteBundles: {
+    params: { items: Record<string, ManifestStageData> };
+    ok: ManifestStageResult[];
+  };
   sourceRemoveRemoteBundle: {
-    params: { bundleName: string; version: string };
-    ok: boolean;
+    params: { bundleName: string; version: string; force?: boolean };
+    ok: ManifestRemoveResult;
   };
-  sourceRemoteRetainedVersions: { params: { bundleName: string }; ok: string[] };
-  sourcePruneRemoteBundles: { params: { bundleName: string }; ok: string[] };
-  // remote
-  remoteListBundles: {
-    params: { channel?: string | undefined };
-    ok: ListRemoteBundleInfo[];
+  sourceRemoveRemoteBundles: {
+    params: { items: Record<string, ManifestRemoveData> };
+    ok: ManifestRemoveResult[];
   };
-  remoteGetInfo: {
-    params: { bundleName: string; channel?: string | undefined };
-    ok: RemoteBundleInfo;
+  sourcePruneRemoteBundle: { params: { bundleName: string }; ok: ManifestPruneResult };
+  sourcePruneRemoteBundles: { params: { bundleNames: string[] }; ok: ManifestPruneResult[] };
+  sourceResolveFilepath: { params: { bundleName: string }; ok: string };
+  sourceGetBuiltinBundleFilepath: { params: { bundleName: string; version: string }; ok: string };
+  sourceGetRemoteBundleFilepath: { params: { bundleName: string; version: string }; ok: string };
+  sourceUnload: { params: { bundleName: string }; ok: boolean };
+  remoteGetUpdate: {
+    params: { options?: RemoteGetUpdateOptions };
+    ok: RemoteUpdateResponse | null;
   };
-  remoteDownload: {
-    params: { bundleName: string; channel?: string | undefined };
-    ok: RemoteBundleInfo;
-  };
-  remoteDownloadVersion: {
-    params: { bundleName: string; version: string };
-    ok: RemoteBundleInfo;
-  };
-  // updater
-  updaterListRemotes: { params: undefined; ok: ListRemoteBundleInfo[] };
-  updaterGetUpdate: { params: { bundleName: string }; ok: BundleUpdateInfo };
+  remoteDownload: { params: { url: string; filepath: string }; ok: void };
+  updaterGetUpdate: { params: { options?: UpdaterGetUpdateOptions }; ok: Update | null };
   updaterDownload: {
-    params: { bundleName: string; version?: string | undefined };
-    ok: RemoteBundleInfo;
+    params: { bundleUpdates: BundleUpdate[]; options?: UpdaterDownloadOptions };
+    ok: UpdaterDownloadResult[];
   };
-  updaterInstall: {
-    params: { bundleName: string; version: string };
-    ok: void;
-  };
+  updaterInstall: { params: { targets: UpdaterInstallTarget[] }; ok: UpdaterInstallResult[] };
+  updaterRollback: { params: { targets: UpdaterRollbackTarget[] }; ok: UpdaterRollbackResult[] };
 }
 
 export type InvokeName = keyof InvokeSpecs;

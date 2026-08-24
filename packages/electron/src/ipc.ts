@@ -69,45 +69,44 @@ function toBridgeErrorData(error: unknown): BridgeErrorData {
 const handlers: InvokeHandlers = {
   // source
   sourceListBundles: async wvb => wvb.source.listBundles(),
-  sourceLoadVersion: async (wvb, { bundleName }) => wvb.source.loadVersion(bundleName),
-  sourceUpdateVersion: async (wvb, { bundleName, version }) =>
+  sourceListBuiltinBundles: async wvb => wvb.source.listBuiltinBundles(),
+  sourceListRemoteBundles: async wvb => wvb.source.listRemoteBundles(),
+  sourceGetVersion: async (wvb, { bundleName }) => wvb.source.getVersion(bundleName),
+  sourceGetRemoteStagedVersion: async (wvb, { bundleName }) =>
+    wvb.source.getRemoteStagedVersion(bundleName),
+  sourceGetRemotePreviousVersion: async (wvb, { bundleName }) =>
+    wvb.source.getRemotePreviousVersion(bundleName),
+  sourceGetBuiltinVersionData: async (wvb, { bundleName, version }) =>
+    wvb.source.getBuiltinVersionData(bundleName, version),
+  sourceGetRemoteVersionData: async (wvb, { bundleName, version }) =>
+    wvb.source.getRemoteVersionData(bundleName, version),
+  sourceUpdateRemoteVersion: async (wvb, { bundleName, version }) =>
     wvb.source.updateRemoteVersion(bundleName, version),
+  sourceUpdateRemoteVersions: async (wvb, { items }) => wvb.source.updateRemoteVersions(items),
+  sourceStageRemoteBundle: async (wvb, { bundleName, data }) =>
+    wvb.source.stageRemoteBundle(bundleName, data),
+  sourceStageRemoteBundles: async (wvb, { items }) => wvb.source.stageRemoteBundles(items),
   sourceResolveFilepath: async (wvb, { bundleName }) => wvb.source.resolveFilepath(bundleName),
   sourceGetBuiltinBundleFilepath: async (wvb, { bundleName, version }) =>
     wvb.source.getBuiltinBundleFilepath(bundleName, version),
   sourceGetRemoteBundleFilepath: async (wvb, { bundleName, version }) =>
     wvb.source.getRemoteBundleFilepath(bundleName, version),
-  sourceLoadBuiltinMetadata: async (wvb, { bundleName, version }) =>
-    wvb.source.loadBuiltinMetadata(bundleName, version),
-  sourceLoadRemoteMetadata: async (wvb, { bundleName, version }) =>
-    wvb.source.loadRemoteMetadata(bundleName, version),
-  sourceUnloadDescriptor: async (wvb, { bundleName }) => wvb.source.unloadDescriptor(bundleName),
-  sourceRemoveRemoteBundle: async (wvb, { bundleName, version }) =>
-    wvb.source.removeRemoteBundle(bundleName, version),
-  sourceRemoteRetainedVersions: async (wvb, { bundleName }) =>
-    wvb.source.remoteRetainedVersions(bundleName),
-  sourcePruneRemoteBundles: async (wvb, { bundleName }) =>
-    wvb.source.pruneRemoteBundles(bundleName),
+  sourceUnload: async (wvb, { bundleName }) => wvb.source.unload(bundleName),
+  sourceRemoveRemoteBundle: async (wvb, { bundleName, version, force }) =>
+    wvb.source.removeRemoteBundle(bundleName, version, force),
+  sourceRemoveRemoteBundles: async (wvb, { items }) => wvb.source.removeRemoteBundles(items),
+  sourcePruneRemoteBundle: async (wvb, { bundleName }) => wvb.source.pruneRemoteBundle(bundleName),
+  sourcePruneRemoteBundles: async (wvb, { bundleNames }) =>
+    wvb.source.pruneRemoteBundles(bundleNames),
   // remote
-  remoteListBundles: async (wvb, { channel }) => ensureRemote(wvb).listBundles({ channel }),
-  remoteGetInfo: async (wvb, { bundleName, channel }) =>
-    ensureRemote(wvb).getInfo(bundleName, { channel }),
-  remoteDownload: async (wvb, { bundleName, channel }) => {
-    const [info] = await ensureRemote(wvb).download(bundleName, channel);
-    return info;
-  },
-  remoteDownloadVersion: async (wvb, { bundleName, version }) => {
-    const [info] = await ensureRemote(wvb).downloadVersion(bundleName, version);
-    return info;
-  },
+  remoteGetUpdate: async (wvb, { options }) => ensureRemote(wvb).getUpdate(options),
+  remoteDownload: async (wvb, { url, filepath }) => ensureRemote(wvb).download(url, filepath),
   // updater
-  updaterListRemotes: async wvb => ensureUpdater(wvb).listRemotes(),
-  updaterGetUpdate: async (wvb, { bundleName }) => ensureUpdater(wvb).getUpdate(bundleName),
-  updaterDownload: async (wvb, { bundleName, version }) =>
-    ensureUpdater(wvb).download(bundleName, version),
-  updaterInstall: async (wvb, { bundleName, version }) => {
-    await ensureUpdater(wvb).install(bundleName, version);
-  },
+  updaterGetUpdate: async (wvb, { options }) => ensureUpdater(wvb).getUpdate(options),
+  updaterDownload: async (wvb, { bundleUpdates, options }) =>
+    ensureUpdater(wvb).download(bundleUpdates, options),
+  updaterInstall: async (wvb, { targets }) => ensureUpdater(wvb).install(targets),
+  updaterRollback: async (wvb, { targets }) => ensureUpdater(wvb).rollback(targets),
 };
 
 const handlerNames = new Set<string>(Object.keys(handlers));

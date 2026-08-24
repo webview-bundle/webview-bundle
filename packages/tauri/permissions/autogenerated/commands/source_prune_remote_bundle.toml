@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-source-prune-remote-bundle"
+description = "Enables the source_prune_remote_bundle command without any pre-configured scope."
+commands.allow = ["source_prune_remote_bundle"]
+
+[[permission]]
+identifier = "deny-source-prune-remote-bundle"
+description = "Denies the source_prune_remote_bundle command without any pre-configured scope."
+commands.deny = ["source_prune_remote_bundle"]

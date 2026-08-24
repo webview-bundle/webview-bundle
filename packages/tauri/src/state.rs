@@ -1,14 +1,9 @@
+use crate::Config;
 use crate::config::ErrorResponse;
-use crate::{Config, ProtocolConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Runtime, http};
-use wvb::protocol;
-use wvb::remote::Remote;
-use wvb::source::{BundleSource, BundleSourceOptions};
-use wvb::updater::Updater;
 
-/// A plain-text error response, used when a protocol has no [`ErrorResponse`] of its own.
 pub fn default_error_response(error: &crate::Error) -> http::Response<Vec<u8>> {
   http::Response::builder()
     .status(http::StatusCode::INTERNAL_SERVER_ERROR)
@@ -29,117 +24,58 @@ pub fn init<R: Runtime>(
   Ok(webview_bundle)
 }
 
-/// Kept as its concrete type, so the plugin can read back how a protocol resolves a request.
-enum ProtocolKind {
-  Bundle(Arc<protocol::BundleProtocol>),
-  Proxy(Arc<protocol::ProxyProtocol>),
-}
-
 struct RegisteredProtocol {
-  kind: ProtocolKind,
+  protocol: Arc<dyn wvb::protocol::Protocol>,
   error_response: Option<ErrorResponse>,
-}
-
-impl RegisteredProtocol {
-  fn handler(&self) -> Arc<dyn protocol::Protocol> {
-    match &self.kind {
-      ProtocolKind::Bundle(protocol) => protocol.clone(),
-      ProtocolKind::Proxy(protocol) => protocol.clone(),
-    }
-  }
-
   #[cfg(target_os = "android")]
-  fn as_bundle(&self) -> Option<&protocol::BundleProtocol> {
-    match &self.kind {
-      ProtocolKind::Bundle(protocol) => Some(protocol),
-      ProtocolKind::Proxy(_) => None,
-    }
-  }
+  bundle_resolver: Option<wvb::protocol::UriBundleResolver>,
 }
 
 pub struct WebviewBundle<R: Runtime> {
   _app: AppHandle<R>,
   _config: Arc<Config<R>>,
-  source: Arc<BundleSource>,
-  remote: Option<Arc<Remote>>,
-  updater: Option<Arc<Updater>>,
+  source: Arc<wvb::source::Source>,
+  remote: Option<Arc<wvb::remote::Remote>>,
+  updater: Option<Arc<wvb::updater::Updater>>,
   protocols: HashMap<String, RegisteredProtocol>,
   #[cfg(target_os = "android")]
-  builtin_extractor: crate::android::BuiltinExtractor,
+  builtin_extractor: Option<crate::android::AndroidBuiltinExtractor>,
 }
 
 impl<R: Runtime> WebviewBundle<R> {
   pub(crate) fn init(app: AppHandle<R>, config: Arc<Config<R>>) -> crate::Result<Self> {
-    let builtin_dir = config.source.resolve_builtin_dir(&app)?;
-    // On Android the resolved dir is an APK `asset://` path the core cannot read
-    // with std::fs. The extractor copies the (tiny) manifest now and serves from a
-    // real directory; each bundle's `.wvb` files are extracted lazily on first use.
+    let source = Arc::new(config.build_source(&app)?);
     #[cfg(target_os = "android")]
-    let (builtin_dir, builtin_extractor) = {
-      let extractor = crate::android::BuiltinExtractor::new(&app, builtin_dir)?;
-      (extractor.dest_dir().to_path_buf(), extractor)
+    let builtin_extractor = crate::android::AndroidBuiltinExtractor::new(
+      &app,
+      source.clone(),
+      config.builtin_extract_options(),
+    )?;
+    let remote = config.build_remote()?.map(Arc::new);
+    let updater = match remote {
+      Some(ref remote) => Some(Arc::new(config.build_updater(&app, &source, remote)?)),
+      None => None,
     };
-    let source = Arc::new(
-      BundleSource::builder()
-        .builtin_dir(builtin_dir.as_path())
-        .remote_dir(config.source.resolve_remote_dir(&app)?.as_path())
-        .options(
-          BundleSourceOptions::default()
-            .integrity(config.source.integrity.clone())
-            .signature(config.source.signature.clone())
-            .header_read(config.source.header_read)
-            .index_read(config.source.index_read)
-            .data_read(config.source.data_read),
-        )
-        .build(),
-    );
+
     let mut protocols = HashMap::with_capacity(config.protocols.len());
     for protocol_config in &config.protocols {
       let scheme = protocol_config.scheme().to_string();
-      let (kind, error_response) = match protocol_config {
-        ProtocolConfig::Bundle(config) => {
-          let mut bundle = protocol::BundleProtocol::new(source.clone());
-          bundle = bundle.set_bundle_resolver(config.bundle_resolver.clone());
-          bundle = bundle.set_path_resolver(config.path_resolver.clone());
-          (
-            ProtocolKind::Bundle(Arc::new(bundle)),
-            config.error_response.clone(),
-          )
-        }
-        ProtocolConfig::Proxy(config) => {
-          let proxy = protocol::ProxyProtocol::new(config.resolver.clone());
-          (
-            ProtocolKind::Proxy(Arc::new(proxy)),
-            config.error_response.clone(),
-          )
-        }
-      };
       if protocols.contains_key(&scheme) {
-        return Err(crate::Error::ProtocolSchemeDuplicated { scheme });
+        panic!(
+          "Protocol scheme duplicated. Only one protocol can be registered for the same scheme."
+        );
       }
       protocols.insert(
         scheme,
         RegisteredProtocol {
-          kind,
-          error_response,
+          protocol: protocol_config.build(&source),
+          error_response: protocol_config.error_response(),
+          #[cfg(target_os = "android")]
+          bundle_resolver: protocol_config.bundle_resolver(),
         },
       );
     }
-    let remote = config.build_remote()?.map(Arc::new);
-    let updater = match remote.clone() {
-      Some(remote) => {
-        let updater_options = match config.updater {
-          Some(ref updater) => Some(updater.build_options()),
-          None => None,
-        };
-        Some(Arc::new(Updater::new(
-          source.clone(),
-          remote,
-          updater_options,
-        )))
-      }
-      None => None,
-    };
+
     Ok(Self {
       _app: app,
       _config: config,
@@ -152,24 +88,25 @@ impl<R: Runtime> WebviewBundle<R> {
     })
   }
 
-  pub fn source(&self) -> &Arc<BundleSource> {
+  pub fn source(&self) -> &wvb::source::Source {
     &self.source
   }
 
-  pub fn remote(&self) -> Option<&Arc<Remote>> {
-    self.remote.as_ref()
+  pub fn remote(&self) -> Option<&wvb::remote::Remote> {
+    self.remote.as_deref()
   }
 
-  pub fn updater(&self) -> Option<&Arc<Updater>> {
-    self.updater.as_ref()
+  pub fn updater(&self) -> Option<&wvb::updater::Updater> {
+    self.updater.as_deref()
   }
 
-  pub(crate) fn get_protocol(&self, scheme: &str) -> Option<Arc<dyn protocol::Protocol>> {
-    self.protocols.get(scheme).map(RegisteredProtocol::handler)
+  pub(crate) fn get_protocol(&self, scheme: &str) -> Option<Arc<dyn wvb::protocol::Protocol>> {
+    self
+      .protocols
+      .get(scheme)
+      .map(|registered| registered.protocol.clone())
   }
 
-  /// The response for a request the scheme's protocol failed to serve, from its own
-  /// [`error_response`](crate::BundleProtocolConfig::error_response) when it has one.
   pub(crate) fn error_response(
     &self,
     scheme: &str,
@@ -185,26 +122,23 @@ impl<R: Runtime> WebviewBundle<R> {
     }
   }
 
-  /// Extracts the requested builtin bundle's `.wvb` files before the protocol serves it (Android
-  /// only; see [`crate::android::BuiltinExtractor`]). The name comes from the protocol's own
-  /// [`bundle_resolver`](protocol::BundleProtocol::bundle_resolver), so extraction and serving
-  /// always pick the same bundle.
   #[cfg(target_os = "android")]
-  pub(crate) fn ensure_builtin_bundle(
+  pub(crate) async fn ensure_builtin_bundle(
     &self,
     scheme: &str,
     uri: &wvb::http::Uri,
   ) -> crate::Result<()> {
-    let Some(bundle) = self
+    let Some(extractor) = self.builtin_extractor.as_ref() else {
+      return Ok(());
+    };
+    let Some(bundle_name) = self
       .protocols
       .get(scheme)
-      .and_then(RegisteredProtocol::as_bundle)
+      .and_then(|registered| registered.bundle_resolver.as_ref())
+      .and_then(|bundle_resolver| bundle_resolver.resolve(uri))
     else {
       return Ok(());
     };
-    let Some(bundle_name) = bundle.bundle_resolver().resolve(uri) else {
-      return Ok(());
-    };
-    self.builtin_extractor.ensure(&self._app, &bundle_name)
+    extractor.ensure(&self._app, bundle_name).await
   }
 }

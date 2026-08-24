@@ -1,14 +1,22 @@
-import { type BundleSource, loadLib, type Remote, Updater, type UpdaterOptions } from '@wvb/deno';
-import { type RemoteOptions, remote } from './remote.ts';
+import {
+  loadLib,
+  type Remote,
+  type RemoteConfig,
+  Source,
+  Updater,
+  type UpdaterOptions,
+} from '@wvb/deno';
+import { remote } from './remote.ts';
 import { createHandler, type Mount, normalizeRoutes, type Routes } from './routes.ts';
-import { bundleSource, type SourceOptions } from './source.ts';
-
-export interface WebviewBundleRemoteConfig extends RemoteOptions {
-  endpoint: string;
-}
+import { type BundleSourceConfig, resolveSourceConfig } from './source.ts';
 
 export interface WebviewBundleUpdaterConfig extends UpdaterOptions {
-  remote: WebviewBundleRemoteConfig;
+  remote: RemoteConfig;
+  /**
+   * Where the update document last received is cached. Defaults to `update.json` in the source's
+   * remote directory.
+   */
+  updateFilepath?: string;
 }
 
 export interface WebviewBundleConfig {
@@ -18,7 +26,7 @@ export interface WebviewBundleConfig {
    * `import.meta.url`. Omit if you already loaded it via `loadLib`/`loadFromGitHub`.
    */
   lib?: string | URL;
-  source?: SourceOptions;
+  source?: BundleSourceConfig;
   updater?: WebviewBundleUpdaterConfig;
   /**
    * What is served at which path. Deno desktop serves a single origin over local HTTP, so bundles
@@ -29,7 +37,7 @@ export interface WebviewBundleConfig {
 
 export class WebviewBundle {
   readonly #mounts: Mount[];
-  readonly #source: BundleSource;
+  readonly #source: Source;
   readonly #remote: Remote | null = null;
   readonly #updater: Updater | null = null;
   readonly #handler: (req: Request) => Promise<Response>;
@@ -41,12 +49,17 @@ export class WebviewBundle {
     if (config.lib != null) {
       loadLib(config.lib);
     }
-    this.#source = bundleSource(config.source);
+    const sourceConfig = resolveSourceConfig(config.source);
+    this.#source = new Source(sourceConfig);
     if (config.updater != null) {
-      const { remote: remoteConfig, ...updaterOptions } = config.updater;
-      const { endpoint, ...remoteOptions } = remoteConfig;
-      this.#remote = remote(endpoint, remoteOptions);
-      this.#updater = new Updater(this.#source, this.#remote, updaterOptions);
+      const { remote: remoteConfig, updateFilepath, ...updaterOptions } = config.updater;
+      this.#remote = remote(remoteConfig);
+      this.#updater = new Updater(
+        this.#source,
+        this.#remote,
+        updateFilepath ?? `${sourceConfig.remoteDir}/update.json`,
+        updaterOptions
+      );
     }
     this.#handler = createHandler(this.#mounts, this.#source);
   }
@@ -56,7 +69,7 @@ export class WebviewBundle {
     return this.#mounts.map(m => m.mountPath);
   }
 
-  get source(): BundleSource {
+  get source(): Source {
     return this.#source;
   }
 

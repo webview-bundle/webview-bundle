@@ -1,316 +1,228 @@
 import type {
-  BundleManifestMetadata,
-  BundleSourceType,
-  BundleSourceVerifyMode,
   BundleSourceVersion,
-  ListBundleItem,
+  ChecksumReadOptions,
+  DataReadOptions,
+  HeaderReadOptions,
+  IndexReadOptions,
+  ManifestBundleItem,
+  ManifestBundleItemStatus,
+  ManifestPruneResult,
+  ManifestRemoveData,
+  ManifestRemoveResult,
+  ManifestRemoveResultKind,
+  ManifestSetCurrentVersionResult,
+  ManifestSetCurrentVersionResultKind,
+  ManifestStageData,
+  ManifestStageResult,
+  ManifestStageResultKind,
+  ManifestVersionData,
+  SourceConfig,
+  SourceIntegrityCheckMode,
+  SourceIntegrityOptions,
+  SourceKind,
+  SourceListItem,
+  SourceOptions,
 } from './bindings.ts';
 import { Bundle, BundleDescriptor, LoadedDescriptor } from './bundle.ts';
-import { WebviewBundleError } from './error.ts';
-import { cstr, getLib, readHandle, readResult } from './ffi.ts';
 import {
-  type IntegrityPolicy,
-  type SignatureVerifierOptions,
-  serializeSignatureVerifier,
-} from './updater.ts';
+  cstr,
+  getLib,
+  readHandle,
+  readHandleAsync,
+  readJson,
+  readJsonAsync,
+  requireHandle,
+} from './ffi.ts';
 
 export type {
-  BundleManifestMetadata,
-  BundleSourceType,
-  BundleSourceVerifyMode,
   BundleSourceVersion,
-  ListBundleItem,
+  ChecksumReadOptions,
+  DataReadOptions,
+  HeaderReadOptions,
+  IndexReadOptions,
+  ManifestBundleItem,
+  ManifestBundleItemStatus,
+  ManifestPruneResult,
+  ManifestRemoveData,
+  ManifestRemoveResult,
+  ManifestRemoveResultKind,
+  ManifestSetCurrentVersionResult,
+  ManifestSetCurrentVersionResultKind,
+  ManifestStageData,
+  ManifestStageResult,
+  ManifestStageResultKind,
+  ManifestVersionData,
+  SourceConfig,
+  SourceIntegrityCheckMode,
+  SourceIntegrityOptions,
+  SourceKind,
+  SourceListItem,
+  SourceOptions,
 };
 
-/**
- * How bundles are checked against the integrity recorded for them in the manifest when they are
- * loaded from disk.
- */
-export interface BundleSourceIntegrityOptions {
-  /**
-   * How a bundle's integrity metadata is treated. Default: `'optional'` — checked when present,
-   * tolerated when missing. `'strict'` requires it; `'off'` disables the check entirely.
-   */
-  policy?: IntegrityPolicy;
-  /** Which bundles are checked on load. Default: `'onlyRemote'`. */
-  checkMode?: BundleSourceVerifyMode;
+/** The format version of a `manifest.json`. */
+export type ManifestVersion = 1;
+
+/** Every version of one bundle a manifest records, plus which of them are in play. */
+export interface ManifestBundleSet {
+  versions: Record<string, ManifestVersionData>;
+  currentVersion?: string;
+  previousVersion?: string;
+  stagedVersion?: string;
+}
+
+/** A `manifest.json` as it is stored on disk. */
+export interface ManifestData {
+  manifestVersion: ManifestVersion;
+  bundles: Record<string, ManifestBundleSet>;
 }
 
 /**
- * How bundle signatures are verified when bundles are loaded from disk.
+ * The local bundle store: read-only builtin bundles shipped with the app, plus a writable directory
+ * of downloaded remote ones. A remote version takes priority over the builtin of the same name.
  *
- * A bundle's signature signs its integrity string, not the bundle bytes; verifying it proves the
- * integrity string is authentic. It is verified independently of the integrity check, so pair it
- * with an enabled {@link BundleSourceConfig.integrity} to also authenticate the bytes — signature
- * verification alone does not read them.
+ * Owns a native handle — call {@link Source.free} (or `using source = new Source(...)`) when done.
  */
-export interface BundleSourceSignatureOptions {
-  /** Verify that a bundle's integrity string was signed by the matching key. Default: off. */
-  verify?: SignatureVerifierOptions;
-  /** Which bundles have their signature verified on load. Default: `'onlyRemote'`. */
-  verifyMode?: BundleSourceVerifyMode;
-}
-
-/**
- * How a bundle section's xxHash checksum is verified when that section is read through this
- * source. The same options apply to the header, the index and each entry's data.
- *
- * This detects corruption, not tampering: the seed is not secret, so whatever can rewrite the
- * bytes can rewrite the checksum. Use {@link BundleSourceConfig.signature} to detect tampering.
- */
-export interface ChecksumReadOptions {
-  /** Verify the section's checksum when it is read. Default: `true`. */
-  verify?: boolean;
-  /** The seed the checksum was built with. Default: `0`. */
-  seed?: number;
-}
-
-/** How each entry's data is read out of a bundle's data section. */
-export interface DataReadOptions {
-  /** How the data checksum is verified. */
-  checksum?: ChecksumReadOptions;
-}
-
-/** How a bundle's header is read. */
-export interface HeaderReadOptions {
-  /** How the header checksum is verified. */
-  checksum?: ChecksumReadOptions;
-}
-
-/** How a bundle's index is read. */
-export interface IndexReadOptions {
-  /** How the index checksum is verified. */
-  checksum?: ChecksumReadOptions;
-}
-
-export interface BundleSourceConfig {
-  /** Read-only directory of builtin bundles. */
-  builtinDir: string;
-  /** Writable directory for downloaded remote bundles. */
-  remoteDir: string;
-  /** How bundles are checked against their manifest integrity metadata on load. */
-  integrity?: BundleSourceIntegrityOptions;
-  /** How bundle signatures are verified on load. */
-  signature?: BundleSourceSignatureOptions;
-  /**
-   * How each entry's data checksum is verified when its data is read through this source.
-   * Default: `{ checksum: { verify: true, seed: 0 } }`. ({@link BundleProtocol} verifies by default
-   * too, and overrides this.)
-   */
-  dataReadOptions?: DataReadOptions;
-  /**
-   * How a bundle's header checksum is verified when its descriptor is read on load.
-   * Default: `{ checksum: { verify: true, seed: 0 } }`.
-   */
-  headerReadOptions?: HeaderReadOptions;
-  /**
-   * How a bundle's index checksum is verified when its descriptor is read on load.
-   * Default: `{ checksum: { verify: true, seed: 0 } }`.
-   */
-  indexReadOptions?: IndexReadOptions;
-}
-
-const CONFIG_KEYS: ReadonlySet<string> = new Set([
-  'builtinDir',
-  'remoteDir',
-  'integrity',
-  'signature',
-  'dataReadOptions',
-  'headerReadOptions',
-  'indexReadOptions',
-]);
-const INTEGRITY_KEYS: ReadonlySet<string> = new Set(['policy', 'checkMode']);
-const SIGNATURE_KEYS: ReadonlySet<string> = new Set(['verify', 'verifyMode']);
-const READ_OPTION_KEYS: ReadonlySet<string> = new Set(['checksum']);
-const READ_CHECKSUM_KEYS: ReadonlySet<string> = new Set(['verify', 'seed']);
-const READ_OPTION_GROUPS = ['dataReadOptions', 'headerReadOptions', 'indexReadOptions'] as const;
-
-function assertKnownKeys(what: string, value: object, known: ReadonlySet<string>): void {
-  for (const key of Object.keys(value)) {
-    if (!known.has(key)) {
-      throw new WebviewBundleError('unknown', `wvb: unknown ${what} option '${key}'`);
-    }
-  }
-}
-
-function serializeConfig(config: BundleSourceConfig): string {
-  // A misspelled security option (`integrity.checkmode`) would otherwise be dropped in silence,
-  // leaving verification off while the caller believes it is on.
-  assertKnownKeys('BundleSource', config, CONFIG_KEYS);
-  const { builtinDir: _builtin, remoteDir: _remote, integrity, signature, ...options } = config;
-  if (integrity != null) {
-    assertKnownKeys('BundleSource integrity', integrity, INTEGRITY_KEYS);
-  }
-  if (signature != null) {
-    assertKnownKeys('BundleSource signature', signature, SIGNATURE_KEYS);
-  }
-  for (const group of READ_OPTION_GROUPS) {
-    const value = config[group];
-    if (value != null) {
-      assertKnownKeys(`BundleSource ${group}`, value, READ_OPTION_KEYS);
-      if (value.checksum != null) {
-        assertKnownKeys(`BundleSource ${group}.checksum`, value.checksum, READ_CHECKSUM_KEYS);
-      }
-    }
-  }
-  return JSON.stringify({
-    ...options,
-    ...(integrity != null ? { integrity } : {}),
-    ...(signature != null
-      ? {
-          signature:
-            signature.verify == null
-              ? signature
-              : { ...signature, verify: serializeSignatureVerifier(signature.verify) },
-        }
-      : {}),
-  });
-}
-
-export class BundleSource {
+export class Source {
   #ptr: Deno.PointerValue;
 
-  constructor(config: BundleSourceConfig) {
+  constructor(config: SourceConfig) {
     const lib = getLib();
-    this.#ptr = lib.symbols.wvb_source_new_with_options(
-      cstr(config.builtinDir),
-      cstr(config.remoteDir),
-      cstr(serializeConfig(config))
-    );
-    if (this.#ptr === null) {
-      // A null source means an option was ill-formed — an `integrity`/checksum value the native
-      // side rejected, or a `signature.verify` key it couldn't build. Fail closed rather than
-      // read bundles unverified; only blame the key when one was actually given.
-      throw config.signature?.verify != null
-        ? new WebviewBundleError(
-            'invalid_signature_options',
-            'wvb: failed to create BundleSource (check integrity/signature.verify)'
-          )
-        : new WebviewBundleError(
-            'unknown',
-            'wvb: failed to create BundleSource (check integrity/signature/dataReadOptions/headerReadOptions/indexReadOptions)'
-          );
-    }
+    // An ill-formed option (a misspelled `integrity.checkMode`, an unknown policy) fails here
+    // rather than leaving verification off while the caller believes it is on.
+    this.#ptr = readHandle(lib, lib.symbols.wvb_source_new(cstr(JSON.stringify(config))));
   }
 
   /** @internal Native handle, for passing to a protocol/updater. Throws if already freed. */
   get pointer(): Deno.PointerValue {
-    if (this.#ptr === null) {
-      throw new WebviewBundleError('null_handle', 'wvb: BundleSource has been freed');
-    }
-    return this.#ptr;
+    return requireHandle(this.#ptr, 'Source');
   }
 
-  async listBundles(): Promise<ListBundleItem[]> {
+  listBundles(): Promise<SourceListItem[]> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_list_bundles(this.pointer);
-    return JSON.parse(readResult(lib, ptr).json) as ListBundleItem[];
+    return readJsonAsync(lib.symbols.wvb_source_list_bundles(this.pointer));
   }
 
-  async loadVersion(bundleName: string): Promise<BundleSourceVersion | null> {
+  listBuiltinBundles(): Promise<SourceListItem[]> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_load_version(this.pointer, cstr(bundleName));
-    return JSON.parse(readResult(lib, ptr).json) as BundleSourceVersion | null;
+    return readJsonAsync(lib.symbols.wvb_source_list_builtin_bundles(this.pointer));
   }
 
-  async updateRemoteVersion(bundleName: string, version: string): Promise<void> {
+  listRemoteBundles(): Promise<SourceListItem[]> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_update_version(
-      this.pointer,
-      cstr(bundleName),
-      cstr(version)
+    return readJsonAsync(lib.symbols.wvb_source_list_remote_bundles(this.pointer));
+  }
+
+  /** The version currently served for `bundleName` — remote first, then builtin. */
+  getVersion(bundleName: string): Promise<BundleSourceVersion | null> {
+    const lib = getLib();
+    return readJsonAsync(lib.symbols.wvb_source_get_version(this.pointer, cstr(bundleName)));
+  }
+
+  getRemoteStagedVersion(bundleName: string): Promise<string | null> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_get_remote_staged_version(this.pointer, cstr(bundleName))
     );
-    readResult(lib, ptr);
   }
 
-  async resolveFilepath(bundleName: string): Promise<string> {
+  getRemotePreviousVersion(bundleName: string): Promise<string | null> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_resolve_filepath(this.pointer, cstr(bundleName));
-    return JSON.parse(readResult(lib, ptr).json) as string;
+    return readJsonAsync(
+      lib.symbols.wvb_source_get_remote_previous_version(this.pointer, cstr(bundleName))
+    );
+  }
+
+  /** Activates `version` for `bundleName`; the version has to be recorded in the manifest. */
+  updateRemoteVersion(
+    bundleName: string,
+    version: string
+  ): Promise<ManifestSetCurrentVersionResult> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_update_remote_version(this.pointer, cstr(bundleName), cstr(version))
+    );
+  }
+
+  /** Same as {@link Source.updateRemoteVersion} for several bundles, in one manifest write. */
+  updateRemoteVersions(items: Record<string, string>): Promise<ManifestSetCurrentVersionResult[]> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_update_remote_versions(this.pointer, cstr(JSON.stringify(items)))
+    );
+  }
+
+  /**
+   * Records a downloaded version in the manifest without activating it. Write the `.wvb` file to
+   * {@link Source.getRemoteBundleFilepath} first; {@link Source.updateRemoteVersion} activates it.
+   */
+  stageRemoteBundle(bundleName: string, data: ManifestStageData): Promise<ManifestStageResult> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_stage_remote_bundle(
+        this.pointer,
+        cstr(bundleName),
+        cstr(JSON.stringify(data))
+      )
+    );
+  }
+
+  /** Same as {@link Source.stageRemoteBundle} for several bundles, in one manifest write. */
+  stageRemoteBundles(items: Record<string, ManifestStageData>): Promise<ManifestStageResult[]> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_stage_remote_bundles(this.pointer, cstr(JSON.stringify(items)))
+    );
+  }
+
+  /** The `.wvb` file backing the version currently served for `bundleName`. */
+  resolveFilepath(bundleName: string): Promise<string> {
+    const lib = getLib();
+    return readJsonAsync(lib.symbols.wvb_source_resolve_filepath(this.pointer, cstr(bundleName)));
   }
 
   getBuiltinBundleFilepath(bundleName: string, version: string): string {
     const lib = getLib();
-    const ptr = lib.symbols.wvb_source_get_builtin_filepath(
-      this.pointer,
-      cstr(bundleName),
-      cstr(version)
+    return readJson(
+      lib.symbols.wvb_source_get_builtin_bundle_filepath(
+        this.pointer,
+        cstr(bundleName),
+        cstr(version)
+      )
     );
-    return JSON.parse(readResult(lib, ptr).json) as string;
   }
 
   getRemoteBundleFilepath(bundleName: string, version: string): string {
     const lib = getLib();
-    const ptr = lib.symbols.wvb_source_get_remote_filepath(
-      this.pointer,
-      cstr(bundleName),
-      cstr(version)
+    return readJson(
+      lib.symbols.wvb_source_get_remote_bundle_filepath(
+        this.pointer,
+        cstr(bundleName),
+        cstr(version)
+      )
     );
-    return JSON.parse(readResult(lib, ptr).json) as string;
   }
 
-  async loadBuiltinMetadata(
-    bundleName: string,
-    version: string
-  ): Promise<BundleManifestMetadata | null> {
+  getBuiltinVersionData(bundleName: string, version: string): Promise<ManifestVersionData | null> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_load_builtin_metadata(
-      this.pointer,
-      cstr(bundleName),
-      cstr(version)
+    return readJsonAsync(
+      lib.symbols.wvb_source_get_builtin_version_data(this.pointer, cstr(bundleName), cstr(version))
     );
-    return JSON.parse(readResult(lib, ptr).json) as BundleManifestMetadata | null;
   }
 
-  async loadRemoteMetadata(
-    bundleName: string,
-    version: string
-  ): Promise<BundleManifestMetadata | null> {
+  getRemoteVersionData(bundleName: string, version: string): Promise<ManifestVersionData | null> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_load_remote_metadata(
-      this.pointer,
-      cstr(bundleName),
-      cstr(version)
+    return readJsonAsync(
+      lib.symbols.wvb_source_get_remote_version_data(this.pointer, cstr(bundleName), cstr(version))
     );
-    return JSON.parse(readResult(lib, ptr).json) as BundleManifestMetadata | null;
-  }
-
-  unloadDescriptor(bundleName: string): boolean {
-    const lib = getLib();
-    const ptr = lib.symbols.wvb_source_unload_descriptor(this.pointer, cstr(bundleName));
-    return JSON.parse(readResult(lib, ptr).json) as boolean;
-  }
-
-  async removeRemoteBundle(bundleName: string, version: string): Promise<boolean> {
-    const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_remove_remote_bundle(
-      this.pointer,
-      cstr(bundleName),
-      cstr(version)
-    );
-    return JSON.parse(readResult(lib, ptr).json) as boolean;
-  }
-
-  async remoteRetainedVersions(bundleName: string): Promise<string[]> {
-    const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_remote_retained_versions(
-      this.pointer,
-      cstr(bundleName)
-    );
-    return JSON.parse(readResult(lib, ptr).json) as string[];
-  }
-
-  async pruneRemoteBundles(bundleName: string): Promise<string[]> {
-    const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_prune_remote_bundles(this.pointer, cstr(bundleName));
-    return JSON.parse(readResult(lib, ptr).json) as string[];
   }
 
   /** Fetches and fully loads the current version of a bundle into memory. */
   async fetchBundle(bundleName: string): Promise<Bundle> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_fetch_bundle(this.pointer, cstr(bundleName));
-    return new Bundle(readHandle(lib, ptr));
+    return new Bundle(
+      await readHandleAsync(lib.symbols.wvb_source_fetch_bundle(this.pointer, cstr(bundleName)))
+    );
   }
 
   /** Fetches and fully loads a specific builtin bundle version into memory. */
@@ -338,7 +250,7 @@ export class BundleSource {
   /**
    * Fetches the descriptor (header + index, no data) for the current version. Read entry data
    * lazily via {@link BundleDescriptor.getData}, passing a filepath (e.g. from
-   * {@link BundleSource.resolveFilepath}).
+   * {@link Source.resolveFilepath}).
    */
   async fetchDescriptor(bundleName: string): Promise<BundleDescriptor> {
     const lib = getLib();
@@ -349,36 +261,59 @@ export class BundleSource {
   /**
    * Loads (and caches) the descriptor for the current version. The returned
    * {@link LoadedDescriptor} remembers its filepath + read options and keeps working across
-   * active-version swaps; {@link BundleSource.unloadDescriptor} drops the cache entry.
+   * active-version swaps; {@link Source.unload} drops the cache entry.
    */
-  async loadDescriptor(bundleName: string): Promise<LoadedDescriptor> {
+  async load(bundleName: string): Promise<LoadedDescriptor> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_load_descriptor(this.pointer, cstr(bundleName));
+    const ptr = await lib.symbols.wvb_source_load(this.pointer, cstr(bundleName));
     return new LoadedDescriptor(readHandle(lib, ptr));
   }
 
-  /**
-   * Persists the raw bytes of a `.wvb` file to the remote directory and records `metadata` in the
-   * manifest. Prefer this over re-serializing a parsed {@link Bundle} when the bytes are already at
-   * hand (e.g. a {@link Remote} download): storing them verbatim keeps the integrity string valid on
-   * later loads. The version is staged, not activated — call {@link BundleSource.updateRemoteVersion}.
-   */
-  async writeRemoteBundleData(
+  /** Drops the cached descriptor for `bundleName`. Returns `true` when one was cached. */
+  unload(bundleName: string): boolean {
+    const lib = getLib();
+    return readJson(lib.symbols.wvb_source_unload(this.pointer, cstr(bundleName)));
+  }
+
+  /** Removes a downloaded version and its file. The version in use is kept unless `force`. */
+  removeRemoteBundle(
     bundleName: string,
     version: string,
-    data: Uint8Array<ArrayBuffer>,
-    metadata: BundleManifestMetadata = {}
-  ): Promise<void> {
+    force?: boolean
+  ): Promise<ManifestRemoveResult> {
     const lib = getLib();
-    const ptr = await lib.symbols.wvb_source_write_remote_bundle_data(
-      this.pointer,
-      cstr(bundleName),
-      cstr(version),
-      data,
-      BigInt(data.byteLength),
-      cstr(JSON.stringify(metadata))
+    return readJsonAsync(
+      lib.symbols.wvb_source_remove_remote_bundle(
+        this.pointer,
+        cstr(bundleName),
+        cstr(version),
+        force == null ? -1 : force ? 1 : 0
+      )
     );
-    readResult(lib, ptr);
+  }
+
+  /** Same as {@link Source.removeRemoteBundle} for several bundles, in one manifest write. */
+  removeRemoteBundles(items: Record<string, ManifestRemoveData>): Promise<ManifestRemoveResult[]> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_remove_remote_bundles(this.pointer, cstr(JSON.stringify(items)))
+    );
+  }
+
+  /** Removes the downloaded versions of `bundleName` that are no longer referenced. */
+  pruneRemoteBundle(bundleName: string): Promise<ManifestPruneResult> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_prune_remote_bundle(this.pointer, cstr(bundleName))
+    );
+  }
+
+  /** Same as {@link Source.pruneRemoteBundle} for several bundles, in one manifest write. */
+  pruneRemoteBundles(bundleNames: string[]): Promise<ManifestPruneResult[]> {
+    const lib = getLib();
+    return readJsonAsync(
+      lib.symbols.wvb_source_prune_remote_bundles(this.pointer, cstr(JSON.stringify(bundleNames)))
+    );
   }
 
   free(): void {

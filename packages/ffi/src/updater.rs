@@ -1,68 +1,33 @@
-use crate::integrity::{IntegrityCheck, IntegrityPolicy};
-use crate::remote::{ListRemoteBundleInfo, Remote, RemoteBundleInfo};
-use crate::signature::SignatureVerification;
-use crate::source::BundleSource;
+use crate::cancellation::Cancellation;
+use crate::integrity::{IntegrityAlgorithm, IntegrityPolicy};
+use crate::remote::{BundleUpdate, Remote, Update};
+use crate::signature::SignatureVerifyKey;
+use crate::source::Source;
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use wvb::signature;
 use wvb::updater;
 
-/// Result of checking whether a bundle update is available.
-///
-/// `is_available` is `true` when `version` differs from `local_version`.
-/// The `etag`, `integrity`, `signature`, and `last_modified` fields can be
-/// passed to [`BundleSource::write_remote_bundle`] after downloading.
 #[derive(uniffi::Record, Clone, Debug)]
-pub struct BundleUpdateInfo {
-  pub name: String,
-  pub version: String,
-  pub local_version: Option<String>,
-  pub is_available: bool,
-  pub etag: Option<String>,
-  pub integrity: Option<String>,
-  pub signature: Option<String>,
-  pub last_modified: Option<String>,
-}
-
-impl From<updater::BundleUpdateInfo> for BundleUpdateInfo {
-  fn from(value: updater::BundleUpdateInfo) -> Self {
-    Self {
-      name: value.name,
-      version: value.version,
-      local_version: value.local_version,
-      is_available: value.is_available,
-      etag: value.etag,
-      integrity: value.integrity,
-      signature: value.signature,
-      last_modified: value.last_modified,
-    }
-  }
-}
-
-#[derive(uniffi::Record, Clone)]
 pub struct UpdaterIntegrityOptions {
   /// How a bundle's integrity metadata is treated (default: [`IntegrityPolicy::Optional`]).
   ///
   /// [`IntegrityPolicy::Off`] disables the integrity check entirely.
   #[uniffi(default = None)]
   pub policy: Option<IntegrityPolicy>,
-  /// A custom checker that validates bundle bytes against their integrity string
-  /// (default: the built-in checker, which compares the advertised hash).
   #[uniffi(default = None)]
-  pub check: Option<Arc<dyn IntegrityCheck>>,
+  pub algorithm: Option<IntegrityAlgorithm>,
 }
 
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct UpdaterSignatureOptions {
-  /// When set, the updater verifies the bundle signature over its integrity string before
-  /// applying an update — with a declarative public key or a custom function.
-  /// Verified independently of `integrity_policy` — keep the policy enabled for the
-  /// signature to also authenticate the bundle bytes.
   #[uniffi(default = None)]
-  pub verify: Option<SignatureVerification>,
+  pub keys: Option<Vec<SignatureVerifyKey>>,
 }
 
 /// Optional configuration for the [`Updater`].
-#[derive(uniffi::Record, Clone)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct UpdaterOptions {
   /// Release channel (e.g. `"stable"`, `"beta"`). Passed as a query parameter to the remote.
   #[uniffi(default = None)]
@@ -73,7 +38,7 @@ pub struct UpdaterOptions {
   pub signature: Option<UpdaterSignatureOptions>,
 }
 
-fn updater_options(options: UpdaterOptions) -> Result<updater::UpdaterOptions, crate::Error> {
+fn updater_options(options: UpdaterOptions) -> crate::Result<updater::UpdaterOptions> {
   let mut updater_options = updater::UpdaterOptions::default();
 
   if let Some(channel) = options.channel {
@@ -85,21 +50,214 @@ fn updater_options(options: UpdaterOptions) -> Result<updater::UpdaterOptions, c
     if let Some(policy) = integrity.policy {
       integrity_options = integrity_options.policy(policy.into());
     }
-    if let Some(check) = integrity.check {
-      integrity_options = integrity_options.check(crate::integrity::into_checker(check));
+    if let Some(algorithm) = integrity.algorithm {
+      integrity_options = integrity_options.algorithm(algorithm.into());
     }
     updater_options = updater_options.integrity(integrity_options);
   }
 
   if let Some(signature) = options.signature {
     let mut signature_options = updater::UpdaterSignatureOptions::default();
-    if let Some(verify) = signature.verify {
-      signature_options = signature_options.verify(signature::SignatureVerify::try_from(verify)?);
+    if let Some(keys) = signature.keys {
+      for key in keys {
+        signature_options =
+          signature_options.add_key(signature::SignatureVerifyKey::try_from(key)?);
+      }
     }
     updater_options = updater_options.signature(signature_options);
   }
 
   Ok(updater_options)
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct UpdaterGetUpdateOptions {
+  #[uniffi(default = None)]
+  pub expect_signature_key_id: Option<String>,
+}
+
+impl From<UpdaterGetUpdateOptions> for updater::UpdaterGetUpdateOptions {
+  fn from(value: UpdaterGetUpdateOptions) -> Self {
+    let mut options = updater::UpdaterGetUpdateOptions::default();
+    if let Some(key_id) = value.expect_signature_key_id {
+      options = options.expect_signature_key_id(key_id);
+    }
+    options
+  }
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct UpdaterDownloadOptions {
+  #[uniffi(default = None)]
+  pub concurrency: Option<u32>,
+  #[uniffi(default = None)]
+  pub timeout: Option<u64>,
+  #[uniffi(default = None)]
+  pub cancellation: Option<Arc<Cancellation>>,
+}
+
+impl From<UpdaterDownloadOptions> for updater::UpdaterDownloadOptions {
+  fn from(value: UpdaterDownloadOptions) -> Self {
+    let mut options = updater::UpdaterDownloadOptions::default();
+    if let Some(concurrency) = value.concurrency {
+      options = options.concurrency(concurrency as usize);
+    }
+    if let Some(timeout) = value.timeout {
+      options = options.timeout(timeout);
+    }
+    if let Some(cancellation) = value.cancellation {
+      options = options.cancellation(cancellation.inner.clone());
+    }
+    options
+  }
+}
+
+#[derive(uniffi::Enum, Debug)]
+pub enum UpdaterDownloadResultKind {
+  Downloaded,
+  Error(crate::Error),
+}
+
+impl From<updater::UpdaterDownloadResultKind> for UpdaterDownloadResultKind {
+  fn from(value: updater::UpdaterDownloadResultKind) -> Self {
+    match value {
+      updater::UpdaterDownloadResultKind::Downloaded => Self::Downloaded,
+      updater::UpdaterDownloadResultKind::Error(e) => Self::Error(crate::Error::from(e)),
+    }
+  }
+}
+
+#[derive(uniffi::Record, Debug)]
+pub struct UpdaterDownloadResult {
+  pub name: String,
+  pub version: String,
+  pub integrity: Option<String>,
+  pub metadata: Option<HashMap<String, String>>,
+  pub result: UpdaterDownloadResultKind,
+}
+
+impl From<updater::UpdaterDownloadResult> for UpdaterDownloadResult {
+  fn from(value: updater::UpdaterDownloadResult) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+      integrity: value.integrity,
+      metadata: value.metadata,
+      result: value.result.into(),
+    }
+  }
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct UpdaterInstallTarget {
+  pub name: String,
+  pub version: Option<String>,
+}
+
+impl From<UpdaterInstallTarget> for updater::UpdaterInstallTarget {
+  fn from(value: UpdaterInstallTarget) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+    }
+  }
+}
+
+#[derive(uniffi::Enum, Debug)]
+pub enum UpdaterInstallResultKind {
+  Installed,
+  StagedVersionNotMatched,
+  StagedBundleNotExists,
+  VerifyFailed,
+  Error(crate::Error),
+}
+
+impl From<updater::UpdaterInstallResultKind> for UpdaterInstallResultKind {
+  fn from(value: updater::UpdaterInstallResultKind) -> Self {
+    match value {
+      updater::UpdaterInstallResultKind::Installed => Self::Installed,
+      updater::UpdaterInstallResultKind::StagedVersionNotMatched => Self::StagedVersionNotMatched,
+      updater::UpdaterInstallResultKind::StagedBundleNotExists => Self::StagedBundleNotExists,
+      updater::UpdaterInstallResultKind::VerifyFailed => Self::VerifyFailed,
+      updater::UpdaterInstallResultKind::Error(e) => Self::Error(e.into()),
+    }
+  }
+}
+
+#[derive(uniffi::Record, Debug)]
+pub struct UpdaterInstallResult {
+  pub name: String,
+  pub target_version: Option<String>,
+  pub install_version: Option<String>,
+  pub result: UpdaterInstallResultKind,
+}
+
+impl From<updater::UpdaterInstallResult> for UpdaterInstallResult {
+  fn from(value: updater::UpdaterInstallResult) -> Self {
+    Self {
+      name: value.name,
+      target_version: value.target_version,
+      install_version: value.install_version,
+      result: value.result.into(),
+    }
+  }
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct UpdaterRollbackTarget {
+  pub name: String,
+  pub version: Option<String>,
+}
+
+impl From<UpdaterRollbackTarget> for updater::UpdaterRollbackTarget {
+  fn from(value: UpdaterRollbackTarget) -> Self {
+    Self {
+      name: value.name,
+      version: value.version,
+    }
+  }
+}
+
+#[derive(uniffi::Enum, Debug)]
+pub enum UpdaterRollbackResultKind {
+  RolledBack,
+  PreviousVersionNotMatched,
+  PreviousBundleNotExists,
+  VerifyFailed,
+  Error(crate::Error),
+}
+
+impl From<updater::UpdaterRollbackResultKind> for UpdaterRollbackResultKind {
+  fn from(value: updater::UpdaterRollbackResultKind) -> Self {
+    match value {
+      updater::UpdaterRollbackResultKind::RolledBack => Self::RolledBack,
+      updater::UpdaterRollbackResultKind::PreviousVersionNotMatched => {
+        Self::PreviousVersionNotMatched
+      }
+      updater::UpdaterRollbackResultKind::PreviousBundleNotExists => Self::PreviousBundleNotExists,
+      updater::UpdaterRollbackResultKind::VerifyFailed => Self::VerifyFailed,
+      updater::UpdaterRollbackResultKind::Error(e) => Self::Error(e.into()),
+    }
+  }
+}
+
+#[derive(uniffi::Record, Debug)]
+pub struct UpdaterRollbackResult {
+  pub name: String,
+  pub target_version: Option<String>,
+  pub rollback_version: Option<String>,
+  pub result: UpdaterRollbackResultKind,
+}
+
+impl From<updater::UpdaterRollbackResult> for UpdaterRollbackResult {
+  fn from(value: updater::UpdaterRollbackResult) -> Self {
+    Self {
+      name: value.name,
+      target_version: value.target_version,
+      rollback_version: value.rollback_version,
+      result: value.result.into(),
+    }
+  }
 }
 
 /// Orchestrates the full update cycle: checks for a new version on the remote,
@@ -113,60 +271,86 @@ pub struct Updater {
 impl Updater {
   #[uniffi::constructor]
   pub fn new(
-    source: Arc<BundleSource>,
+    source: Arc<Source>,
     remote: Arc<Remote>,
+    update_filepath: String,
     options: Option<UpdaterOptions>,
-  ) -> Result<Arc<Updater>, crate::Error> {
-    let config = match options {
-      Some(options) => Some(updater_options(options)?),
-      None => None,
-    };
-    Ok(Arc::new(Updater {
-      inner: updater::Updater::new(source.inner.clone(), remote.inner.clone(), config),
-    }))
+  ) -> crate::Result<Arc<Updater>> {
+    let mut builder = updater::Updater::builder()
+      .source(source.inner.clone())
+      .remote(remote.inner.clone())
+      .update_filepath(Path::new(&update_filepath));
+    if let Some(options) = options {
+      let options = updater_options(options)?;
+      builder = builder.options(options);
+    }
+    let inner = builder.build()?;
+    Ok(Arc::new(Updater { inner }))
   }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Updater {
-  pub async fn list_remotes(&self) -> Result<Vec<ListRemoteBundleInfo>, crate::Error> {
-    let remotes = self
+  #[uniffi::method(default(options = None))]
+  pub async fn get_update(
+    &self,
+    options: Option<UpdaterGetUpdateOptions>,
+  ) -> crate::Result<Option<Update>> {
+    let update = self
       .inner
-      .list_remotes()
+      .get_update(options.map(Into::into))
+      .await?
+      .map(Update::from);
+    Ok(update)
+  }
+
+  #[uniffi::method(default(options = None))]
+  pub async fn download(
+    &self,
+    bundle_updates: Vec<BundleUpdate>,
+    options: Option<UpdaterDownloadOptions>,
+  ) -> crate::Result<Vec<UpdaterDownloadResult>> {
+    let results = self
+      .inner
+      .download(
+        &bundle_updates
+          .into_iter()
+          .map(Into::into)
+          .collect::<Vec<_>>(),
+        options.map(Into::into),
+      )
       .await?
       .into_iter()
-      .map(ListRemoteBundleInfo::from)
-      .collect();
-    Ok(remotes)
+      .map(UpdaterDownloadResult::from)
+      .collect::<Vec<_>>();
+    Ok(results)
   }
 
-  /// Checks whether a newer version of `bundle_name` is available on the remote.
-  /// Does not download the bundle.
-  pub async fn get_update(&self, bundle_name: String) -> Result<BundleUpdateInfo, crate::Error> {
-    let update = self.inner.get_update(&bundle_name).await?;
-    Ok(BundleUpdateInfo::from(update))
-  }
-
-  /// Downloads and persists an update for `bundle_name`.
-  /// Uses the latest remote version when `version` is `None`.
-  pub async fn download_update(
+  pub async fn install(
     &self,
-    bundle_name: String,
-    version: Option<String>,
-  ) -> Result<RemoteBundleInfo, crate::Error> {
-    let info = self.inner.download(bundle_name, version).await?;
-    Ok(info.into())
+    targets: Vec<UpdaterInstallTarget>,
+  ) -> crate::Result<Vec<UpdaterInstallResult>> {
+    let results = self
+      .inner
+      .install(&targets.into_iter().map(Into::into).collect::<Vec<_>>())
+      .await?
+      .into_iter()
+      .map(UpdaterInstallResult::from)
+      .collect::<Vec<_>>();
+    Ok(results)
   }
 
-  /// Activates a previously downloaded bundle version.
-  ///
-  /// The version must already be staged in the remote source (via
-  /// [`download_update`](Updater::download_update)). When integrity/signature
-  /// verification is configured, the staged bundle is verified before activation.
-  /// On success the current version is updated, the cached descriptor is dropped,
-  /// and stale staged versions are pruned.
-  pub async fn install(&self, bundle_name: String, version: String) -> Result<(), crate::Error> {
-    self.inner.install(bundle_name, version).await?;
-    Ok(())
+  pub async fn rollback(
+    &self,
+    targets: Vec<UpdaterRollbackTarget>,
+  ) -> crate::Result<Vec<UpdaterRollbackResult>> {
+    let results = self
+      .inner
+      .rollback(&targets.into_iter().map(Into::into).collect::<Vec<_>>())
+      .await?
+      .into_iter()
+      .map(UpdaterRollbackResult::from)
+      .collect::<Vec<_>>();
+    Ok(results)
   }
 }

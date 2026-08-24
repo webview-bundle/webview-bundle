@@ -19,12 +19,15 @@ import {
 import {
   BundleBuilder,
   BundleProtocol,
-  type BundleResolverOptions,
-  BundleSource,
+  type ErrorCode,
   isWebviewBundleError,
   ProxyProtocol,
-  type WebviewBundleErrorCode,
+  Source,
+  type SourceOptions,
+  type UriBundleResolver,
+  writeBundleIntoBuffer,
 } from '../dist/index.js';
+import { errorCode } from './errors.js';
 
 describe('bundle protocol', () => {
   let tmpdir: string;
@@ -46,21 +49,28 @@ describe('bundle protocol', () => {
   });
 
   // Writes a remote bundle and activates it as the current version.
-  async function makeSource(config: Partial<ConstructorParameters<typeof BundleSource>[0]> = {}) {
-    const source = new BundleSource({ builtinDir, remoteDir, ...config });
+  async function install(source: Source, name: string, builder: BundleBuilder) {
+    const filepath = source.getRemoteBundleFilepath(name, '1.0.0');
+    await fs.mkdir(path.dirname(filepath), { recursive: true });
+    await fs.writeFile(filepath, Buffer.from(writeBundleIntoBuffer(builder.build())));
+    await source.stageRemoteBundle(name, { version: '1.0.0' });
+    await source.updateRemoteVersion(name, '1.0.0');
+  }
+
+  async function makeSource(options?: SourceOptions) {
+    const source = new Source({ builtinDir, remoteDir, options });
     const builder = new BundleBuilder();
     builder.insertEntry('/index.html', Buffer.from('<h1>index</h1>', 'utf8'));
     builder.insertEntry('/about.html', Buffer.from('<h1>about</h1>', 'utf8'));
     builder.insertEntry('/about/index.html', Buffer.from('<h1>about dir</h1>', 'utf8'));
-    await source.writeRemoteBundle('app', '1.0.0', builder.build(), {});
-    await source.updateRemoteVersion('app', '1.0.0');
+    await install(source, 'app', builder);
     return source;
   }
 
   // Flips the entry's stored 4-byte checksum on disk, leaving its compressed bytes intact:
   // a read that verifies the checksum fails, a read that does not still returns the
   // original bytes.
-  async function corruptChecksum(source: BundleSource, entryPath: string) {
+  async function corruptChecksum(source: Source, entryPath: string) {
     const filepath = await source.resolveFilepath('app');
     const descriptor = await source.fetchDescriptor('app');
     const entry = descriptor.index().getEntry(entryPath);
@@ -76,13 +86,12 @@ describe('bundle protocol', () => {
 
   // Checked by `tsc --noEmit`; a no-op at runtime.
   it('takes bundleResolver as a discriminated union', () => {
-    assertType<BundleResolverOptions>({ type: 'hostname', segment: 'stripSuffix' });
-    assertType<BundleResolverOptions>({ type: 'hostname', segment: 1 });
-    assertType<BundleResolverOptions>({ type: 'pathname', segmentIndex: 0 });
-    // @ts-expect-error `allowWvbSuffixOnly` belongs to the `hostname` variant.
-    assertType<BundleResolverOptions>({ type: 'pathname', allowWvbSuffixOnly: true });
-    // @ts-expect-error `segmentIndex` belongs to the `pathname` variant.
-    assertType<BundleResolverOptions>({ type: 'hostname', segmentIndex: 0 });
+    assertType<UriBundleResolver>({ type: 'hostname', segment: 'strip_suffix' });
+    assertType<UriBundleResolver>({ type: 'hostname', segment: 1 });
+    assertType<UriBundleResolver>({ type: 'hostname', allowWvbSuffixOnly: true });
+    assertType<UriBundleResolver>({ type: 'pathname', segmentIndex: 0 });
+    // @ts-expect-error `hostname` and `pathname` are the only variants.
+    assertType<UriBundleResolver>({ type: 'query' });
   });
 
   it('resolves the bundle from the first hostname segment by default', async () => {
@@ -106,11 +115,10 @@ describe('bundle protocol', () => {
   it('resolves the bundle from a path segment', async () => {
     // The path is resolved independently of the bundle name, so the segment naming the
     // bundle stays in the path and entries are looked up with it.
-    const source = new BundleSource({ builtinDir, remoteDir });
+    const source = new Source({ builtinDir, remoteDir });
     const builder = new BundleBuilder();
     builder.insertEntry('/app/index.html', Buffer.from('<h1>by path</h1>', 'utf8'));
-    await source.writeRemoteBundle('app', '1.0.0', builder.build(), {});
-    await source.updateRemoteVersion('app', '1.0.0');
+    await install(source, 'app', builder);
 
     const protocol = new BundleProtocol(source, { bundleResolver: { type: 'pathname' } });
     const resp = await protocol.handle('get', 'wvb://cdn.example.com/app/index.html');
@@ -127,11 +135,10 @@ describe('bundle protocol', () => {
   });
 
   it('resolves the bundle from the full hostname', async () => {
-    const source = new BundleSource({ builtinDir, remoteDir });
+    const source = new Source({ builtinDir, remoteDir });
     const builder = new BundleBuilder();
     builder.insertEntry('/index.html', Buffer.from('<h1>full</h1>', 'utf8'));
-    await source.writeRemoteBundle('app.wvb', '1.0.0', builder.build(), {});
-    await source.updateRemoteVersion('app.wvb', '1.0.0');
+    await install(source, 'app.wvb', builder);
 
     const protocol = new BundleProtocol(source, {
       bundleResolver: { type: 'hostname', segment: 'full' },
@@ -160,8 +167,8 @@ describe('bundle protocol', () => {
   });
 
   it.each([
-    ['directoryIndex', '<h1>about dir</h1>'],
-    ['htmlExtension', '<h1>about</h1>'],
+    ['directory_index', '<h1>about dir</h1>'],
+    ['html_extension', '<h1>about</h1>'],
   ] as const)('resolves an extensionless path with %s', async (pathResolver, body) => {
     const protocol = new BundleProtocol(await makeSource(), { pathResolver });
     const resp = await protocol.handle('get', 'wvb://app.wvb/about');
@@ -183,14 +190,14 @@ describe('bundle protocol', () => {
     const protocol = new BundleProtocol(source);
     const error = await protocol.handle('get', 'wvb://app.wvb/index.html').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
-    expect(error.code).toBe<WebviewBundleErrorCode>('core.checksum_mismatch');
+    expect(errorCode(error)).toBe<ErrorCode>('core.checksum_mismatch');
 
     // Only the corrupted entry fails; the rest of the bundle is still served.
     expect(await protocol.handle('get', 'wvb://app.wvb/about.html')).toMatchObject({ status: 200 });
   });
 
   it("serves a corrupted entry when the source's data checksum verification is off", async () => {
-    const source = await makeSource({ dataReadOptions: { checksum: { verify: false } } });
+    const source = await makeSource({ dataRead: { checksum: { verify: false } } });
     await corruptChecksum(source, '/index.html');
 
     const protocol = new BundleProtocol(source);
@@ -200,10 +207,10 @@ describe('bundle protocol', () => {
   });
 
   it("fails when the source's data checksum seed does not match the packed seed", async () => {
-    const source = await makeSource({ dataReadOptions: { checksum: { seed: 42 } } });
+    const source = await makeSource({ dataRead: { checksum: { seed: 42 } } });
     const protocol = new BundleProtocol(source);
     const error = await protocol.handle('get', 'wvb://app.wvb/index.html').catch(e => e);
-    expect(error.code).toBe<WebviewBundleErrorCode>('core.checksum_mismatch');
+    expect(errorCode(error)).toBe<ErrorCode>('core.checksum_mismatch');
   });
 });
 
@@ -254,8 +261,8 @@ describe('proxy protocol', () => {
     const error = await protocol.handle('get', 'wvb://other.wvb/index.html').catch(e => e);
     expect(isWebviewBundleError(error)).toBe(true);
     // The code is typed: a core error code that does not exist fails to typecheck.
-    assertType<WebviewBundleErrorCode>(error.code);
-    expect(error.code).toBe<WebviewBundleErrorCode>('core.cannot_resolve_proxy_server');
+    assertType<ErrorCode | undefined>(errorCode(error));
+    expect(errorCode(error)).toBe<ErrorCode>('core.cannot_resolve_proxy_server');
     expect(error.message).toMatch(/cannot resolve proxy server/);
   });
 

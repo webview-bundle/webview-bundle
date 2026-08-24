@@ -20,6 +20,5 @@ plugins {
 }
 
 rootProject.name = "WebViewBundleLocalTests"
-include("lib-android")
-include("lib-jvm")
+include("lib")
 include("testapp")

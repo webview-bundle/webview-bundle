@@ -28,15 +28,15 @@
 //! ```no_run
 //! # #[cfg(feature = "source")]
 //! # async {
-//! use wvb::source::BundleSource;
+//! use wvb::source::Source;
 //!
-//! let source = BundleSource::builder()
+//! let source = Source::builder()
 //!     .builtin_dir("./builtin")
 //!     .remote_dir("./remote")
 //!     .build();
 //!
 //! // Remote version takes priority over builtin
-//! let version = source.load_version("app").await.unwrap();
+//! let version = source.get_version("app").await.unwrap();
 //! let bundle = source.fetch_bundle("app").await.unwrap();
 //!
 //! // List all available bundles
@@ -55,26 +55,26 @@
 //!     "app": {
 //!       "versions": {
 //!         "1.0.0": {
-//!           "etag": "...",
-//!           "integrity": "...",
-//!           "signature": "..."
+//!           "integrity": "sha256:...",
+//!           "metadata": { "channel": "stable" }
 //!         }
 //!       },
-//!       "currentVersion": "1.0.0"
+//!       "currentVersion": "1.0.0",
+//!       "previousVersion": "0.9.0",
+//!       "stagedVersion": "1.1.0"
 //!     }
 //!   }
 //! }
 //! ```
 
-mod kind;
 mod manifest;
-mod options;
+mod manifest_data;
 mod source;
-mod utils;
+mod types;
 mod version;
 
-pub use kind::*;
 pub use manifest::*;
-pub use options::*;
+pub use manifest_data::*;
 pub use source::*;
+pub use types::*;
 pub use version::*;

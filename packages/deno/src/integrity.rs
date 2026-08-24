@@ -27,23 +27,26 @@ pub enum IntegrityPolicy {
   Off,
 }
 
-/// `integrity.policy`/`integrityPolicy` string mapping shared by the source and the updater.
-/// Returns `None` for an unknown value, so the caller can fail closed rather than pick a default.
-pub(crate) fn parse_integrity_policy(policy: &str) -> Option<CoreIntegrityPolicy> {
-  match policy {
-    "strict" => Some(CoreIntegrityPolicy::Strict),
-    "optional" => Some(CoreIntegrityPolicy::Optional),
-    "off" => Some(CoreIntegrityPolicy::Off),
-    _ => None,
+impl From<IntegrityAlgorithm> for CoreIntegrityAlgorithm {
+  fn from(value: IntegrityAlgorithm) -> Self {
+    match value {
+      IntegrityAlgorithm::Sha256 => Self::Sha256,
+      IntegrityAlgorithm::Sha384 => Self::Sha384,
+      IntegrityAlgorithm::Sha512 => Self::Sha512,
+    }
   }
 }
 
-/// Compute the integrity of `data` under `algorithm` (`"sha256"`/`"sha384"`/`"sha512"`).
-/// The result's json is the serialized `<algorithm>:<base64>` string and its body is the
-/// raw digest.
-///
-/// # Safety
-/// `algorithm` must be a valid C string; `data` must be null or point to `data_len` readable bytes.
+impl From<IntegrityPolicy> for CoreIntegrityPolicy {
+  fn from(value: IntegrityPolicy) -> Self {
+    match value {
+      IntegrityPolicy::Strict => Self::Strict,
+      IntegrityPolicy::Optional => Self::Optional,
+      IntegrityPolicy::Off => Self::Off,
+    }
+  }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wvb_compute_integrity(
   algorithm: *const c_char,
@@ -103,21 +106,22 @@ pub unsafe extern "C" fn wvb_integrity_validate(
 mod tests {
   use super::*;
 
+  fn policy(raw: &str) -> Result<CoreIntegrityPolicy, serde_json::Error> {
+    serde_json::from_str::<IntegrityPolicy>(raw).map(Into::into)
+  }
+
   #[test]
   fn integrity_policy_fails_closed_on_an_unknown_value() {
     assert!(matches!(
-      parse_integrity_policy("strict"),
-      Some(CoreIntegrityPolicy::Strict)
+      policy(r#""strict""#),
+      Ok(CoreIntegrityPolicy::Strict)
     ));
     assert!(matches!(
-      parse_integrity_policy("optional"),
-      Some(CoreIntegrityPolicy::Optional)
+      policy(r#""optional""#),
+      Ok(CoreIntegrityPolicy::Optional)
     ));
-    assert!(matches!(
-      parse_integrity_policy("off"),
-      Some(CoreIntegrityPolicy::Off)
-    ));
+    assert!(matches!(policy(r#""off""#), Ok(CoreIntegrityPolicy::Off)));
     // The old spelling of 'off' must not silently map to a different policy.
-    assert!(parse_integrity_policy("none").is_none());
+    assert!(policy(r#""none""#).is_err());
   }
 }
