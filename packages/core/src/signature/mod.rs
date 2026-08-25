@@ -12,10 +12,11 @@
 //!
 //! ## Example
 //!
-//! Each algorithm implements [`SignatureVerifier`], and [`SignatureVerify`] collects them
+//! Each algorithm implements [`crate::signature::SignatureVerifier`], and
+//! [`crate::signature::SignatureVerify`] collects them
 //! into one enum implementing the same trait. Verification returns `Ok(())` when the
 //! signature matches and an error otherwise, so the trait has to be in scope to call
-//! [`SignatureVerifier::verify`].
+//! [`crate::signature::SignatureVerifier::verify`].
 //!
 //! ```no_run
 //! # #[cfg(feature = "signature-ed25519")]
@@ -38,8 +39,8 @@
 //!
 //! ## Key Sets
 //!
-//! [`SignatureVerifyKey`] pairs a key with the id it is published under, and reports the
-//! [`SignatureAlgorithm`] of the key it holds:
+//! [`crate::signature::SignatureVerifyKey`] pairs a key with the id it is published under, and
+//! reports the [`crate::signature::SignatureAlgorithm`] of the key it holds:
 //!
 //! ```no_run
 //! # #[cfg(feature = "signature-ed25519")]
@@ -59,10 +60,10 @@
 //!
 //! Implement custom verification logic:
 //!
-//! The closure is passed straight to [`SignatureVerify::Custom`] so its returned future
+//! The closure is passed straight to [`crate::signature::SignatureVerify::Custom`] so its returned future
 //! coerces to the boxed trait object the variant holds — binding it to a `let` first would
 //! pin it to the concrete future type and fail to compile. Unlike the built-in algorithms
-//! it reports its verdict as a `bool`; [`SignatureVerify`] turns `false` into
+//! it reports its verdict as a `bool`; [`crate::signature::SignatureVerify`] turns `false` into
 //! [`crate::Error::SignatureVerifyFailed`].
 //!
 //! ```no_run

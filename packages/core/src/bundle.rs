@@ -258,8 +258,7 @@ impl Bundle {
     self.get_data_with_options(path, DataReadOptions::default())
   }
 
-  /// Retrieves file data by path, verifying the entry checksum when
-  /// [`DataReadOptions::verify_checksum`] is set.
+  /// Retrieves file data by path, using the checksum policy in [`DataReadOptions`].
   ///
   /// Returns `None` if the path doesn't exist in the bundle, and
   /// [`crate::Error::ChecksumMismatch`] if the entry's data is corrupted.

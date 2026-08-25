@@ -24,27 +24,35 @@ pub struct HttpOptions {
   pub default_headers: Option<HashMap<String, String>>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// User-Agent sent with every request.
   pub user_agent: Option<String>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Total request timeout in milliseconds.
   pub timeout: Option<u32>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Response-body read timeout in milliseconds.
   pub read_timeout: Option<u32>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Connection-establishment timeout in milliseconds.
   pub connect_timeout: Option<u32>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Idle lifetime in milliseconds for pooled connections.
   pub pool_idle_timeout: Option<u32>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Maximum idle connections retained for one host.
   pub pool_max_idle_per_host: Option<u32>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Whether redirect requests include a Referer header.
   pub referer: Option<bool>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Whether TCP sockets disable Nagle's algorithm.
   pub tcp_nodelay: Option<bool>,
 }
 
@@ -97,7 +105,9 @@ impl TryFrom<HttpOptions> for remote::HttpOptions {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemoteConfig {
+  /// Base URL of the update service.
   pub base_url: String,
+  /// Optional HTTP client settings.
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub http: Option<HttpOptions>,
@@ -112,6 +122,7 @@ pub struct RemoteGetUpdateOptions {
   pub etag: Option<String>,
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
+  /// Release channel to request.
   pub channel: Option<String>,
   /// Require the response to be signed by this key.
   #[specta(optional)]
@@ -139,15 +150,21 @@ impl TryFrom<RemoteGetUpdateOptions> for remote::RemoteGetUpdateOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+/// One bundle advertised by an update document.
 pub struct BundleUpdate {
+  /// Bundle name.
   pub name: String,
+  /// Bundle version.
   pub version: String,
+  /// Absolute download URL when the service overrides the default endpoint.
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub download_url: Option<String>,
+  /// Serialized integrity value for the downloaded bundle.
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub integrity: Option<String>,
+  /// Provider-defined, string-valued bundle metadata.
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub metadata: Option<HashMap<String, String>>,
@@ -179,11 +196,17 @@ impl From<BundleUpdate> for remote::BundleUpdate {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+/// An atomically published set of bundle updates.
 pub struct Update {
+  /// Unique update identifier.
   pub id: String,
+  /// ISO 8601 publication time.
   pub created_at: String,
+  /// Update-model version required to process this document.
   pub runtime_version: u8,
+  /// Bundles included in this update.
   pub bundles: Vec<BundleUpdate>,
+  /// Provider-defined, string-valued update metadata.
   pub metadata: HashMap<String, String>,
 }
 
@@ -201,9 +224,13 @@ impl From<remote::Update> for Update {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+/// Signature metadata returned with an update document.
 pub struct UpdateSignature {
+  /// Identifier of the public key used to verify the signature.
   pub key_id: String,
+  /// Base64-encoded signature of the raw update document.
   pub sig: String,
+  /// Signature algorithm used for this signature.
   pub alg: String,
 }
 
@@ -219,11 +246,15 @@ impl From<remote::UpdateSignature> for UpdateSignature {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+/// A successful update response returned by the remote service.
 pub struct RemoteUpdateResponse {
+  /// Parsed update document.
   pub update: Update,
+  /// HTTP entity tag supplied by the remote service.
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub etag: Option<String>,
+  /// Signature metadata supplied by the remote service.
   #[specta(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub signature: Option<UpdateSignature>,

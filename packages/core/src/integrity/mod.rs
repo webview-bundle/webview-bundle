@@ -29,9 +29,10 @@
 //!
 //! ## Integrity Policy
 //!
-//! [`IntegrityPolicy`] controls how a bundle's integrity metadata is treated when the
-//! check runs — required ([`IntegrityPolicy::Strict`]), checked when present
-//! ([`IntegrityPolicy::Optional`]), or disabled ([`IntegrityPolicy::Off`]). It is applied
+//! [`crate::integrity::IntegrityPolicy`] controls how a bundle's integrity metadata is treated when
+//! the check runs — required ([`crate::integrity::IntegrityPolicy::Strict`]), checked when present
+//! ([`crate::integrity::IntegrityPolicy::Optional`]), or disabled
+//! ([`crate::integrity::IntegrityPolicy::Off`]). It is applied
 //! through [`crate::source::SourceOptions::integrity`] (on load) and
 //! [`crate::updater::UpdaterOptions::integrity`] (on install).
 //!

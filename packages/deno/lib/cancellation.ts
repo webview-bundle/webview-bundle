@@ -9,6 +9,7 @@ import { getLib } from './ffi.ts';
 export class Cancellation {
   #ptr: Deno.PointerValue;
 
+  /** Creates a token in the active state. */
   constructor() {
     this.#ptr = getLib().symbols.wvb_cancellation_new();
     if (this.#ptr === null) {
@@ -24,14 +25,17 @@ export class Cancellation {
     return this.#ptr;
   }
 
+  /** Requests cancellation of every operation using this token. */
   cancel(): void {
     getLib().symbols.wvb_cancellation_cancel(this.pointer);
   }
 
+  /** Whether cancellation has been requested. */
   isCancelled(): boolean {
     return getLib().symbols.wvb_cancellation_is_cancelled(this.pointer) !== 0;
   }
 
+  /** Releases the native cancellation handle. Safe to call more than once. */
   free(): void {
     if (this.#ptr !== null) {
       getLib().symbols.wvb_cancellation_free(this.#ptr);

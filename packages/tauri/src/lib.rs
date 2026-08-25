@@ -4,27 +4,35 @@ use tauri::{
   plugin::{Builder, TauriPlugin},
 };
 
+/// Tauri plugin configuration builders.
 pub use config::*;
+/// Error values returned by the Tauri integration.
 pub use wvb::signature::{
   EcdsaSecp256r1, EcdsaSecp384r1, Ed25519, RsaPkcs1V15Sha256, RsaPssSha256,
 };
 
 #[cfg(target_os = "android")]
+/// Android-specific builtin-bundle support.
 pub mod android;
 mod command;
 mod config;
 mod error;
 mod state;
 
+/// Tauri integration error type and result alias.
 pub use error::{Error, Result};
+/// Default HTTP error-response formatter for protocol handlers.
 pub use state::default_error_response;
+/// Re-export of the Webview Bundle core crate used by this plugin.
 pub use wvb;
 
 use state::WebviewBundle;
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the tauri APIs.
 pub trait WebviewBundleExtra<R: Runtime> {
+  /// Returns the initialized Webview Bundle plugin state.
   fn webview_bundle(&self) -> &WebviewBundle<R>;
+  /// Short alias for [`Self::webview_bundle`].
   fn wvb(&self) -> &WebviewBundle<R> {
     self.webview_bundle()
   }
