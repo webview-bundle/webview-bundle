@@ -17,6 +17,7 @@ struct ContentView: View {
                     Button("Run") {
                         Task { await runner.run() }
                     }
+                    .accessibilityIdentifier("btn_run")
                     .disabled(runner.isRunning)
                 }
             }
@@ -34,16 +35,10 @@ struct ContentView: View {
             } else if !runner.results.isEmpty {
                 let passed = runner.results.filter { $0.passed }.count
                 let failed = runner.results.filter { !$0.passed }.count
-                Text("\(passed) passed")
-                    .foregroundColor(.green)
+                Text("\(passed) passed, \(failed) failed")
+                    .foregroundColor(failed == 0 ? .green : .red)
                     .fontWeight(.semibold)
-                if failed > 0 {
-                    Text("\u{00B7}")
-                        .foregroundColor(.secondary)
-                    Text("\(failed) failed")
-                        .foregroundColor(.red)
-                        .fontWeight(.semibold)
-                }
+                    .accessibilityIdentifier("tv_summary")
             } else {
                 Text("Tap Run to start")
                     .foregroundColor(.secondary)
