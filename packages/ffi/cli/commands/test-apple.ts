@@ -28,8 +28,12 @@ export class TestAppleCommand extends Command {
         'build',
         '-scheme',
         'TestApp',
+        '-configuration',
+        'Debug',
         '-destination',
         'generic/platform=iOS Simulator',
+        '-derivedDataPath',
+        path.join(PKG_DIR, '.output', 'ios-simulator'),
         'CODE_SIGNING_ALLOWED=NO',
       ],
       {
