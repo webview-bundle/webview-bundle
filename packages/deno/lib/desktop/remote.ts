@@ -1,5 +1,5 @@
 // remote — construct a @wvb/deno Remote (mirrors @wvb/electron's remote.ts).
-import { Remote, type RemoteConfig } from '@wvb/deno';
+import { Remote, type RemoteConfig } from '../mod.ts';
 
 export type { RemoteConfig };
 

@@ -1,20 +1,20 @@
 import { assert, assertEquals } from '@std/assert';
 import { fromFileUrl } from '@std/path';
-import { loadLib } from '@wvb/deno';
+import { type Routes, webviewBundle } from '@wvb/deno/desktop';
+import { loadLib } from '../mod.ts';
 import {
   type DenoBrowserWindow,
   INVOKE_BINDING,
   type InvokeResult,
   registerBindings,
 } from './bindings.ts';
-import { type Routes, webviewBundle } from './mod.ts';
 
 const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';
 const prefix = Deno.build.os === 'windows' ? '' : 'lib';
 const DYLIB = fromFileUrl(
-  new URL(`../../../target/release/${prefix}wvb_deno.${ext}`, import.meta.url)
+  new URL(`../../../../target/release/${prefix}wvb_deno.${ext}`, import.meta.url)
 );
-const BUILTIN_DIR = fromFileUrl(new URL('../fixtures/builtin', import.meta.url));
+const BUILTIN_DIR = fromFileUrl(new URL('../../fixtures/builtin', import.meta.url));
 
 loadLib(DYLIB);
 
