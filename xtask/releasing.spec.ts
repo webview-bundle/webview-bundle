@@ -105,7 +105,7 @@ describe('deno.json manifest', () => {
   });
 
   it('derives dependency names from the imports map', () => {
-    const file = denoManifest('@wvb/deno-desktop', '0.2.0', {
+    const file = denoManifest('@wvb/consumer', '0.2.0', {
       imports: { '@wvb/deno': 'jsr:@wvb/deno@^0.2.0', '@std/path': 'jsr:@std/path@^1' },
     });
     // The source scan is empty (fixture dir does not exist), so only the imports keys remain.

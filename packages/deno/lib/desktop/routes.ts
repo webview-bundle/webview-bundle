@@ -5,7 +5,7 @@ import {
   ProxyProtocol,
   type Source,
   type UriPathResolver,
-} from '@wvb/deno';
+} from '../mod.ts';
 import { toResponse } from './http.ts';
 
 /** The response for a request the protocol failed to serve (default: `500` with the message). */

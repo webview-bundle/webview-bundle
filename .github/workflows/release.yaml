@@ -258,8 +258,8 @@ jobs:
           tool: cargo-zigbuild
       - run: yarn install --immutable
       - name: Build deno cdylib
-        run: deno run --allow-read --allow-write --allow-run --allow-env ./deno/scripts/build.ts --target ${{ matrix.settings.target }} ${{ matrix.settings.zigbuild && '--zigbuild' || '' }}
-        working-directory: packages
+        run: deno run --allow-read --allow-write --allow-run --allow-env ./scripts/build.ts --target ${{ matrix.settings.target }} ${{ matrix.settings.zigbuild && '--zigbuild' || '' }}
+        working-directory: packages/deno
         shell: bash
       - name: Merge artifacts
         run: node ./xtask/cli.ts artifacts merge

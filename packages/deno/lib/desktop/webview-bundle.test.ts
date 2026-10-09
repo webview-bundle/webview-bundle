@@ -1,15 +1,15 @@
 import { assert, assertEquals, assertThrows } from '@std/assert';
 import { fromFileUrl } from '@std/path';
-import { loadLib } from '@wvb/deno';
-import { type Routes, webviewBundle } from './mod.ts';
+import { type Routes, webviewBundle } from '@wvb/deno/desktop';
+import { loadLib } from '../mod.ts';
 
 // Use the locally-built cdylib + the committed builtin fixture (bundle "app" v1.0.0).
 const ext = Deno.build.os === 'windows' ? 'dll' : Deno.build.os === 'darwin' ? 'dylib' : 'so';
 const prefix = Deno.build.os === 'windows' ? '' : 'lib';
 const DYLIB = fromFileUrl(
-  new URL(`../../../target/release/${prefix}wvb_deno.${ext}`, import.meta.url)
+  new URL(`../../../../target/release/${prefix}wvb_deno.${ext}`, import.meta.url)
 );
-const BUILTIN_DIR = fromFileUrl(new URL('../fixtures/builtin', import.meta.url));
+const BUILTIN_DIR = fromFileUrl(new URL('../../fixtures/builtin', import.meta.url));
 
 // Load the native library once at module top level — not inside a test — so Deno's per-test
 // resource-leak sanitizer doesn't flag the intentionally process-lifetime FFI handle.

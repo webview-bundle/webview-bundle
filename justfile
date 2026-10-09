@@ -65,7 +65,7 @@ test-e2e-ffi:
     yarn workspace wvb-ffi run e2e-ffi
 
 # Test deno files
-[working-directory: 'packages']
+[working-directory: 'packages/deno']
 test-deno: build-deno
     deno task test
 
@@ -102,7 +102,7 @@ typecheck-js:
     yarn workspaces foreach -Apt run typecheck
 
 # Typecheck deno files
-[working-directory: 'packages']
+[working-directory: 'packages/deno']
 typecheck-deno:
     deno task check
 

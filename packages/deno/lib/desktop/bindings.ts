@@ -1,4 +1,4 @@
-import { isWebviewBundleError, type Remote, type Updater } from '@wvb/deno';
+import { isWebviewBundleError, type Remote, type Updater } from '../mod.ts';
 import type { WebviewBundle } from './webview-bundle.ts';
 
 export const INVOKE_BINDING = 'wvbInvoke';

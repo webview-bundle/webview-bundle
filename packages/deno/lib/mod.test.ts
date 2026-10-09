@@ -58,7 +58,7 @@ Deno.test('BundleProtocol returns 404 for a missing path and 405 for POST', asyn
   assertEquals((await protocol.handle('post', 'bundle://app/')).status, 405);
 });
 
-// The adapter each host writes over the binding's `HttpResponse` (see `@wvb/deno-desktop`).
+// The adapter each host writes over the binding's `HttpResponse` (see `@wvb/deno/desktop`).
 function toResponse(res: HttpResponse): Response {
   const headers = new Headers();
   for (const [name, value] of Object.entries(res.headers)) {
