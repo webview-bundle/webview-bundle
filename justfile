@@ -19,6 +19,28 @@ setup:
     # Run build
     just build
 
+# Setup ffi development environment
+setup-ffi:
+    # Add rust toolchain for android
+    rustup target add \
+        aarch64-linux-android \
+        armv7-linux-androideabi \
+        x86_64-linux-android \
+        i686-linux-android
+
+    # Add rust toolchain for apple
+    rustup target add \
+        aarch64-apple-ios \
+        aarch64-apple-ios-sim \
+        x86_64-apple-ios \
+        aarch64-apple-darwin \
+        x86_64-apple-darwin
+
+    # Install cargo ndk from cargo-binstall
+    # You may install carg-binstall first:
+    # https://github.com/cargo-bins/cargo-binstall
+    cargo binstall cargo-ndk -y
+
 # Test all files
 test: test-rs test-js test-ffi test-deno test-e2e test-e2e-ffi
 
