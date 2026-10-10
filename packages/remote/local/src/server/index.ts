@@ -1,6 +1,8 @@
 export type {
   WebviewBundleServer,
   WebviewBundleServerConfig,
+  WebviewBundleServerInstance,
+  WebviewBundleServerServeParams,
 } from './server.js';
 export {
   webviewBundleServer,
