@@ -7,13 +7,8 @@ export {
   writeBundle,
   writeBundleVersionData,
 } from './bundles.js';
-export type { BundleUpdate, Update, UpdateFile, UpdateSignature } from './update.js';
 export {
-  BundleUpdateSchema,
-  readUpdateFile,
-  stringifyUpdate,
-  UpdateFileSchema,
-  UpdateSchema,
-  UpdateSignatureSchema,
-  writeUpdateFile,
+  readCurrentUpdate,
+  readUpdate,
+  writeUpdate,
 } from './update.js';

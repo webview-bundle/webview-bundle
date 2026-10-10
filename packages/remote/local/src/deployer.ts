@@ -1,18 +1,18 @@
 import type { BaseDeployer, DeployParams } from '@wvb/config/remote';
-import { writeUpdateFile } from './api/index.js';
+import { writeUpdate } from './api/index.js';
 
 export interface LocalRemoteDeployerConfig {
   baseDir: string;
 }
 
-class LocalRemoteDeployer implements BaseDeployer {
+class RemoteDeployer implements BaseDeployer {
   constructor(private readonly config: LocalRemoteDeployerConfig) {}
 
   async deploy(params: DeployParams): Promise<void> {
     const { baseDir } = this.config;
     const { bundles, channel, signatures, runtimeVersion, metadata } = params;
 
-    await writeUpdateFile({
+    await writeUpdate({
       baseDir,
       bundles,
       channel,
@@ -24,5 +24,5 @@ class LocalRemoteDeployer implements BaseDeployer {
 }
 
 export function localRemoteDeployer(config: LocalRemoteDeployerConfig): BaseDeployer {
-  return new LocalRemoteDeployer(config);
+  return new RemoteDeployer(config);
 }

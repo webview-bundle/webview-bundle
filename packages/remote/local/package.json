@@ -34,6 +34,10 @@
       "import": "./dist/api/index.mjs",
       "require": "./dist/api/index.cjs"
     },
+    "./server": {
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.cjs"
+    },
     "./package.json": "./package.json"
   },
   "engines": {
@@ -45,9 +49,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wvb/config": "workspace:^",
+    "@wvb/config": "workspace:*",
+    "@wvb/remote-base": "workspace:*",
     "es-toolkit": "^1.51.0",
-    "tinyglobby": "^0.2.14",
+    "hono": "^4",
     "uuid": "^14.0.0",
     "write-file-atomic": "7.0.1",
     "zod": "^4.0.5"

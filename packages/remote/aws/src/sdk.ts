@@ -81,3 +81,53 @@ export function filterS3Metadata(
     Object.entries(metadata).filter(([, value]) => value != null)
   ) as Record<string, string>;
 }
+
+export async function readS3JsonFile<T = unknown>(
+  s3Client: S3Client,
+  params: {
+    bucket: string;
+    key: string;
+  }
+): Promise<T | null> {
+  const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+  try {
+    const result = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: params.bucket,
+        Key: params.key,
+      })
+    );
+    const body = await result.Body?.transformToString();
+    if (body == null) {
+      throw new Error('Response body is empty');
+    }
+
+    return JSON.parse(body) as T;
+  } catch (e) {
+    if (isNotFoundError(e)) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+export async function writeS3JsonFile(
+  s3Client: S3Client,
+  params: {
+    bucket: string;
+    key: string;
+    data: unknown;
+    cacheControl?: string;
+  }
+): Promise<void> {
+  const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: params.bucket,
+      Key: params.key,
+      Body: JSON.stringify(params.data),
+      ContentType: 'application/json',
+      CacheControl: params.cacheControl,
+    })
+  );
+}

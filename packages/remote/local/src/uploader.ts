@@ -1,12 +1,12 @@
 import type { BaseUploader, UploadParams } from '@wvb/config/remote';
 import { getBundleFileSize, writeBundle, writeBundleVersionData } from './api/index.js';
 
-export interface UploaderConfig {
+export interface LocalRemoteUploaderConfig {
   baseDir: string;
 }
 
-class LocalUploaderImpl implements BaseUploader {
-  constructor(private readonly config: UploaderConfig) {}
+class LocalUploader implements BaseUploader {
+  constructor(private readonly config: LocalRemoteUploaderConfig) {}
 
   async upload(params: UploadParams): Promise<void> {
     const { baseDir } = this.config;
@@ -33,6 +33,6 @@ class LocalUploaderImpl implements BaseUploader {
   }
 }
 
-export function localRemoteUploader(config: UploaderConfig): BaseUploader {
-  return new LocalUploaderImpl(config);
+export function localRemoteUploader(config: LocalRemoteUploaderConfig): BaseUploader {
+  return new LocalUploader(config);
 }

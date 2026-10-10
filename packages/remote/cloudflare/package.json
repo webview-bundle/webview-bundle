@@ -30,22 +30,54 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./worker": {
+      "import": "./dist/worker/index.mjs",
+      "require": "./dist/worker/index.cjs"
+    },
+    "./pulumi": {
+      "import": "./dist/pulumi/index.mjs",
+      "require": "./dist/pulumi/index.cjs"
+    }
   },
   "scripts": {
     "prepack": "yarn build",
     "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "@pulumi/cloudflare": "^6",
+    "@pulumi/pulumi": "^3"
+  },
+  "peerDependenciesMeta": {
+    "@pulumi/cloudflare": {
+      "optional": true
+    },
+    "@pulumi/pulumi": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@wvb/config": "workspace:^",
-    "@wvb/remote-aws": "workspace:^",
-    "cloudflare": "^5.2.0"
+    "@aws-sdk/client-s3": "^3.975.0",
+    "@cloudflare/workers-types": "5.20261010.1",
+    "@wvb/config": "workspace:*",
+    "@wvb/remote-aws": "workspace:*",
+    "@wvb/remote-base": "workspace:*",
+    "cloudflare": "^5.2.0",
+    "hono": "^4"
   },
   "devDependencies": {
+    "@pulumi/cloudflare": "^6.10.0",
+    "@pulumi/pulumi": "^3.237.0",
+    "@smithy/util-stream": "4.5.12",
     "@types/node": "catalog:",
+    "aws-sdk-client-mock": "4.1.0",
+    "esbuild": "0.28.1",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

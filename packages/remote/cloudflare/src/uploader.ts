@@ -1,20 +1,20 @@
-import type { BaseRemoteUploader, RemoteUploadParams } from '@wvb/config/remote';
-import { type AwsS3RemoteUploaderConfig, awsS3RemoteUploader } from '@wvb/remote-aws';
+import type { BaseUploader, UploadParams } from '@wvb/config/remote';
+import { type AwsRemoteUploaderConfig, awsRemoteUploader } from '@wvb/remote-aws';
 
-export interface CloudflareRemoteUploaderConfig extends AwsS3RemoteUploaderConfig {
+export interface CloudflareRemoteUploaderConfig extends AwsRemoteUploaderConfig {
   accountId: string;
 }
 
-class CloudflareRemoteUploaderImpl implements BaseRemoteUploader {
+class CloudflareRemoteUploaderImpl implements BaseUploader {
   _onUploadProgress:
     | ((progress: { loaded?: number; total?: number; part?: number }) => void)
     | undefined;
 
   constructor(private readonly config: CloudflareRemoteUploaderConfig) {}
 
-  async upload(params: RemoteUploadParams): Promise<void> {
+  async upload(params: UploadParams): Promise<void> {
     const { accountId, ...config } = this.config;
-    const uploader = awsS3RemoteUploader({
+    const uploader = awsRemoteUploader({
       ...config,
       s3ClientConfig: {
         ...config.s3ClientConfig,
@@ -28,8 +28,6 @@ class CloudflareRemoteUploaderImpl implements BaseRemoteUploader {
   }
 }
 
-export function cloudflareRemoteUploader(
-  config: CloudflareRemoteUploaderConfig
-): BaseRemoteUploader {
+export function cloudflareRemoteUploader(config: CloudflareRemoteUploaderConfig): BaseUploader {
   return new CloudflareRemoteUploaderImpl(config);
 }

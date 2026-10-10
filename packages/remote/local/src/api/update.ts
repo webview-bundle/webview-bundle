@@ -1,61 +1,37 @@
-import { Buffer } from 'node:buffer';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { DeployBundleData, ResolvedSignatureConfig } from '@wvb/config/remote';
 import {
-  type DeployBundleData,
-  getSignatureValue,
-  type ResolvedSignatureConfig,
-} from '@wvb/config/remote';
+  type BundleUpdate,
+  type Current,
+  CurrentSchema,
+  generateUpdateDataETag,
+  generateUpdateDataSignatures,
+  type Update,
+  UpdateSchema,
+} from '@wvb/remote-base';
 import { v7 as uuidv7 } from 'uuid';
 import writeFileAtomic from 'write-file-atomic';
-import { z } from 'zod';
 import { type BundleVersionData, getBundleFileSize, readBundleVersionData } from './bundles.js';
 import { lock } from './lock.js';
 
-export const BundleUpdateSchema = z.object({
-  name: z.string(),
-  version: z.string(),
-  integrity: z.string().optional(),
-  metadata: z.record(z.string(), z.string()).optional(),
-});
-export type BundleUpdate = z.infer<typeof BundleUpdateSchema>;
-
-export const UpdateSchema = z.object({
-  id: z.uuidv7(),
-  createdAt: z.iso.datetime(),
-  runtimeVersion: z.int(),
-  bundles: BundleUpdateSchema.array(),
-  metadata: z.record(z.string(), z.string()).optional(),
-});
-export type Update = z.infer<typeof UpdateSchema>;
-
-export const UpdateSignatureSchema = z.object({
-  id: z.string(),
-  alg: z.string(),
-  sig: z.string(),
-});
-export type UpdateSignature = z.infer<typeof UpdateSignatureSchema>;
-
-export const UpdateFileSchema = z.object({
-  update: UpdateSchema,
-  signatures: UpdateSignatureSchema.array(),
-});
-export type UpdateFile = z.infer<typeof UpdateFileSchema>;
-
-interface ReadUpdateFileParams {
+interface ReadCurrentUpdateParams {
   baseDir: string;
+  runtimeVersion: number;
   channel?: string;
 }
 
-export async function readUpdateFile({
+export async function readCurrentUpdate({
   baseDir,
+  runtimeVersion,
   channel,
-}: ReadUpdateFileParams): Promise<UpdateFile | null> {
+}: ReadCurrentUpdateParams): Promise<Update | null> {
   try {
-    const filePath = getUpdateFilePath(baseDir, channel);
+    const filePath = getCurrentFilePath(baseDir, runtimeVersion, channel);
     const raw = await fs.readFile(filePath, 'utf8');
+    const current = CurrentSchema.parse(JSON.parse(raw));
 
-    return UpdateFileSchema.parse(JSON.parse(raw));
+    return await readUpdate({ baseDir, runtimeVersion, updateId: current.updateId, channel });
   } catch (e) {
     if (isFileNotFoundError(e)) {
       return null;
@@ -64,7 +40,33 @@ export async function readUpdateFile({
   }
 }
 
-interface WriteUpdateFileParams {
+interface ReadUpdateParams {
+  baseDir: string;
+  updateId: string;
+  runtimeVersion: number;
+  channel?: string;
+}
+
+export async function readUpdate({
+  baseDir,
+  updateId,
+  runtimeVersion,
+  channel,
+}: ReadUpdateParams): Promise<Update | null> {
+  try {
+    const filePath = getUpdateFilePath(baseDir, runtimeVersion, updateId, channel);
+    const raw = await fs.readFile(filePath, 'utf8');
+
+    return UpdateSchema.parse(JSON.parse(raw));
+  } catch (e) {
+    if (isFileNotFoundError(e)) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+interface WriteUpdateParams {
   baseDir: string;
   bundles: DeployBundleData[];
   runtimeVersion?: number;
@@ -73,19 +75,19 @@ interface WriteUpdateFileParams {
   metadata?: Record<string, string>;
 }
 
-export async function writeUpdateFile({
+export async function writeUpdate({
   baseDir,
   bundles,
   channel,
   runtimeVersion = 1,
   signatures = [],
   metadata,
-}: WriteUpdateFileParams): Promise<UpdateFile> {
+}: WriteUpdateParams): Promise<Update> {
   await lock.acquire();
 
   try {
-    const { update }: UpdateFile = (await readUpdateFile({ baseDir, channel })) ?? {
-      update: {
+    const update: Update = (await readCurrentUpdate({ baseDir, runtimeVersion, channel })) ?? {
+      data: {
         id: '',
         createdAt: new Date().toISOString(),
         runtimeVersion,
@@ -115,44 +117,40 @@ export async function writeUpdateFile({
     );
 
     for (const bundle of updateBundles) {
-      const idx = update.bundles.findIndex(x => x.name === bundle.name);
+      const idx = update.data.bundles.findIndex(x => x.name === bundle.name);
       if (idx > -1) {
-        update.bundles[idx] = bundle;
+        update.data.bundles[idx] = bundle;
       } else {
-        update.bundles.push(bundle);
+        update.data.bundles.push(bundle);
       }
     }
 
-    update.bundles.sort((a, b) => a.name.localeCompare(b.name));
-    update.createdAt = new Date().toISOString();
+    update.data.bundles.sort((a, b) => a.name.localeCompare(b.name));
+    update.data.createdAt = new Date().toISOString();
     if (metadata != null) {
-      update.metadata = metadata;
+      update.data.metadata = metadata;
     }
-    update.id = uuidv7();
+    update.data.id = uuidv7();
 
-    const updateSignatures = await signUpdate(update, signatures);
+    update.etag = generateUpdateDataETag(update.data);
+    update.signatures = await generateUpdateDataSignatures(update.data, signatures);
 
-    const updateFile: UpdateFile = {
-      update,
-      signatures: updateSignatures,
-    };
-
-    const filePath = getUpdateFilePath(baseDir, channel);
+    const filePath = getUpdateFilePath(baseDir, runtimeVersion, update.data.id, channel);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await writeFileAtomic(filePath, JSON.stringify(updateFile, null, 2));
+    await writeFileAtomic(filePath, JSON.stringify(update, null, 2));
 
-    return updateFile;
+    const currentFilePath = getCurrentFilePath(baseDir, runtimeVersion, channel);
+    const currentFile: Current = {
+      updateId: update.data.id,
+      currentAt: new Date().toISOString(),
+    };
+    await fs.mkdir(path.dirname(currentFilePath), { recursive: true });
+    await writeFileAtomic(currentFilePath, JSON.stringify(currentFile, null, 2));
+
+    return update;
   } finally {
     lock.release();
   }
-}
-
-async function signUpdate(
-  update: Update,
-  signatures: ResolvedSignatureConfig[]
-): Promise<UpdateSignature[]> {
-  const message = Buffer.from(stringifyUpdate(update), 'utf8');
-  return await Promise.all(signatures.map(signature => getSignatureValue(signature, message)));
 }
 
 function bundleUpdateFromVersionData(
@@ -167,29 +165,39 @@ function bundleUpdateFromVersionData(
   };
 }
 
-/** Serializes an update deterministically for signing and serving. */
-export function stringifyUpdate(update: Update): string {
-  return JSON.stringify(update, (_key, value: unknown) => {
-    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
-      return value;
-    }
-
-    const record = value as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.keys(record)
-        .sort()
-        .map(key => [key, record[key]])
-    );
-  });
-}
-
 function isFileNotFoundError(e: unknown): e is NodeJS.ErrnoException {
   return e instanceof Error && 'code' in e && e.code === 'ENOENT';
 }
 
-function getUpdateFilePath(baseDir: string, channel?: string): string {
+function getCurrentFilePath(baseDir: string, runtimeVersion: number, channel?: string): string {
   if (channel != null) {
-    return path.join(baseDir, 'updates', 'channels', channel, 'update.json');
+    return path.join(
+      baseDir,
+      'channels',
+      channel,
+      'updates',
+      String(runtimeVersion),
+      'current.json'
+    );
   }
-  return path.join(baseDir, 'updates', 'update.json');
+  return path.join(baseDir, 'updates', String(runtimeVersion), 'current.json');
+}
+
+function getUpdateFilePath(
+  baseDir: string,
+  runtimeVersion: number,
+  updateId: string,
+  channel?: string
+): string {
+  if (channel != null) {
+    return path.join(
+      baseDir,
+      'channels',
+      channel,
+      'updates',
+      String(runtimeVersion),
+      `${updateId}.json`
+    );
+  }
+  return path.join(baseDir, 'updates', String(runtimeVersion), `${updateId}.json`);
 }

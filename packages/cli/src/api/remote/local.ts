@@ -19,10 +19,10 @@ export interface LocalRemoteInstance {
 export async function localRemote(params: LocalRemoteParams): Promise<LocalRemoteInstance> {
   const { baseDir, hostname, port = 4313, logger } = params;
 
-  const { wvbRemote } = await import('@wvb/remote-local-provider');
+  const { buildWvbServer } = await import('@wvb/remote-local/server');
   const { serve } = await import('@hono/node-server');
 
-  const app = wvbRemote({ baseDir });
+  const app = buildWvbServer({ baseDir });
   const server = serve(
     {
       fetch: app.fetch,

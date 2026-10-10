@@ -1,132 +1,128 @@
-import type { CloudFrontClient } from '@aws-sdk/client-cloudfront';
-import type { S3Client } from '@aws-sdk/client-s3';
-import type { BaseDeployer } from '@wvb/config/remote';
+import { randomUUID } from 'node:crypto';
+import type { BaseDeployer, DeployParams } from '@wvb/config/remote';
+import {
+  type BundleUpdate,
+  type Current,
+  generateUpdateDataETag,
+  generateUpdateDataSignatures,
+  type Update,
+  type UpdateData,
+} from '@wvb/remote-base';
 import {
   type AwsCloudFrontClientConfigLike,
   type AwsS3ClientConfigLike,
   getCloudFrontClient,
   getS3Client,
-  isNotFoundError,
+  readS3JsonFile,
+  writeS3JsonFile,
 } from './sdk.js';
 
-export interface AwsDeployerConfig extends AwsS3ClientConfigLike, AwsCloudFrontClientConfigLike {
+export interface AwsRemoteDeployerConfig
+  extends AwsS3ClientConfigLike,
+    AwsCloudFrontClientConfigLike {
   bucket: string;
-  key?: string | ((bundleName: string, version: string, channel?: string) => string);
-  cacheControl?: string;
-  invalidate?: {
-    distributionId: string;
-    callerReference?: string | (() => string);
-  };
+  invalidate?: { distributionId: string; callerReference?: string | (() => string) };
 }
+export interface AwsRemoteDeployer extends BaseDeployer {}
 
-export interface AwsDeployer extends BaseDeployer {}
+class AwsDeployerImpl implements AwsRemoteDeployer {
+  constructor(private readonly config: AwsRemoteDeployerConfig) {}
 
-class AwsDeployerImpl implements AwsDeployer {
-  constructor(private readonly config: AwsDeployerConfig) {}
+  async deploy(params: DeployParams) {
+    const { bucket, invalidate } = this.config;
+    const { bundles, channel, runtimeVersion = 1, metadata, signatures } = params;
 
-  async deploy(params: RemoteDeployParams): Promise<void> {
-    const { bucket, key: keyInput, invalidate, cacheControl } = this.config;
-    const { bundleName, version, channel } = params;
-    const s3Client = await getS3Client(this.config);
-    const key =
-      typeof keyInput === 'string'
-        ? keyInput
-        : typeof keyInput === 'function'
-          ? keyInput(bundleName, version, channel)
-          : `bundles/${bundleName}/deployment.json`;
-    const deployment: RemoteBundleDeployment = (await this.getDeployment(
-      s3Client,
+    const s3 = await getS3Client(this.config);
+
+    const previousCurrent = await readS3JsonFile<Current>(s3, {
       bucket,
-      key
-    )) ?? {
-      name: bundleName,
-    };
-    deployment.name = bundleName;
-    if (channel != null) {
-      deployment.channels ??= {};
-      deployment.channels[channel] = version;
-    } else {
-      deployment.version = version;
-    }
-    await this.updateDeployment(s3Client, bucket, key, deployment, cacheControl);
-    if (invalidate != null) {
-      const cfClient = await getCloudFrontClient(this.config);
-      const callerReference =
-        typeof invalidate.callerReference === 'string'
-          ? invalidate.callerReference
-          : typeof invalidate.callerReference === 'function'
-            ? invalidate.callerReference()
-            : String(Date.now());
-      await this.invalidateCache(cfClient, invalidate.distributionId, callerReference);
-    }
-  }
+      key: this.#currentKey(channel, runtimeVersion),
+    });
+    const previousUpdate =
+      previousCurrent == null
+        ? null
+        : await readS3JsonFile<Update>(s3, {
+            bucket,
+            key: this.#updateKey(channel, runtimeVersion, previousCurrent.updateId),
+          });
 
-  private async getDeployment(
-    s3Client: S3Client,
-    bucket: string,
-    key: string
-  ): Promise<RemoteBundleDeployment | null> {
-    try {
-      const { GetObjectCommand } = await import('@aws-sdk/client-s3');
-      const output = await s3Client.send(
-        new GetObjectCommand({
-          Bucket: bucket,
-          Key: key,
+    const updatedBundles = new Map(
+      previousUpdate?.data.bundles.map(bundle => [bundle.name, bundle])
+    );
+
+    for (const bundle of bundles) {
+      const versionData = await readS3JsonFile<Pick<BundleUpdate, 'integrity' | 'metadata'>>(s3, {
+        bucket,
+        key: `bundles/${bundle.name}/${bundle.version}.json`,
+      });
+      updatedBundles.set(bundle.name, { ...versionData, ...bundle });
+    }
+
+    const data: UpdateData = {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      runtimeVersion,
+      bundles: [...updatedBundles.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      metadata: metadata ?? previousUpdate?.data.metadata,
+    };
+
+    const update: Update = {
+      data,
+      etag: generateUpdateDataETag(data),
+      signatures: signatures != null ? await generateUpdateDataSignatures(data, signatures) : [],
+    };
+    await writeS3JsonFile(s3, {
+      bucket,
+      key: this.#updateKey(channel, runtimeVersion, update.data.id),
+      data: update,
+      cacheControl: 'no-cache',
+    });
+
+    const current: Current = {
+      updateId: update.data.id,
+      currentAt: new Date().toISOString(),
+    };
+    await writeS3JsonFile(s3, {
+      bucket,
+      key: this.#currentKey(channel, runtimeVersion),
+      data: current,
+      cacheControl: 'no-cache',
+    });
+
+    if (invalidate != null) {
+      const { CreateInvalidationCommand } = await import('@aws-sdk/client-cloudfront');
+      const client = await getCloudFrontClient(this.config);
+      const reference = invalidate.callerReference;
+      await client.send(
+        new CreateInvalidationCommand({
+          DistributionId: invalidate.distributionId,
+          InvalidationBatch: {
+            CallerReference: typeof reference === 'function' ? reference() : (reference ?? data.id),
+            Paths: {
+              Quantity: 1,
+              Items: ['/update*'],
+            },
+          },
         })
       );
-      const raw = await output.Body?.transformToString('utf8');
-      if (raw == null) {
-        throw new Error('Response body is empty');
-      }
-      return JSON.parse(raw);
-    } catch (e) {
-      if (isNotFoundError(e)) {
-        return null;
-      }
-      throw e;
     }
   }
 
-  private async updateDeployment(
-    s3Client: S3Client,
-    bucket: string,
-    key: string,
-    deployment: RemoteBundleDeployment,
-    cacheControl?: string
-  ): Promise<void> {
-    const { PutObjectCommand } = await import('@aws-sdk/client-s3');
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: JSON.stringify(deployment),
-        ContentType: 'application/json',
-        CacheControl: cacheControl,
-      })
-    );
+  #currentKey(channel: string | undefined, runtimeVersion: number): string {
+    if (channel != null) {
+      return `channels/${channel}/updates/${runtimeVersion}/current.json`;
+    }
+    return `updates/${runtimeVersion}/current.json`;
   }
 
-  private async invalidateCache(
-    cfClient: CloudFrontClient,
-    distributionId: string,
-    callerReference: string
-  ): Promise<void> {
-    const { CreateInvalidationCommand } = await import('@aws-sdk/client-cloudfront');
-    await cfClient.send(
-      new CreateInvalidationCommand({
-        DistributionId: distributionId,
-        InvalidationBatch: {
-          Paths: {
-            Quantity: 2,
-            Items: ['/update'],
-          },
-          CallerReference: callerReference,
-        },
-      })
-    );
+  #updateKey(channel: string | undefined, runtimeVersion: number, updateId: string): string {
+    if (channel != null) {
+      return `channels/${channel}/updates/${runtimeVersion}/${updateId}.json`;
+    }
+    return `updates/${runtimeVersion}/${updateId}.json`;
   }
 }
 
-export function awsDeployer(config: AwsDeployerConfig): AwsDeployer {
+export function awsRemoteDeployer(config: AwsRemoteDeployerConfig): AwsRemoteDeployer {
   return new AwsDeployerImpl(config);
 }
