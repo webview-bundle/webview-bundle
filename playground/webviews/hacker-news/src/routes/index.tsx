@@ -8,7 +8,7 @@ import { selectFeed, TAGS } from '../data';
 import type { Sort, TagId, Variant } from '../data/types';
 import { cn } from '../lib/cn';
 
-interface FeedSearch {
+export interface FeedSearch {
   tag?: TagId;
   q?: string;
   sort?: Sort;

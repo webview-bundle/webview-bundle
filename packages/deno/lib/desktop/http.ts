@@ -1,4 +1,4 @@
-import type { HttpResponse } from '@wvb/deno';
+import type { HttpResponse } from '../mod.ts';
 
 /** Statuses the `Response` constructor rejects a body for — e.g. a proxied `304 Not Modified`. */
 const NULL_BODY_STATUS: ReadonlySet<number> = new Set([101, 103, 204, 205, 304]);

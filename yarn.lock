@@ -2077,12 +2077,12 @@ __metadata:
   linkType: hard
 
 "@grpc/grpc-js@npm:^1.14.3":
-  version: 1.14.5
-  resolution: "@grpc/grpc-js@npm:1.14.5"
+  version: 1.14.6
+  resolution: "@grpc/grpc-js@npm:1.14.6"
   dependencies:
     "@grpc/proto-loader": "npm:^0.8.0"
     "@js-sdsl/ordered-map": "npm:^4.4.2"
-  checksum: 10c0/25a44d80127ed166181fc3db25d9815a62081e33331938bdae31830296ec94a1c8ed3ade79fae26642ec3158e97a79936145c680f95c19528ffff334cca491e0
+  checksum: 10c0/13aab26913ef9eb7723df5586700c3a32d8cbea1fb6867e7e42fa4748fabb378c302a61da7fcf01493cc8de36c9738db2caaa3eacf2b2e670b4dd79acd891ad3
   languageName: node
   linkType: hard
 
@@ -3957,12 +3957,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opentelemetry/context-async-hooks@npm:2.11.0":
-  version: 2.11.0
-  resolution: "@opentelemetry/context-async-hooks@npm:2.11.0"
+"@opentelemetry/context-async-hooks@npm:2.12.0":
+  version: 2.12.0
+  resolution: "@opentelemetry/context-async-hooks@npm:2.12.0"
   peerDependencies:
     "@opentelemetry/api": ">=1.0.0 <1.10.0"
-  checksum: 10c0/f4ade428d85b73387597291d3a5eab7ddd113e377467466e92f7154a6d3b7807b3a22b46c4616e5895ffef1f2c85e026d522948ff5a38497f97b657486410e18
+  checksum: 10c0/fc4185cc643562527532cc5de985edc963a02a68aa1cf6ec517da5602cb51620ea9ffd2201f0fb75295eb9eb7d281a517598a081eeda79a905245a110f21282c
   languageName: node
   linkType: hard
 
@@ -3977,14 +3977,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opentelemetry/core@npm:2.11.0, @opentelemetry/core@npm:^2.9":
-  version: 2.11.0
-  resolution: "@opentelemetry/core@npm:2.11.0"
+"@opentelemetry/core@npm:2.12.0, @opentelemetry/core@npm:^2.9":
+  version: 2.12.0
+  resolution: "@opentelemetry/core@npm:2.12.0"
   dependencies:
     "@opentelemetry/semantic-conventions": "npm:^1.29.0"
   peerDependencies:
     "@opentelemetry/api": ">=1.0.0 <1.10.0"
-  checksum: 10c0/00fdc61232b1a751f9e3a95872d1062b499d6d35057de635dca3b5c51d4c2180415d9cbee8b0609c59498fc330c0a5bb2afd259fd227045882c06c6e4009b0c9
+  checksum: 10c0/e0d0338d314ca827b4395acf8c7eb8f88a58fd63f1effc6068ba4dd8e3443e02e5796333ae6723fb926a7e6c18dd6d2102f5cc7e531b185618562dadbf6cad71
   languageName: node
   linkType: hard
 
@@ -4046,16 +4046,16 @@ __metadata:
   linkType: hard
 
 "@opentelemetry/exporter-zipkin@npm:^2.9":
-  version: 2.11.0
-  resolution: "@opentelemetry/exporter-zipkin@npm:2.11.0"
+  version: 2.12.0
+  resolution: "@opentelemetry/exporter-zipkin@npm:2.12.0"
   dependencies:
-    "@opentelemetry/core": "npm:2.11.0"
-    "@opentelemetry/resources": "npm:2.11.0"
-    "@opentelemetry/sdk-trace": "npm:2.11.0"
+    "@opentelemetry/core": "npm:2.12.0"
+    "@opentelemetry/resources": "npm:2.12.0"
+    "@opentelemetry/sdk-trace": "npm:2.12.0"
     "@opentelemetry/semantic-conventions": "npm:^1.29.0"
   peerDependencies:
     "@opentelemetry/api": ^1.0.0
-  checksum: 10c0/3b9108421b6913bc376de619975f63b45a40be487996f69e7d6fbf76de75b3794a46d10fd15dbeacc9261bf99646428cfe15931e03bf3331aa283a84ebbd838a
+  checksum: 10c0/a0210fbeee84acb5252260f38091c6bedd2246a4451ad1e07429469f40b63992adad954ba87576d9a0b15ef3db140b432ab54e8dd1dc9bd5c9d8ea2acbbd27dd
   languageName: node
   linkType: hard
 
@@ -4231,15 +4231,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opentelemetry/resources@npm:2.11.0, @opentelemetry/resources@npm:^2.9":
-  version: 2.11.0
-  resolution: "@opentelemetry/resources@npm:2.11.0"
+"@opentelemetry/resources@npm:2.12.0, @opentelemetry/resources@npm:^2.9":
+  version: 2.12.0
+  resolution: "@opentelemetry/resources@npm:2.12.0"
   dependencies:
-    "@opentelemetry/core": "npm:2.11.0"
+    "@opentelemetry/core": "npm:2.12.0"
     "@opentelemetry/semantic-conventions": "npm:^1.29.0"
   peerDependencies:
     "@opentelemetry/api": ">=1.3.0 <1.10.0"
-  checksum: 10c0/d46fdf538f2bd103507165f5056f7b517de46d87223ba607cc11808c2fd0013d433d4d50b98d476f7f623dd17aae3c0fd5e6fa12ee6f45fb5553a695bf58b824
+  checksum: 10c0/ef3f8470b9ada8406fa4e4a0f002ca31537c1b7fe61f06102fb9023c97a56b0d978c687dd392539f1e005c20f0467f6a1c66f9c43e8d31c2900023164529f2bc
   languageName: node
   linkType: hard
 
@@ -4319,17 +4319,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opentelemetry/sdk-trace-base@npm:2.11.0, @opentelemetry/sdk-trace-base@npm:^2.9":
-  version: 2.11.0
-  resolution: "@opentelemetry/sdk-trace-base@npm:2.11.0"
+"@opentelemetry/sdk-trace-base@npm:2.12.0, @opentelemetry/sdk-trace-base@npm:^2.9":
+  version: 2.12.0
+  resolution: "@opentelemetry/sdk-trace-base@npm:2.12.0"
   dependencies:
-    "@opentelemetry/core": "npm:2.11.0"
-    "@opentelemetry/resources": "npm:2.11.0"
-    "@opentelemetry/sdk-trace": "npm:2.11.0"
+    "@opentelemetry/core": "npm:2.12.0"
+    "@opentelemetry/resources": "npm:2.12.0"
+    "@opentelemetry/sdk-trace": "npm:2.12.0"
     "@opentelemetry/semantic-conventions": "npm:^1.29.0"
   peerDependencies:
     "@opentelemetry/api": ">=1.3.0 <1.10.0"
-  checksum: 10c0/73c91d0cafcae29b2a1528108640a778cf60b5b9e3944dfcc4ce6d16f551863be453052b104ca19a435232a328862df8ef256d9d1c4fc2704e8d1f4bf9d0e4bb
+  checksum: 10c0/cd1de7e881f60a98047d662915b74b7b39cde69a51e9fc146fb4f02af4df4441a785af57e7ad267ea22bbc6ac19c5497684b51d7407573c2aef51f9e402aea4b
   languageName: node
   linkType: hard
 
@@ -4350,28 +4350,28 @@ __metadata:
   linkType: hard
 
 "@opentelemetry/sdk-trace-node@npm:^2.9":
-  version: 2.11.0
-  resolution: "@opentelemetry/sdk-trace-node@npm:2.11.0"
+  version: 2.12.0
+  resolution: "@opentelemetry/sdk-trace-node@npm:2.12.0"
   dependencies:
-    "@opentelemetry/context-async-hooks": "npm:2.11.0"
-    "@opentelemetry/core": "npm:2.11.0"
-    "@opentelemetry/sdk-trace-base": "npm:2.11.0"
+    "@opentelemetry/context-async-hooks": "npm:2.12.0"
+    "@opentelemetry/core": "npm:2.12.0"
+    "@opentelemetry/sdk-trace-base": "npm:2.12.0"
   peerDependencies:
     "@opentelemetry/api": ">=1.0.0 <1.10.0"
-  checksum: 10c0/fbda3afc6e9853b198fa0840dfa0ba095c210fdfd7285801060496f202b80bfe86330223ff41f7592db019f6245ba857facb2c48c2ef5b78c24344326660f54e
+  checksum: 10c0/988c6d5f6536e103b619c7375841672da7193f49f046f4b9d33dc91dcbcc9495b4adb64cac0d029d5c7d17b6b13b46c4140ae118f30dc46641d2be3513550813
   languageName: node
   linkType: hard
 
-"@opentelemetry/sdk-trace@npm:2.11.0":
-  version: 2.11.0
-  resolution: "@opentelemetry/sdk-trace@npm:2.11.0"
+"@opentelemetry/sdk-trace@npm:2.12.0":
+  version: 2.12.0
+  resolution: "@opentelemetry/sdk-trace@npm:2.12.0"
   dependencies:
-    "@opentelemetry/core": "npm:2.11.0"
-    "@opentelemetry/resources": "npm:2.11.0"
+    "@opentelemetry/core": "npm:2.12.0"
+    "@opentelemetry/resources": "npm:2.12.0"
     "@opentelemetry/semantic-conventions": "npm:^1.29.0"
   peerDependencies:
     "@opentelemetry/api": ">=1.3.0 <1.10.0"
-  checksum: 10c0/db3ead7f85a521e497e48c23ac0c557c351087d1f8bf5060f39c67114b7aced1be4c5b2e2a4e0d090484be749c8f4f3fec0b42197bc991aa9580d1b4f4ef4eb7
+  checksum: 10c0/bc36d6c3c0a007e0e1f928a7e3c9e6e6d130e157efab8da36a07a624000c2fd25309c0a3d42d4e58f6b30ae233cddfbc6270c2a8566c9f611b9d964f5b7ea8a6
   languageName: node
   linkType: hard
 
@@ -4434,6 +4434,13 @@ __metadata:
   version: 0.150.0
   resolution: "@oxc-project/types@npm:0.150.0"
   checksum: 10c0/e8b72ce72f5cd56b6c1da67dd65677c54850354acb0d2493016c791088f5cad991ba14ea79948ed766f62f6b6048e5de8ace163e154c8f21c550753052ccfe42
+  languageName: node
+  linkType: hard
+
+"@oxc-project/types@npm:=0.152.0":
+  version: 0.152.0
+  resolution: "@oxc-project/types@npm:0.152.0"
+  checksum: 10c0/5958369f7a2d9fb1f8061ab3aa1abf9b3565cc8895e7e8b3800cd08b6d8077d7ddb4e383ff472811a63302954170a2a52c60fcd7cca38e416910c5f39861d0db
   languageName: node
   linkType: hard
 
@@ -4557,12 +4564,12 @@ __metadata:
   linkType: hard
 
 "@pulumi/aws@npm:^7.47.0":
-  version: 7.47.0
-  resolution: "@pulumi/aws@npm:7.47.0"
+  version: 7.50.0
+  resolution: "@pulumi/aws@npm:7.50.0"
   dependencies:
     "@pulumi/pulumi": "npm:^3.142.0"
     mime: "npm:^2.0.0"
-  checksum: 10c0/7177405f46cfd9b0a3f70c0d44bcfb583ed473f760ffc4f67261d1806b6426fff211c3bdca52820d4d53602a6b75bbd8ba149a4dd299be1772d04b7a632fa385
+  checksum: 10c0/8195c083bdc424fe0cd9fdacedfacf997a128e8dc5a81eae43ba96c290822d9f18ce6f7a63139642a24436b8df8360a6dfe21aab9e25ad37a44fa6e9cd9145a9
   languageName: node
   linkType: hard
 
@@ -4619,8 +4626,8 @@ __metadata:
   linkType: hard
 
 "@pulumi/pulumi@npm:^3.263.0":
-  version: 3.263.0
-  resolution: "@pulumi/pulumi@npm:3.263.0"
+  version: 3.268.0
+  resolution: "@pulumi/pulumi@npm:3.268.0"
   dependencies:
     "@grpc/grpc-js": "npm:^1.10.1"
     "@logdna/tail-file": "npm:^2.0.6"
@@ -4640,7 +4647,7 @@ __metadata:
     execa: "npm:^5.1.0"
     google-protobuf: "npm:^3.21.4"
     ini: "npm:^2.0.0"
-    js-yaml: "npm:^4.0.0"
+    js-yaml: "npm:^4.3.2"
     minimist: "npm:^1.2.6"
     normalize-package-data: "npm:^6.0.0"
     require-from-string: "npm:^2.0.1"
@@ -4655,7 +4662,7 @@ __metadata:
       optional: true
     typescript:
       optional: true
-  checksum: 10c0/eac2a59109d24c021657933f149f867d6da7239d052551c7c33ceb8f71d1bcdfba6b5d88c9a333f69228cc03c6ee28108a1441625e17cec865215cf01f6730ea
+  checksum: 10c0/b318a5c591dfc22cca7640379dc2e652b23623f1e54230515a7865d84f43d01406e635f548bd68651745097ce4531e524cd4a3033b06844d65fee73b663564cb
   languageName: node
   linkType: hard
 
@@ -4844,6 +4851,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-android-arm-eabi@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-android-arm-eabi@npm:1.2.12"
+  conditions: os=android & cpu=arm
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-android-arm-eabi@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-android-arm-eabi@npm:1.2.5"
@@ -4875,6 +4889,13 @@ __metadata:
 "@rolldown/binding-android-arm64@npm:1.1.5":
   version: 1.1.5
   resolution: "@rolldown/binding-android-arm64@npm:1.1.5"
+  conditions: os=android & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@rolldown/binding-android-arm64@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-android-arm64@npm:1.2.12"
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
@@ -4914,6 +4935,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-darwin-arm64@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-darwin-arm64@npm:1.2.12"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-darwin-arm64@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-darwin-arm64@npm:1.2.5"
@@ -4945,6 +4973,13 @@ __metadata:
 "@rolldown/binding-darwin-x64@npm:1.1.5":
   version: 1.1.5
   resolution: "@rolldown/binding-darwin-x64@npm:1.1.5"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@rolldown/binding-darwin-x64@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-darwin-x64@npm:1.2.12"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
@@ -4984,6 +5019,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-freebsd-x64@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-freebsd-x64@npm:1.2.12"
+  conditions: os=freebsd & cpu=x64
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-freebsd-x64@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-freebsd-x64@npm:1.2.5"
@@ -5015,6 +5057,13 @@ __metadata:
 "@rolldown/binding-linux-arm-gnueabihf@npm:1.1.5":
   version: 1.1.5
   resolution: "@rolldown/binding-linux-arm-gnueabihf@npm:1.1.5"
+  conditions: os=linux & cpu=arm
+  languageName: node
+  linkType: hard
+
+"@rolldown/binding-linux-arm-gnueabihf@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-linux-arm-gnueabihf@npm:1.2.12"
   conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
@@ -5054,6 +5103,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-linux-arm64-gnu@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-linux-arm64-gnu@npm:1.2.12"
+  conditions: os=linux & cpu=arm64 & libc=glibc
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-linux-arm64-gnu@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-linux-arm64-gnu@npm:1.2.5"
@@ -5085,6 +5141,13 @@ __metadata:
 "@rolldown/binding-linux-arm64-musl@npm:1.1.5":
   version: 1.1.5
   resolution: "@rolldown/binding-linux-arm64-musl@npm:1.1.5"
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@rolldown/binding-linux-arm64-musl@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-linux-arm64-musl@npm:1.2.12"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
@@ -5124,6 +5187,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-linux-ppc64-gnu@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-linux-ppc64-gnu@npm:1.2.12"
+  conditions: os=linux & cpu=ppc64 & libc=glibc
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-linux-ppc64-gnu@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-linux-ppc64-gnu@npm:1.2.5"
@@ -5155,6 +5225,13 @@ __metadata:
 "@rolldown/binding-linux-s390x-gnu@npm:1.1.5":
   version: 1.1.5
   resolution: "@rolldown/binding-linux-s390x-gnu@npm:1.1.5"
+  conditions: os=linux & cpu=s390x & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@rolldown/binding-linux-s390x-gnu@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-linux-s390x-gnu@npm:1.2.12"
   conditions: os=linux & cpu=s390x & libc=glibc
   languageName: node
   linkType: hard
@@ -5194,6 +5271,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-linux-x64-gnu@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-linux-x64-gnu@npm:1.2.12"
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-linux-x64-gnu@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-linux-x64-gnu@npm:1.2.5"
@@ -5229,6 +5313,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-linux-x64-musl@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-linux-x64-musl@npm:1.2.12"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-linux-x64-musl@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-linux-x64-musl@npm:1.2.5"
@@ -5260,6 +5351,13 @@ __metadata:
 "@rolldown/binding-openharmony-arm64@npm:1.1.5":
   version: 1.1.5
   resolution: "@rolldown/binding-openharmony-arm64@npm:1.1.5"
+  conditions: os=openharmony & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@rolldown/binding-openharmony-arm64@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-openharmony-arm64@npm:1.2.12"
   conditions: os=openharmony & cpu=arm64
   languageName: node
   linkType: hard
@@ -5332,6 +5430,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@rolldown/binding-win32-arm64-msvc@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-win32-arm64-msvc@npm:1.2.12"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
 "@rolldown/binding-win32-arm64-msvc@npm:1.2.5":
   version: 1.2.5
   resolution: "@rolldown/binding-win32-arm64-msvc@npm:1.2.5"
@@ -5363,6 +5468,13 @@ __metadata:
 "@rolldown/binding-win32-x64-msvc@npm:1.1.5":
   version: 1.1.5
   resolution: "@rolldown/binding-win32-x64-msvc@npm:1.1.5"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@rolldown/binding-win32-x64-msvc@npm:1.2.12":
+  version: 1.2.12
+  resolution: "@rolldown/binding-win32-x64-msvc@npm:1.2.12"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -9068,9 +9180,9 @@ __metadata:
   linkType: hard
 
 "cjs-module-lexer@npm:^2.2.0":
-  version: 2.2.1
-  resolution: "cjs-module-lexer@npm:2.2.1"
-  checksum: 10c0/889777eb1e32c4662bf3744fdf09aca444a3f9373d70a8c3d2a575e845e415988912a70a7b5e3c2bf943c7547d930dff641c4e0ff2ee2110ba1daca05b2310cd
+  version: 2.3.0
+  resolution: "cjs-module-lexer@npm:2.3.0"
+  checksum: 10c0/9a6b9ca6f3c4734e108afa7a9cdf9ebf180329e1f94729a8a054102b2d66f5bbd62beb6a7b25ed8b0feca561c96542f34583fe5f0a72691751ff3ab718f5690f
   languageName: node
   linkType: hard
 
@@ -10169,9 +10281,9 @@ __metadata:
   linkType: hard
 
 "es-module-lexer@npm:^3.0.2":
-  version: 3.0.2
-  resolution: "es-module-lexer@npm:3.0.2"
-  checksum: 10c0/b04a0a5f5c2785e3edd53dcb5e4e9cfb7b8523d4cf9bf8b3abd6e1aaa7c4401f9d9174fb9a3c9374f0b4ca7f75487c3ff9b97f39f341507afa8ddf49ba37c56b
+  version: 3.0.3
+  resolution: "es-module-lexer@npm:3.0.3"
+  checksum: 10c0/9c040aca427aa06683b5746d3156f512b5f7ee7cfd18eccb31756bac74605e6432ae04e77b4bc153b7295b0feb907343b127dce1e7723941db27890838c8b5a4
   languageName: node
   linkType: hard
 
@@ -11646,13 +11758,13 @@ __metadata:
   linkType: hard
 
 "import-in-the-middle@npm:^3.0.0":
-  version: 3.5.1
-  resolution: "import-in-the-middle@npm:3.5.1"
+  version: 3.5.2
+  resolution: "import-in-the-middle@npm:3.5.2"
   dependencies:
     cjs-module-lexer: "npm:^2.2.0"
     es-module-lexer: "npm:^3.0.2"
     module-details-from-path: "npm:^1.0.4"
-  checksum: 10c0/347884c4e69a9d1624dac8f23aa6381c25795fae418f12042a32a84bc6538c4fd03ffb8a3d4437170e826395178ad9e3e64cb6db5c14d2b63d692a70edaf03eb
+  checksum: 10c0/45fecbfca0be8951256741d7532cb95a11f116b3e6e47ac0227c51becd0a0802f7b676ce34f247c1525011b0cded81d154308c1846bc88180fae6c318c642a5e
   languageName: node
   linkType: hard
 
@@ -11926,17 +12038,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"js-yaml@npm:^4.0.0":
-  version: 4.3.2
-  resolution: "js-yaml@npm:4.3.2"
-  dependencies:
-    argparse: "npm:^2.0.1"
-  bin:
-    js-yaml: bin/js-yaml.js
-  checksum: 10c0/dedd34c2e8fef1d504687f1bc94ed0ee1311a1f78770fa2800352c6d59c635ccf555009d74e9afe529ae62199da2b1ccef30e53dc84dcd8d2d8187c22574bc97
-  languageName: node
-  linkType: hard
-
 "js-yaml@npm:^4.1.0":
   version: 4.1.1
   resolution: "js-yaml@npm:4.1.1"
@@ -11945,6 +12046,17 @@ __metadata:
   bin:
     js-yaml: bin/js-yaml.js
   checksum: 10c0/561c7d7088c40a9bb53cc75becbfb1df6ae49b34b5e6e5a81744b14ae8667ec564ad2527709d1a6e7d5e5fa6d483aa0f373a50ad98d42fde368ec4a190d4fae7
+  languageName: node
+  linkType: hard
+
+"js-yaml@npm:^4.3.2":
+  version: 4.3.2
+  resolution: "js-yaml@npm:4.3.2"
+  dependencies:
+    argparse: "npm:^2.0.1"
+  bin:
+    js-yaml: bin/js-yaml.js
+  checksum: 10c0/dedd34c2e8fef1d504687f1bc94ed0ee1311a1f78770fa2800352c6d59c635ccf555009d74e9afe529ae62199da2b1ccef30e53dc84dcd8d2d8187c22574bc97
   languageName: node
   linkType: hard
 
@@ -14828,7 +14940,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rolldown@npm:1.2.9, rolldown@npm:~1.2.7":
+"rolldown@npm:1.2.9":
   version: 1.2.9
   resolution: "rolldown@npm:1.2.9"
   dependencies:
@@ -14941,6 +15053,64 @@ __metadata:
   bin:
     rolldown: ./bin/cli.mjs
   checksum: 10c0/93072aa9d95882f9fa5cd57fe7db6a48efd6f85a25a32137425052ecca02df653651eed0c33a865c33511681bd6a40691d5c88900b8e95ce1334f4f75ba826ff
+  languageName: node
+  linkType: hard
+
+"rolldown@npm:~1.2.7":
+  version: 1.2.12
+  resolution: "rolldown@npm:1.2.12"
+  dependencies:
+    "@oxc-project/types": "npm:=0.152.0"
+    "@rolldown/binding-android-arm-eabi": "npm:1.2.12"
+    "@rolldown/binding-android-arm64": "npm:1.2.12"
+    "@rolldown/binding-darwin-arm64": "npm:1.2.12"
+    "@rolldown/binding-darwin-x64": "npm:1.2.12"
+    "@rolldown/binding-freebsd-x64": "npm:1.2.12"
+    "@rolldown/binding-linux-arm-gnueabihf": "npm:1.2.12"
+    "@rolldown/binding-linux-arm64-gnu": "npm:1.2.12"
+    "@rolldown/binding-linux-arm64-musl": "npm:1.2.12"
+    "@rolldown/binding-linux-ppc64-gnu": "npm:1.2.12"
+    "@rolldown/binding-linux-s390x-gnu": "npm:1.2.12"
+    "@rolldown/binding-linux-x64-gnu": "npm:1.2.12"
+    "@rolldown/binding-linux-x64-musl": "npm:1.2.12"
+    "@rolldown/binding-openharmony-arm64": "npm:1.2.12"
+    "@rolldown/binding-win32-arm64-msvc": "npm:1.2.12"
+    "@rolldown/binding-win32-x64-msvc": "npm:1.2.12"
+    "@rolldown/pluginutils": "npm:^1.0.0"
+  dependenciesMeta:
+    "@rolldown/binding-android-arm-eabi":
+      optional: true
+    "@rolldown/binding-android-arm64":
+      optional: true
+    "@rolldown/binding-darwin-arm64":
+      optional: true
+    "@rolldown/binding-darwin-x64":
+      optional: true
+    "@rolldown/binding-freebsd-x64":
+      optional: true
+    "@rolldown/binding-linux-arm-gnueabihf":
+      optional: true
+    "@rolldown/binding-linux-arm64-gnu":
+      optional: true
+    "@rolldown/binding-linux-arm64-musl":
+      optional: true
+    "@rolldown/binding-linux-ppc64-gnu":
+      optional: true
+    "@rolldown/binding-linux-s390x-gnu":
+      optional: true
+    "@rolldown/binding-linux-x64-gnu":
+      optional: true
+    "@rolldown/binding-linux-x64-musl":
+      optional: true
+    "@rolldown/binding-openharmony-arm64":
+      optional: true
+    "@rolldown/binding-win32-arm64-msvc":
+      optional: true
+    "@rolldown/binding-win32-x64-msvc":
+      optional: true
+  bin:
+    rolldown: ./bin/cli.mjs
+  checksum: 10c0/5e01b955608d9ee601359caa228155c99b2ac4e9e5ef8cbff1962654ab32e5f406ae6872576aa69104b94705bb3743bdb042038c120d5197c1edb18588272aac
   languageName: node
   linkType: hard
 
@@ -16686,11 +16856,11 @@ __metadata:
   linkType: hard
 
 "uuid@npm:^14.0.0":
-  version: 14.0.2
-  resolution: "uuid@npm:14.0.2"
+  version: 14.0.3
+  resolution: "uuid@npm:14.0.3"
   bin:
     uuid: dist-node/bin/uuid
-  checksum: 10c0/88906237004db370b013129c8372a2149f6fa1aad7a5f78fa65ddf2ba0a8663097022300d81fa01f551efee9d6bbe8c7ab140dc6d49f1b03d289f855096990c9
+  checksum: 10c0/e56e610ae3bd1ca099244e01ee5eff502675ede4601d971b80fff993ad97236c80197340113f759e6ead501ee6a8d52648f6deef1332ce9f192c4720f4891f62
   languageName: node
   linkType: hard
 

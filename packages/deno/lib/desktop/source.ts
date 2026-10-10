@@ -5,7 +5,7 @@
 //   • remote (downloaded) bundles are WRITTEN under the OS application-data directory, so they
 //     persist across runs and app updates — like Electron's `app.getPath('userData')/bundles`.
 import { fromFileUrl } from '@std/path';
-import { Source, type SourceConfig } from '@wvb/deno';
+import { Source, type SourceConfig } from '../mod.ts';
 
 export interface BundleSourceConfig extends Omit<SourceConfig, 'builtinDir' | 'remoteDir'> {
   /**

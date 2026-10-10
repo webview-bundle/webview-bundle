@@ -1,1 +1,0 @@
-# @wvb/deno-desktop

@@ -169,7 +169,7 @@ jobs:
       - name: Run deno test
         if: ${{ !matrix.settings.build_only }}
         run: deno task test
-        working-directory: packages
+        working-directory: packages/deno
         shell: bash
       - name: Ensure Electron binary is installed
         if: ${{ !matrix.settings.build_only }}
@@ -262,7 +262,7 @@ jobs:
         run: yarn workspaces foreach -Apt run typecheck
       - name: Run deno check
         run: deno task check
-        working-directory: packages
+        working-directory: packages/deno
   constraints:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"

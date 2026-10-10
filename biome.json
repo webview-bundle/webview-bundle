@@ -76,8 +76,7 @@
         "xtask/**/*.ts",
         "packages/electron/scripts/**/*.ts",
         "packages/ffi/cli/**/*.ts",
-        "packages/deno/**/*.ts",
-        "packages/deno-desktop/**/*.ts"
+        "packages/deno/**/*.ts"
       ],
       "linter": {
         "rules": {

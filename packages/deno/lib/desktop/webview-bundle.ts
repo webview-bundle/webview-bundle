@@ -5,7 +5,7 @@ import {
   Source,
   Updater,
   type UpdaterOptions,
-} from '@wvb/deno';
+} from '../mod.ts';
 import { remote } from './remote.ts';
 import { createHandler, type Mount, normalizeRoutes, type Routes } from './routes.ts';
 import { type BundleSourceConfig, resolveSourceConfig } from './source.ts';
