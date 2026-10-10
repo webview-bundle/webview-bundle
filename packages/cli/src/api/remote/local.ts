@@ -11,7 +11,9 @@ export interface LocalRemoteParams {
   colorEnabled?: boolean;
 }
 
-export async function localRemote(params: LocalRemoteParams): Promise<WebviewBundleServerInstance> {
+export type LocalRemoteInstance = WebviewBundleServerInstance;
+
+export async function localRemote(params: LocalRemoteParams): Promise<LocalRemoteInstance> {
   const { baseDir, hostname, port = 4313, logger } = params;
 
   const { webviewBundleServer } = await import('@wvb/remote-local/server');

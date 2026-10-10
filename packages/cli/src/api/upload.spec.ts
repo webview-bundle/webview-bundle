@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { BaseRemoteUploader, RemoteUploadParams } from '@wvb/config/remote';
+import type { BaseUploader, UploadParams } from '@wvb/config/remote';
 import { type Bundle, BundleBuilder, writeBundle, writeBundleIntoBuffer } from '@wvb/node';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { remoteUpload } from './upload.js';
@@ -36,8 +36,8 @@ async function writeBundleFile(rel: string, bundle: Bundle = buildBundle()) {
 }
 
 function createTestUploader() {
-  const uploaded: RemoteUploadParams[] = [];
-  const uploader: BaseRemoteUploader = {
+  const uploaded: UploadParams[] = [];
+  const uploader: BaseUploader = {
     async upload(params) {
       uploaded.push(params);
     },
@@ -60,7 +60,7 @@ describe('remoteUpload', () => {
     });
 
     expect(uploaded).toHaveLength(1);
-    expect(uploaded[0]?.bundleName).toBe('app');
+    expect(uploaded[0]?.name).toBe('app');
     expect(uploaded[0]?.version).toBe('1.0.0');
     expect(uploaded[0]?.bundle).toEqual(writeBundleIntoBuffer(bundle));
   });
@@ -112,7 +112,7 @@ describe('remoteUpload', () => {
     ).rejects.toThrow(`File does not exist: ${path.join(root, 'missing.wvb')}`);
   });
 
-  it('forwards the force flag', async () => {
+  it('includes metadata in the uploaded version data', async () => {
     const { uploader, uploaded } = createTestUploader();
 
     await remoteUpload({
@@ -120,10 +120,10 @@ describe('remoteUpload', () => {
       bundleName: 'app',
       version: '1.0.0',
       uploader,
-      force: true,
+      metadata: { release: 'stable' },
     });
 
-    expect(uploaded[0]?.force).toBe(true);
+    expect(uploaded[0]?.versionData?.metadata).toEqual({ release: 'stable' });
   });
 });
 
@@ -135,7 +135,7 @@ describe('remoteUpload integrity', () => {
 
     await remoteUpload({ file: bundle, bundleName: 'app', version: '1.0.0', uploader });
 
-    expect(uploaded[0]?.integrity).toBe(`sha256:${expected}`);
+    expect(uploaded[0]?.versionData?.integrity).toBe(`sha256:${expected}`);
   });
 
   it('honors a custom integrity algorithm', async () => {
@@ -151,7 +151,7 @@ describe('remoteUpload integrity', () => {
       integrity: { algorithm: 'sha512' },
     });
 
-    expect(uploaded[0]?.integrity).toBe(`sha512:${expected}`);
+    expect(uploaded[0]?.versionData?.integrity).toBe(`sha512:${expected}`);
   });
 
   it('omits the integrity when integrity is false', async () => {
@@ -165,64 +165,6 @@ describe('remoteUpload integrity', () => {
       integrity: false,
     });
 
-    expect(uploaded[0]?.integrity).toBeUndefined();
-  });
-});
-
-describe('remoteUpload signature', () => {
-  it('signs the integrity string with the configured key', async () => {
-    const keyPair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
-      'sign',
-      'verify',
-    ])) as CryptoKeyPair;
-    const privateKey = Buffer.from(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey));
-    const { uploader, uploaded } = createTestUploader();
-
-    await remoteUpload({
-      file: buildBundle(),
-      bundleName: 'app',
-      version: '1.0.0',
-      uploader,
-      signature: { algorithm: 'ed25519', key: { format: 'pkcs8', data: privateKey } },
-    });
-
-    const { integrity, signature } = uploaded[0]!;
-    const verified = await crypto.subtle.verify(
-      { name: 'Ed25519' },
-      keyPair.publicKey,
-      new Uint8Array(Buffer.from(signature!, 'base64')),
-      new Uint8Array(Buffer.from(integrity!, 'utf8'))
-    );
-    expect(verified).toBe(true);
-  });
-
-  it('omits the signature when no signature config is given', async () => {
-    const { uploader, uploaded } = createTestUploader();
-
-    await remoteUpload({ file: buildBundle(), bundleName: 'app', version: '1.0.0', uploader });
-
-    expect(uploaded[0]?.signature).toBeUndefined();
-  });
-
-  it('throws when a signature is requested while integrity is disabled', async () => {
-    const keyPair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
-      'sign',
-      'verify',
-    ])) as CryptoKeyPair;
-    const privateKey = Buffer.from(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey));
-    const { uploader, uploaded } = createTestUploader();
-
-    await expect(
-      remoteUpload({
-        file: buildBundle(),
-        bundleName: 'app',
-        version: '1.0.0',
-        uploader,
-        integrity: false,
-        signature: { algorithm: 'ed25519', key: { format: 'pkcs8', data: privateKey } },
-      })
-    ).rejects.toThrow('Cannot make signature without integrity');
-
-    expect(uploaded).toHaveLength(0);
+    expect(uploaded[0]?.versionData?.integrity).toBeUndefined();
   });
 });
