@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "isolatedDeclarations": false,
+    "noEmit": true
+  },
+  "include": ["src", "tsdown.config.ts", "vitest.config.ts"],
+  "exclude": ["templates", "dist"]
+}

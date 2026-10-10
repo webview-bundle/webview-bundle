@@ -1,0 +1,52 @@
+{
+  "name": "create-wvb",
+  "version": "0.0.0",
+  "description": "Scaffold a Webview Bundle app for Electron",
+  "homepage": "https://github.com/webview-bundle/webview-bundle",
+  "bugs": {
+    "url": "https://github.com/webview-bundle/webview-bundle/issues"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Seokju Na",
+    "email": "seokju.me@gmail.com",
+    "url": "https://github.com/seokju-na"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webview-bundle/webview-bundle",
+    "directory": "packages/create"
+  },
+  "bin": "./dist/cli.mjs",
+  "type": "module",
+  "exports": {
+    "./cli": "./dist/cli.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "yarn build",
+    "clean": "rm -rf dist/",
+    "build": "yarn clean && tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@inquirer/prompts": "8.5.2",
+    "@types/node": "catalog:",
+    "clipanion": "4.0.0-rc.4",
+    "kleur": "4.1.5",
+    "tsdown": "catalog:",
+    "typanion": "3.14.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

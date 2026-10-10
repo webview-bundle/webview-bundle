@@ -1,0 +1,34 @@
+{
+  "name": "{{projectName}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.cjs",
+  "workspaces": ["web"],
+  "scripts": {
+    "dev": "concurrently -k -s first -n web,app -c cyan,magenta \"npm run dev:web\" \"wait-on -t 30000 tcp:127.0.0.1:5173 && npm run dev:app\"",
+    "dev:web": "npm --prefix web run dev",
+    "dev:app": "tsdown && electron . --dev",
+    "build": "tsdown",
+    "build:web": "npm --prefix web run build",
+    "bundles": "wvb builtin",
+    "start": "npm run build && npm run build:web && npm run bundles && electron .",
+    "dist": "electron-builder",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wvb/electron": "{{wvbVersion:@wvb/electron}}"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@wvb/cli": "{{wvbVersion:@wvb/cli}}",
+    "@wvb/config": "{{wvbVersion:@wvb/config}}",
+    "@wvb/electron-builder": "{{wvbVersion:@wvb/electron-builder}}",
+    "concurrently": "^10.0.3",
+    "electron": "^42.2.0",
+    "electron-builder": "^26.15.3",
+    "tsdown": "^0.22.1",
+    "typescript": "^6.0.3",
+    "wait-on": "^9.0.10"
+  }
+}

@@ -21,6 +21,7 @@
       "!**/*.d.ts",
       "!**/*.d.cts",
       "!packages/tauri/permissions/**/*",
+      "!packages/create-wvb/templates/**/*",
       "!**/routeTree.gen.ts",
       "!packages/deno/lib/bindings.ts"
     ]
