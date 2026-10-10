@@ -112,7 +112,7 @@ impl Remote {
       #[cfg(feature = "signature")]
       {
         if let Some(sig) = &options.expect_signature {
-          let value = format!("key_id=\"{}\", alg=\"{}\"", sig.id, sig.algorithm());
+          let value = format!("key_id=\"{}\", alg=\"{}\"", sig.id(), sig.algorithm());
           req = req.header(
             header::HeaderName::from_static("wvb-expect-signature"),
             value,
@@ -161,7 +161,7 @@ impl Remote {
         if let Some(sig_from_server) = &signature {
           sig.verify.verify(&bytes, &sig_from_server.sig).await?;
         } else {
-          return Err(crate::Error::expect_signature_not_found(&sig.id));
+          return Err(crate::Error::expect_signature_not_found(sig.id()));
         }
       }
     }
@@ -325,10 +325,7 @@ mod tests {
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
   fn key_set(id: &str) -> SignatureVerifyKey {
     let key = Ed25519::from_public_key_bytes(&signing_key().verifying_key().to_bytes()).unwrap();
-    SignatureVerifyKey {
-      id: id.to_owned(),
-      verify: SignatureVerify::Ed25519(key),
-    }
+    SignatureVerifyKey::new(Some(id), SignatureVerify::Ed25519(key))
   }
 
   #[cfg(all(feature = "signature", feature = "signature-ed25519"))]
@@ -412,7 +409,7 @@ mod tests {
         integrity: Some("sha256-abc".to_owned()),
         metadata: None,
       }],
-      metadata: HashMap::from([("channel".to_owned(), "stable".to_owned())]),
+      metadata: Some(HashMap::from([("channel".to_owned(), "stable".to_owned())])),
     }
   }
 
@@ -571,7 +568,7 @@ mod tests {
     let mut server = testing_server();
     server.insert_signature_key("default", [7u8; 32]);
     let mut key_set = server.signature_key_set("default").unwrap();
-    key_set.id = "rotated".to_owned();
+    key_set.id = Some("rotated".to_owned());
     let options = RemoteGetUpdateOptions::default().expect_signature(key_set);
 
     let err = server
@@ -746,7 +743,12 @@ mod tests {
 
     assert_eq!(served_bundles(&update), vec![("admin", "0.1.0")]);
     assert_eq!(
-      update.update.metadata.get("channel").map(String::as_str),
+      update
+        .update
+        .metadata
+        .unwrap()
+        .get("channel")
+        .map(String::as_str),
       Some("beta")
     );
   }

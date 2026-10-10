@@ -9,9 +9,11 @@ for (const input of inputs) {
     platform: 'node',
     target: 'node22',
     format: 'esm',
+    external: [/^@aws-sdk\//],
     define: {
       __CONFIG__: JSON.stringify({}),
     },
+    minify: false,
   });
   const outdir = path.join(
     import.meta.dirname,

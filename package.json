@@ -7,7 +7,7 @@
     "playground/native/*",
     "playground/remotes/*",
     "playground/tools/*",
-    "playground/webviews/*"
+    "playground/webviews/**/*"
   ],
   "type": "module",
   "devDependencies": {

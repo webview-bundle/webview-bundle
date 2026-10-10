@@ -30,7 +30,6 @@ export interface WebviewBundleRemoteProviderConfig {
   bucketForceDestroy?: pulumi.Input<boolean>;
   bucketTags?: pulumi.Input<{ [key: string]: pulumi.Input<string> }>;
   lambdaOriginRequest?: WebviewBundleRemoteLambdaCodeConfig;
-  lambdaOriginResponse?: WebviewBundleRemoteLambdaCodeConfig;
   lambdaRoleName?: pulumi.Input<string>;
   lambdaPolicyActions?: string[];
   lambdaRolePolicyName?: pulumi.Input<string>;
@@ -41,7 +40,6 @@ export interface WebviewBundleRemoteProviderConfig {
   cloudfrontEnabled?: pulumi.Input<boolean>;
   cloudfrontHttpVersion?: pulumi.Input<'http1.1' | 'http2' | 'http2and3' | 'http3'>;
   cloudfrontWaitForDeployment?: pulumi.Input<boolean>;
-  allowOtherVersions?: boolean;
 }
 
 export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
@@ -49,7 +47,6 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
   public readonly bucketName: pulumi.Output<string>;
   public readonly bucketDomainName: pulumi.Output<string>;
   public readonly lambdaOriginRequestArn: pulumi.Output<string>;
-  public readonly lambdaOriginResponseArn: pulumi.Output<string>;
   public readonly cloudfrontDistributionId: pulumi.Output<string>;
   public readonly cloudfrontDistributionArn: pulumi.Output<string>;
   public readonly cloudfrontDistributionDomainName: pulumi.Output<string>;
@@ -68,7 +65,6 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
       bucketForceDestroy,
       bucketTags,
       lambdaOriginRequest,
-      lambdaOriginResponse,
       lambdaRoleName = `${baseName}-lambda-role`,
       lambdaPolicyActions = [],
       lambdaRolePolicyName = `${baseName}-lambda-role-policy`,
@@ -81,7 +77,6 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
       },
       cloudfrontWaitForDeployment = true,
       cloudfrontTags,
-      allowOtherVersions,
     } = config;
 
     const provider = new aws.Provider(
@@ -213,18 +208,14 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
 
     const originRequestCode =
       lambdaOriginRequest?.code ??
-      getLambdaCode(
-        'origin-request.ts',
-        {
-          bucket: bucket.bucket,
-          region,
-          runtime: lambdaOriginRequest?.runtime,
-          esm: lambdaOriginRequest?.codeEsm,
-          sourcemap: lambdaOriginRequest?.codeSourcemap,
-          minify: lambdaOriginRequest?.codeMinify,
-        },
-        allowOtherVersions
-      );
+      getLambdaCode('origin-request.ts', {
+        bucket: bucket.bucket,
+        region,
+        runtime: lambdaOriginRequest?.runtime,
+        esm: lambdaOriginRequest?.codeEsm,
+        sourcemap: lambdaOriginRequest?.codeSourcemap,
+        minify: lambdaOriginRequest?.codeMinify,
+      });
 
     const lambdaOriginRequestFn = new aws.lambda.Function(
       'lambda_origin_request',
@@ -243,46 +234,6 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
         memorySize: lambdaOriginRequest?.memorySize,
         code: originRequestCode,
         handler: lambdaOriginRequest?.handler ?? 'origin-request.handler',
-      },
-      {
-        provider: usEast1Provider,
-        parent: this,
-        dependsOn: [bucket, lambdaRolePolicy],
-      }
-    );
-
-    const originResponseCode =
-      lambdaOriginResponse?.code ??
-      getLambdaCode(
-        'origin-response.ts',
-        {
-          bucket: bucket.bucket,
-          region,
-          runtime: lambdaOriginResponse?.runtime,
-          esm: lambdaOriginResponse?.codeEsm,
-          sourcemap: lambdaOriginResponse?.codeSourcemap,
-          minify: lambdaOriginResponse?.codeMinify,
-        },
-        allowOtherVersions
-      );
-
-    const lambdaOriginResponseFn = new aws.lambda.Function(
-      'lambda_origin_response',
-      {
-        publish: true,
-        architectures: lambdaOriginResponse?.architecture,
-        environment: lambdaOriginResponse?.environment,
-        layers: lambdaOriginResponse?.layers,
-        tags: lambdaOriginResponse?.tags,
-        name: lambdaOriginResponse?.name ?? `${baseName}-lambda-origin-response`,
-        description:
-          lambdaOriginResponse?.description ?? `${baseName} lambda origin response function`,
-        role: lambdaRole.arn,
-        runtime: lambdaOriginResponse?.runtime ?? 'nodejs22.x',
-        timeout: lambdaOriginResponse?.timeout,
-        memorySize: lambdaOriginResponse?.memorySize,
-        code: originResponseCode,
-        handler: lambdaOriginResponse?.handler ?? 'origin-response.handler',
       },
       {
         provider: usEast1Provider,
@@ -334,10 +285,6 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
               eventType: 'origin-request',
               lambdaArn: lambdaOriginRequestFn.qualifiedArn,
             },
-            {
-              eventType: 'origin-response',
-              lambdaArn: lambdaOriginResponseFn.qualifiedArn,
-            },
           ],
         },
         viewerCertificate: cloudfrontViewerCertificate,
@@ -352,7 +299,6 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
     this.bucketName = bucket.bucket;
     this.bucketDomainName = bucket.bucketDomainName;
     this.lambdaOriginRequestArn = lambdaOriginRequestFn.qualifiedArn;
-    this.lambdaOriginResponseArn = lambdaOriginResponseFn.qualifiedArn;
     this.cloudfrontDistributionId = cloudfrontDistribution.id;
     this.cloudfrontDistributionArn = cloudfrontDistribution.arn;
     this.cloudfrontDistributionDomainName = cloudfrontDistribution.domainName;
@@ -361,7 +307,6 @@ export class WebviewBundleRemoteProvider extends pulumi.ComponentResource {
       bucketName: this.bucketName,
       bucketDomainName: this.bucketDomainName,
       lambdaOriginRequestArn: this.lambdaOriginRequestArn,
-      lambdaOriginResponseArn: this.lambdaOriginResponseArn,
       cloudfrontDistributionId: this.cloudfrontDistributionId,
       cloudfrontDistributionArn: this.cloudfrontDistributionArn,
       cloudfrontDistributionDomainName: this.cloudfrontDistributionDomainName,

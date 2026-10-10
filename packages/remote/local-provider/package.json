@@ -32,12 +32,16 @@
     },
     "./package.json": "./package.json"
   },
+  "engines": {
+    "node": "^20.17.0 || >=22.9.0"
+  },
   "scripts": {
     "prepack": "yarn build",
     "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@shogo82148/sfv": "0.2.0",
     "@wvb/remote-local": "workspace:^",
     "hono": "^4.13.4"
   },

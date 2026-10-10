@@ -1,12 +1,5 @@
-import { Buffer } from 'node:buffer';
 import path from 'node:path';
-import {
-  type BaseRemoteUploader,
-  type IntegrityMakeConfig,
-  makeIntegrity,
-  type SignatureSignConfig,
-  signSignature,
-} from '@wvb/config/remote';
+import { type BaseUploader, type IntegrityMakeConfig, makeIntegrity } from '@wvb/config/remote';
 import { type Bundle, readBundle, writeBundleIntoBuffer } from '@wvb/node';
 import { c } from '../console.js';
 import { formatByteLength } from '../format.js';
@@ -18,10 +11,9 @@ export interface RemoteUploadParams {
   file: string | Bundle;
   bundleName: string;
   version: string;
-  uploader: BaseRemoteUploader;
-  force?: boolean;
+  uploader: BaseUploader;
   integrity?: boolean | IntegrityMakeConfig;
-  signature?: SignatureSignConfig;
+  metadata?: Record<string, string>;
   logger?: Logger;
   cwd?: string;
 }
@@ -35,9 +27,8 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
     bundleName: bundleNameInput,
     version,
     uploader,
-    force,
     integrity: integrityConfig = true,
-    signature: signatureConfig,
+    metadata,
     logger,
     cwd = process.cwd(),
   } = params;
@@ -77,29 +68,16 @@ export async function remoteUpload(params: RemoteUploadParams): Promise<void> {
     logger?.info('Skip integrity making.');
   }
 
-  let signature: string | undefined;
-  if (signatureConfig != null) {
-    if (integrity == null) {
-      const message =
-        'Cannot make signature without integrity. Make sure integrity option is enabled.';
-      logger?.error(message);
-      throw new ApiError(message);
-    }
-    signature = await signSignature(signatureConfig, Buffer.from(integrity, 'utf8'));
-    logger?.info(`Signature: ${signature}`);
-  } else {
-    logger?.info('Skip signature signing.');
-  }
   await uploader.upload({
     bundle: buf,
-    bundleName,
+    name: bundleName,
     version,
-    force,
-    integrity,
-    signature,
+    versionData: {
+      integrity,
+      metadata,
+    },
   });
   logger?.info(`Webview Bundle uploaded: ${c.info(bundleName)} ${c.bytes(formatByteLength(size))}`);
   logger?.info(`  Version: ${c.bold(c.info(version))}`);
   logger?.info(`  Integrity: ${c.bold(c.info(integrity ?? '(none)'))}`);
-  logger?.info(`  Signature: ${c.bold(c.info(signature ?? '(none)'))}`);
 }

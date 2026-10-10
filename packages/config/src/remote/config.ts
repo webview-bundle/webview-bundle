@@ -1,8 +1,8 @@
 import type { BundleNameResolver, VersionResolver } from '../common.js';
-import type { BaseRemoteDeployer } from './deployer.js';
+import type { BaseDeployer } from './deployer.js';
 import type { IntegrityMakeConfig } from './integrity.js';
-import type { SignatureSignConfig } from './signature.js';
-import type { BaseRemoteUploader } from './uploader.js';
+import type { SignatureConfig, SignatureSignConfig } from './signature.js';
+import type { BaseUploader } from './uploader.js';
 
 export interface RemoteConfig {
   /**
@@ -22,8 +22,8 @@ export interface RemoteConfig {
    * @default true
    */
   packBeforeUpload?: boolean;
-  uploader?: BaseRemoteUploader;
-  deployer?: BaseRemoteDeployer;
+  uploader?: BaseUploader;
+  deployer?: BaseDeployer;
   integrity?: boolean | IntegrityMakeConfig;
-  signature?: SignatureSignConfig;
+  signature?: SignatureSignConfig | SignatureConfig[];
 }

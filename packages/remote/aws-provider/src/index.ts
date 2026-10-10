@@ -1,4 +1,5 @@
 export type {
+  Env,
   WebviewBundleRemote,
   WebviewBundleRemoteConfig,
 } from './remote.js';

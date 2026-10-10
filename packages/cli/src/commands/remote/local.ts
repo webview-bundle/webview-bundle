@@ -1,5 +1,5 @@
 import { Command, Option } from 'clipanion';
-import { cascade, isBoolean, isInExclusiveRange, isInteger, isNumber } from 'typanion';
+import { cascade, isInExclusiveRange, isInteger, isNumber } from 'typanion';
 import { localRemote } from '../../api/index.js';
 import { BaseCommand } from '../base.js';
 
@@ -18,11 +18,6 @@ export class RemoteLocalCommand extends BaseCommand {
   readonly baseDir = Option.String('--base-dir', {
     description: 'Specify a base directory for the local remote server. [Default: ~/.wvb/local]',
   });
-  readonly allowOtherVersions = Option.String('--allow-other-versions', {
-    tolerateBoolean: true,
-    validator: isBoolean(),
-    description: 'Allow other versions to be served. [Default: false]',
-  });
   readonly hostname = Option.String('--hostname,-H', {
     description: 'Specify a hostname on which to start the http server. [Default: localhost]',
     env: 'HOSTNAME',
@@ -40,7 +35,6 @@ export class RemoteLocalCommand extends BaseCommand {
       baseDir: this.baseDir,
       hostname: this.hostname,
       port,
-      allowOtherVersions: this.allowOtherVersions,
       logger: this.logger,
     });
     const handleShutdown = () => {

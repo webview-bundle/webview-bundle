@@ -7,6 +7,7 @@ export interface Code {
 
 export interface GenerateCodeOptions {
   platform?: 'browser' | 'node' | 'neutral';
+  external?: Array<string | RegExp>;
   format?: 'cjs' | 'esm';
   target?: string;
   define?: Record<string, string>;
@@ -18,11 +19,11 @@ export async function generateCode(input: string, options?: GenerateCodeOptions)
   const bundle = await rolldown({
     input,
     platform: options?.platform,
-    external: () => false,
+    external: options?.external,
     transform: {
+      define: options?.define,
       target: options?.target,
     },
-    define: options?.define,
   });
   const { output: outputs } = await bundle.generate({
     format: options?.format,
@@ -30,6 +31,7 @@ export async function generateCode(input: string, options?: GenerateCodeOptions)
     minify: options?.minify,
     entryFileNames: options?.format === 'esm' ? '[name].mjs' : '[name].js',
     chunkFileNames: options?.format === 'esm' ? '[name]-[hash].mjs' : '[name]-[hash].js',
+    codeSplitting: false,
   });
   const codes: Code[] = [];
   for (const output of outputs) {

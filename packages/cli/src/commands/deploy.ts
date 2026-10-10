@@ -70,8 +70,12 @@ If no channel is specified, the bundle is deployed to the default channel.
       return 1;
     }
     await config.remote.deployer.deploy({
-      bundleName,
-      version,
+      bundles: [
+        {
+          name: bundleName,
+          version,
+        },
+      ],
       channel: this.channel,
     });
     this.logger.info(`Remote Webview Bundle deployed: ${c.info(bundleName)}`);

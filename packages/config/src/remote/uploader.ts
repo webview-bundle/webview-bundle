@@ -1,15 +1,18 @@
 import type { Buffer } from 'node:buffer';
 
-export interface RemoteUploadParams {
-  bundle: Buffer;
-  bundleName: string;
-  version: string;
-  force?: boolean;
+export interface UpdateVersionData {
   integrity?: string;
-  signature?: string;
+  metadata?: Record<string, string>;
 }
 
-export interface RemoteUploadProgress {
+export interface UploadParams {
+  bundle: Buffer;
+  name: string;
+  version: string;
+  versionData?: UpdateVersionData;
+}
+
+export interface UploadProgress {
   /** Number of bytes successfully transferred so far */
   loaded?: number;
   /** Total payload size in byres */
@@ -18,7 +21,7 @@ export interface RemoteUploadProgress {
   part?: number;
 }
 
-export interface BaseRemoteUploader {
-  _onUploadProgress?: (progress: RemoteUploadProgress) => void;
-  upload(params: RemoteUploadParams): Promise<void>;
+export interface BaseUploader {
+  _onUploadProgress?: (progress: UploadProgress) => void;
+  upload(params: UploadParams): Promise<void>;
 }

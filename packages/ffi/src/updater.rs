@@ -61,7 +61,7 @@ fn updater_options(options: UpdaterOptions) -> crate::Result<updater::UpdaterOpt
     if let Some(keys) = signature.keys {
       for key in keys {
         signature_options =
-          signature_options.add_key(signature::SignatureVerifyKey::try_from(key)?);
+          signature_options.add_key(signature::SignatureVerifyKey::try_from(key)?)?;
       }
     }
     updater_options = updater_options.signature(signature_options);

@@ -1,15 +1,15 @@
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { Configuration as UploadConfig } from '@aws-sdk/lib-storage';
-import type { BaseRemoteUploader, RemoteUploadParams } from '@wvb/config/remote';
+import type { BaseUploader, UploadParams } from '@wvb/config/remote';
 import { BundleAlreadyUploadedError } from './errors.js';
 import {
   type AwsS3ClientConfigLike,
   filterS3Metadata,
   getS3Client,
   isNotFoundError,
-} from './utils.js';
+} from './sdk.js';
 
-export interface AwsS3RemoteUploaderConfig extends AwsS3ClientConfigLike {
+export interface AwsUploaderConfig extends AwsS3ClientConfigLike {
   bucket: string;
   key?: string | ((bundleName: string, version: string) => string);
   contentType?: string;
@@ -19,14 +19,16 @@ export interface AwsS3RemoteUploaderConfig extends AwsS3ClientConfigLike {
   upload?: UploadConfig;
 }
 
-class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
+export interface AwsUploader extends BaseUploader {}
+
+class AwsUploaderImpl implements AwsUploader {
   _onUploadProgress:
     | ((progress: { loaded?: number; total?: number; part?: number }) => void)
     | undefined;
 
-  constructor(private readonly config: AwsS3RemoteUploaderConfig) {}
+  constructor(private readonly config: AwsUploaderConfig) {}
 
-  async upload(params: RemoteUploadParams): Promise<void> {
+  async upload(params: UploadParams): Promise<void> {
     const {
       bucket,
       upload: uploaderConfig,
@@ -73,8 +75,8 @@ class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
   }
 }
 
-export function awsS3RemoteUploader(config: AwsS3RemoteUploaderConfig): BaseRemoteUploader {
-  return new AwsS3RemoteUploaderImpl(config);
+export function awsUploader(config: AwsUploaderConfig): AwsUploader {
+  return new AwsUploaderImpl(config);
 }
 
 async function ensureObjectAbsent(
@@ -96,7 +98,7 @@ async function ensureObjectAbsent(
   throw new BundleAlreadyUploadedError(bundleName, version);
 }
 
-function buildKey(config: AwsS3RemoteUploaderConfig, params: RemoteUploadParams): string {
+function buildKey(config: AwsUploaderConfig, params: RemoteUploadParams): string {
   if (typeof config.key === 'string') {
     return config.key;
   }

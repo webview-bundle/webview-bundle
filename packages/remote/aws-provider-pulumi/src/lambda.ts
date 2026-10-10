@@ -21,8 +21,7 @@ export interface LambdaCodeConfig {
 
 export function getLambdaCode(
   filename: string,
-  config: LambdaCodeConfig,
-  allowOtherVersions?: boolean
+  config: LambdaCodeConfig
 ): pulumi.Input<pulumi.asset.AssetArchive> {
   return pulumi
     .all([
@@ -37,7 +36,6 @@ export function getLambdaCode(
       const config: WebviewBundleRemoteConfig = {
         bucketName,
         region,
-        allowOtherVersions,
       };
       const input = path.join(dirname, '..', 'lambda', filename);
       const codes = await generateCode(input, {
@@ -49,6 +47,7 @@ export function getLambdaCode(
         define: {
           __CONFIG__: JSON.stringify(config),
         },
+        external: [/^@aws-sdk\//],
       });
       const assets = Object.fromEntries(
         codes.map(code => {

@@ -75,7 +75,7 @@ pub struct SignatureKey {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SignatureVerifyKey {
-  pub id: String,
+  pub id: Option<String>,
   pub verify: SignatureKey,
 }
 
@@ -161,10 +161,7 @@ impl TryFrom<&SignatureVerifyKey> for signature::SignatureVerifyKey {
   type Error = String;
 
   fn try_from(value: &SignatureVerifyKey) -> Result<Self, Self::Error> {
-    Ok(Self {
-      id: value.id.clone(),
-      verify: (&value.verify).try_into()?,
-    })
+    Ok(Self::new(value.id.clone(), (&value.verify).try_into()?))
   }
 }
 

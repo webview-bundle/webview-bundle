@@ -1,25 +1,38 @@
-import type { BaseRemoteUploader, RemoteUploadParams } from '@wvb/config/remote';
-import { type BundleMetadataFile, writeBundle, writeBundleMetadata } from './api/index.js';
+import type { BaseUploader, UploadParams } from '@wvb/config/remote';
+import { getBundleFileSize, writeBundle, writeBundleVersionData } from './api/index.js';
 
 export interface UploaderConfig {
   baseDir: string;
 }
 
-class LocalUploaderImpl implements BaseRemoteUploader {
+class LocalUploaderImpl implements BaseUploader {
   constructor(private readonly config: UploaderConfig) {}
 
-  async upload(params: RemoteUploadParams): Promise<void> {
+  async upload(params: UploadParams): Promise<void> {
     const { baseDir } = this.config;
-    const { bundle, bundleName, version, integrity, signature } = params;
-    const metadata: BundleMetadataFile = {
-      integrity,
-      signature,
-    };
-    await writeBundle({ baseDir, bundle: bundleName, version, data: bundle });
-    await writeBundleMetadata({ baseDir, bundle: bundleName, version, metadata });
+    const { bundle, name, version, versionData } = params;
+
+    const bundleSize = await getBundleFileSize({
+      baseDir,
+      bundle: name,
+      version,
+    });
+    if (bundleSize != null) {
+      throw new Error(`Bundle already uploaded: ${version}`);
+    }
+
+    await writeBundle({ baseDir, bundle: name, version, data: bundle });
+    if (versionData != null) {
+      await writeBundleVersionData({
+        baseDir,
+        bundle: name,
+        version,
+        data: versionData,
+      });
+    }
   }
 }
 
-export function localRemoteUploader(config: UploaderConfig): BaseRemoteUploader {
+export function localRemoteUploader(config: UploaderConfig): BaseUploader {
   return new LocalUploaderImpl(config);
 }

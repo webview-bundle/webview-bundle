@@ -1,14 +1,14 @@
 import { Buffer } from 'node:buffer';
 import type { SigningAlgorithmSpec } from '@aws-sdk/client-kms';
-import type { SignatureSignFn } from '@wvb/config/remote';
-import { type AwsKmsClientConfigLike, getKmsClient } from './utils.js';
+import type { SignatureConfig } from '@wvb/config/remote';
+import { type AwsKmsClientConfigLike, getKmsClient } from './sdk.js';
 
 export interface AwsKmsSignatureSignerConfig extends AwsKmsClientConfigLike {
   keyId: string;
   algorithm: SigningAlgorithmSpec;
 }
 
-export function awsKmsSignatureSigner(config: AwsKmsSignatureSignerConfig): SignatureSignFn {
+export function awsKmsSignatureSigner(config: AwsKmsSignatureSignerConfig): SignatureConfig {
   const { keyId, algorithm } = config;
   return async function sign(params) {
     const kms = await getKmsClient(config);

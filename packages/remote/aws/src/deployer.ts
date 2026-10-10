@@ -1,35 +1,31 @@
 import type { CloudFrontClient } from '@aws-sdk/client-cloudfront';
 import type { S3Client } from '@aws-sdk/client-s3';
-import type {
-  BaseRemoteDeployer,
-  RemoteBundleDeployment,
-  RemoteDeployParams,
-} from '@wvb/config/remote';
+import type { BaseDeployer } from '@wvb/config/remote';
 import {
   type AwsCloudFrontClientConfigLike,
   type AwsS3ClientConfigLike,
   getCloudFrontClient,
   getS3Client,
   isNotFoundError,
-} from './utils.js';
+} from './sdk.js';
 
-export interface AwsRemoteDeployerConfig
-  extends AwsS3ClientConfigLike,
-    AwsCloudFrontClientConfigLike {
+export interface AwsDeployerConfig extends AwsS3ClientConfigLike, AwsCloudFrontClientConfigLike {
   bucket: string;
   key?: string | ((bundleName: string, version: string, channel?: string) => string);
   cacheControl?: string;
-  invalidation?: {
+  invalidate?: {
     distributionId: string;
     callerReference?: string | (() => string);
   };
 }
 
-class AwsRemoteDeployerImpl implements BaseRemoteDeployer {
-  constructor(private readonly config: AwsRemoteDeployerConfig) {}
+export interface AwsDeployer extends BaseDeployer {}
+
+class AwsDeployerImpl implements AwsDeployer {
+  constructor(private readonly config: AwsDeployerConfig) {}
 
   async deploy(params: RemoteDeployParams): Promise<void> {
-    const { bucket, key: keyInput, invalidation, cacheControl } = this.config;
+    const { bucket, key: keyInput, invalidate, cacheControl } = this.config;
     const { bundleName, version, channel } = params;
     const s3Client = await getS3Client(this.config);
     const key =
@@ -53,21 +49,15 @@ class AwsRemoteDeployerImpl implements BaseRemoteDeployer {
       deployment.version = version;
     }
     await this.updateDeployment(s3Client, bucket, key, deployment, cacheControl);
-    if (invalidation != null) {
+    if (invalidate != null) {
       const cfClient = await getCloudFrontClient(this.config);
       const callerReference =
-        typeof invalidation.callerReference === 'string'
-          ? invalidation.callerReference
-          : typeof invalidation.callerReference === 'function'
-            ? invalidation.callerReference()
+        typeof invalidate.callerReference === 'string'
+          ? invalidate.callerReference
+          : typeof invalidate.callerReference === 'function'
+            ? invalidate.callerReference()
             : String(Date.now());
-      await this.invalidateCache(
-        cfClient,
-        invalidation.distributionId,
-        callerReference,
-        bundleName,
-        channel
-      );
+      await this.invalidateCache(cfClient, invalidate.distributionId, callerReference);
     }
   }
 
@@ -119,24 +109,16 @@ class AwsRemoteDeployerImpl implements BaseRemoteDeployer {
   private async invalidateCache(
     cfClient: CloudFrontClient,
     distributionId: string,
-    callerReference: string,
-    bundleName: string,
-    channel?: string
+    callerReference: string
   ): Promise<void> {
     const { CreateInvalidationCommand } = await import('@aws-sdk/client-cloudfront');
-    const channelQs = encodeURIComponent(channel ?? '');
     await cfClient.send(
       new CreateInvalidationCommand({
         DistributionId: distributionId,
         InvalidationBatch: {
           Paths: {
             Quantity: 2,
-            Items: [
-              channel != null ? `/bundles?channel=${channelQs}` : '/bundles',
-              channel != null
-                ? `/bundles/${bundleName}?channel=${channelQs}`
-                : `/bundles/${bundleName}`,
-            ],
+            Items: ['/update'],
           },
           CallerReference: callerReference,
         },
@@ -145,6 +127,6 @@ class AwsRemoteDeployerImpl implements BaseRemoteDeployer {
   }
 }
 
-export function awsRemoteDeployer(config: AwsRemoteDeployerConfig): BaseRemoteDeployer {
-  return new AwsRemoteDeployerImpl(config);
+export function awsDeployer(config: AwsDeployerConfig): AwsDeployer {
+  return new AwsDeployerImpl(config);
 }

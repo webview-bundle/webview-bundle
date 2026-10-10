@@ -1,22 +1,22 @@
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
   getBundleFileSize,
-  readAllDeployments,
-  readBundleMetadata,
   readBundleStream,
-  readDeployment,
+  readUpdateFile,
+  stringifyUpdate,
 } from '@wvb/remote-local/api';
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
-import type { Variables } from './types.js';
-import { getRemoteBundleDeploymentVersion } from './utils.js';
+import { parseExpectSignatureHeader } from './signature.js';
+
+const UPDATE_PROTOCOL_VERSION = '1';
 
 interface Env {
   // biome-ignore lint/complexity/noBannedTypes: expected
   Bindings: {};
-  Variables: Variables;
 }
 
 export type WebviewBundleRemote = Hono<Env>;
@@ -27,89 +27,97 @@ export interface WebviewBundleRemoteConfig {
    * @default `~/.wvb/local`
    */
   baseDir?: string;
-  /** Option to allow downloading other version instead of deployed version */
-  allowOtherVersions?: boolean;
+  /**
+   * @default 'optional'
+   */
+  signaturePolicy?: 'strict' | 'optional' | 'off';
 }
 
-export function webviewBundleRemote({ baseDir, allowOtherVersions }: WebviewBundleRemoteConfig) {
+export function webviewBundleRemote({
+  baseDir: inputBaseDir,
+  signaturePolicy = 'optional',
+}: WebviewBundleRemoteConfig) {
   const app = new Hono<Env>();
+  const baseDir = inputBaseDir ?? path.join(os.homedir(), '.wvb', 'local');
 
-  app.use(async (c, next) => {
-    c.set('baseDir', baseDir ?? path.join(os.homedir(), '.wvb', 'local'));
-    await next();
+  app.onError((error, c) => {
+    console.error(error);
+    return c.json({ message: error.message }, 500);
   });
 
-  app.get('/bundles', async c => {
-    const channel = c.req.query('channel');
-    const deployments = await readAllDeployments({ baseDir: c.get('baseDir') });
-    const bundles = deployments
-      .map(x => {
-        const version = getRemoteBundleDeploymentVersion(x, channel);
-        if (version == null) {
-          return null;
+  app.get('/update', async c => {
+    const protocolVersion = c.req.header('wvb-update-protocol-version');
+    if (protocolVersion !== UPDATE_PROTOCOL_VERSION) {
+      return c.json(
+        { message: `Unsupported update protocol version: ${protocolVersion ?? '(missing)'}` },
+        400
+      );
+    }
+
+    const channel = c.req.header('wvb-update-channel');
+    const update = await readUpdateFile({ baseDir, channel });
+    if (update == null) {
+      return c.body(null, 204);
+    }
+
+    const expectSignature = parseExpectSignatureHeader(c.req.header('wvb-expect-signature'));
+    const signature = update.signatures.find(
+      x => x.id === expectSignature?.keyId && x.alg === expectSignature?.alg
+    );
+    switch (signaturePolicy) {
+      case 'strict': {
+        if (signature == null) {
+          return c.json({ message: 'Missing expect signature' }, 400);
         }
-        return { name: x.name, version };
-      })
-      .filter(x => x != null);
-    return c.json(bundles);
+        break;
+      }
+      case 'optional': {
+        if (expectSignature != null && signature == null) {
+          return c.json({ message: 'Missing expect signature' }, 400);
+        }
+        break;
+      }
+    }
+
+    const body = stringifyUpdate(update.update);
+    const etag = `"${createHash('sha256').update(body).digest('hex')}"`;
+
+    c.header('etag', etag);
+    if (c.req.header('if-none-match') === etag) {
+      return c.body(null, 304);
+    }
+
+    c.header('content-type', 'application/json; charset=UTF-8');
+    if (signature != null) {
+      c.header(
+        'wvb-signature',
+        `key_id="${signature.id}", alg="${signature.alg}", sig="${signature.sig}"`
+      );
+    }
+
+    return c.body(body, 200);
   });
 
-  async function getBundleResponse(c: Context<Env>, bundle: string, version: string) {
-    const metadata = await readBundleMetadata({
-      baseDir: c.get('baseDir'),
-      bundle,
-      version,
-    });
-    c.header('webview-bundle-name', bundle);
-    c.header('webview-bundle-version', version);
-    if (metadata?.integrity != null) {
-      c.header('webview-bundle-integrity', metadata.integrity);
-    }
-    if (metadata?.signature != null) {
-      c.header('webview-bundle-signature', metadata.signature);
-    }
+  app.get('/bundles/:name/:version', async c => {
+    const name = c.req.param('name');
+    const version = c.req.param('version');
+    const size = await getBundleFileSize({ baseDir, bundle: name, version });
 
-    const size = await getBundleFileSize({ baseDir: c.get('baseDir'), bundle, version });
     c.header('content-length', String(size));
+    c.header('content-type', 'application/webview-bundle');
 
     if (c.req.method.toUpperCase() === 'HEAD') {
       return c.body(null);
     }
 
-    return stream(c, async s => {
-      const bundleStream = readBundleStream({
-        baseDir: c.get('baseDir'),
-        bundle,
-        version,
-      });
-      await s.pipe(Readable.toWeb(bundleStream) as ReadableStream);
-    });
-  }
+    const bundleStream = await readBundleStream({ baseDir, bundle: name, version });
+    if (bundleStream == null) {
+      return c.body(null, 404);
+    }
 
-  app.get('/bundles/:name', async c => {
-    const bundle = c.req.param('name');
-    const channel = c.req.query('channel');
-    const deployment = await readDeployment({
-      bundle,
-      baseDir: c.get('baseDir'),
+    return stream(c, async output => {
+      await output.pipe(Readable.toWeb(bundleStream) as ReadableStream);
     });
-    if (deployment == null) {
-      return c.notFound();
-    }
-    const version = getRemoteBundleDeploymentVersion(deployment, channel, true);
-    if (version == null) {
-      return c.notFound();
-    }
-    return await getBundleResponse(c, bundle, version);
-  });
-
-  app.get('/bundles/:name/:version', async c => {
-    if (allowOtherVersions !== true) {
-      return c.body(null, { status: 403 });
-    }
-    const bundle = c.req.param('name');
-    const version = c.req.param('version');
-    return await getBundleResponse(c, bundle, version);
   });
 
   return app;

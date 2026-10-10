@@ -45,7 +45,7 @@ pub struct Update {
   pub created_at: String,
   pub runtime_version: u8,
   pub bundles: Vec<BundleUpdate>,
-  pub metadata: HashMap<String, String>,
+  pub metadata: Option<HashMap<String, String>>,
 }
 
 impl From<wvb::remote::Update> for Update {

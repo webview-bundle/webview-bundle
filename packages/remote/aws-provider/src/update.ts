@@ -1,16 +1,20 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-import type { Context, RemoteBundleDeployment } from '../types.js';
-import { isNoSuchKeyError } from '../utils.js';
+import type { Update } from '@wvb/remote-base-provider';
+import type { Context } from './types.js';
+import { isNoSuchKeyError } from './utils.js';
 
-export async function getBundleDeployment(
-  context: Context,
-  bundleName: string
-): Promise<RemoteBundleDeployment | null> {
+interface Options {
+  channel?: string;
+}
+
+export async function getUpdate(context: Context, options?: Options): Promise<Update | null> {
   try {
+    const key =
+      options?.channel != null ? `channels/${options.channel}/update.json` : 'update.json';
     const output = await context.s3Client.send(
       new GetObjectCommand({
         Bucket: context.bucketName,
-        Key: `bundles/${bundleName}/deployment.json`,
+        Key: key,
       })
     );
     const raw = await output.Body?.transformToString('utf-8');

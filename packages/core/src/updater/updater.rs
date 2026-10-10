@@ -125,7 +125,7 @@ impl Updater {
           .signature
           .keys
           .as_ref()
-          .and_then(|x| x.iter().find(|key_set| &key_set.id == key_id))
+          .and_then(|x| x.iter().find(|key_set| key_set.id() == key_id))
         {
           Some(key) => {
             opts = opts.expect_signature(key.clone());
@@ -887,7 +887,7 @@ mod tests {
         created_at: created_at.to_owned(),
         runtime_version: crate::RUNTIME_VERSION,
         bundles: vec![],
-        metadata: HashMap::new(),
+        metadata: None,
       },
       etag: None,
       signature: None,
@@ -936,7 +936,9 @@ mod tests {
     server.insert_signature_key("default", [7u8; 32]);
     let source = builtin_source(&[("app", "1.0.0")]);
     let options = UpdaterOptions::default().signature(
-      UpdaterSignatureOptions::default().add_key(server.signature_key_set("default").unwrap()),
+      UpdaterSignatureOptions::default()
+        .add_key(server.signature_key_set("default").unwrap())
+        .unwrap(),
     );
     let updater = build_updater(&source, &server.base_url(), &update_filepath(), options);
     let get_update_options = UpdaterGetUpdateOptions::default().expect_signature_key_id("default");

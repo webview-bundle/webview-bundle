@@ -34,13 +34,15 @@ pub struct UpdaterSignatureOptions {
   pub keys: Option<Vec<SignatureVerifyKey>>,
 }
 
-impl From<UpdaterSignatureOptions> for updater::UpdaterSignatureOptions {
-  fn from(value: UpdaterSignatureOptions) -> Self {
+impl TryFrom<UpdaterSignatureOptions> for updater::UpdaterSignatureOptions {
+  type Error = wvb::Error;
+
+  fn try_from(value: UpdaterSignatureOptions) -> Result<Self, Self::Error> {
     let mut options = updater::UpdaterSignatureOptions::default();
     if let Some(key_sets) = value.keys {
-      options = options.add_keys(key_sets.into_iter().map(Into::into).collect::<Vec<_>>());
+      options = options.add_keys(key_sets.into_iter().map(Into::into).collect::<Vec<_>>())?;
     }
-    options
+    Ok(options)
   }
 }
 
@@ -51,8 +53,10 @@ pub struct UpdaterOptions {
   pub signature: Option<UpdaterSignatureOptions>,
 }
 
-impl From<UpdaterOptions> for updater::UpdaterOptions {
-  fn from(value: UpdaterOptions) -> Self {
+impl TryFrom<UpdaterOptions> for updater::UpdaterOptions {
+  type Error = wvb::Error;
+
+  fn try_from(value: UpdaterOptions) -> Result<Self, Self::Error> {
     let mut options = updater::UpdaterOptions::default();
     if let Some(channel) = value.channel {
       options = options.channel(channel);
@@ -61,9 +65,9 @@ impl From<UpdaterOptions> for updater::UpdaterOptions {
       options = options.integrity(integrity.into());
     }
     if let Some(signature) = value.signature {
-      options = options.signature(signature.into());
+      options = options.signature(signature.try_into()?);
     }
-    options
+    Ok(options)
   }
 }
 
@@ -280,7 +284,7 @@ impl Updater {
         .remote(remote.inner.clone())
         .update_filepath(Path::new(&update_filepath));
       if let Some(options) = options {
-        builder = builder.options(options.into());
+        builder = builder.options(options.try_into()?);
       }
       Ok(Updater {
         inner: builder.build()?,

@@ -1,36 +1,36 @@
-import type { BaseRemoteDeployer, BaseRemoteUploader, SignatureSignFn } from '@wvb/config/remote';
-import { type AwsRemoteDeployerConfig, awsRemoteDeployer } from './deployer.js';
+import type { SignatureConfig } from '@wvb/config/remote';
+import { type AwsDeployer, type AwsDeployerConfig, awsDeployer } from './deployer.js';
+import type { AwsClientDefaults } from './sdk.js';
 import { type AwsKmsSignatureSignerConfig, awsKmsSignatureSigner } from './signature.js';
-import { type AwsS3RemoteUploaderConfig, awsS3RemoteUploader } from './uploader.js';
-import type { AwsClientDefaults } from './utils.js';
+import { type AwsUploader, type AwsUploaderConfig, awsUploader } from './uploader.js';
 
-export type { AwsRemoteDeployerConfig } from './deployer.js';
-export { awsRemoteDeployer } from './deployer.js';
+export type { AwsDeployer, AwsDeployerConfig } from './deployer.js';
+export { awsDeployer } from './deployer.js';
 export { BundleAlreadyUploadedError, isBundleAlreadyUploadedError } from './errors.js';
 export type { AwsKmsSignatureSignerConfig } from './signature.js';
 export { awsKmsSignatureSigner } from './signature.js';
-export type { AwsS3RemoteUploaderConfig } from './uploader.js';
-export { awsS3RemoteUploader } from './uploader.js';
+export type { AwsUploader, AwsUploaderConfig } from './uploader.js';
+export { awsUploader } from './uploader.js';
 
 export interface AwsRemoteConfig {
   bucket: string;
-  uploader?: Omit<AwsS3RemoteUploaderConfig, 'bucket'>;
-  deployer?: Omit<AwsRemoteDeployerConfig, 'bucket'>;
+  uploader?: Omit<AwsUploaderConfig, 'bucket'>;
+  deployer?: Omit<AwsDeployerConfig, 'bucket'>;
   signature?: false | AwsKmsSignatureSignerConfig;
   aws?: AwsClientDefaults;
 }
 
 export interface AwsRemote {
-  uploader: BaseRemoteUploader;
-  deployer: BaseRemoteDeployer;
-  signature?: SignatureSignFn;
+  uploader: AwsUploader;
+  deployer: AwsDeployer;
+  signature?: SignatureConfig;
 }
 
 /**
  * AWS remote configuration.
  */
 export function awsRemote(config: AwsRemoteConfig): AwsRemote {
-  const uploader = awsS3RemoteUploader({
+  const uploader = awsUploader({
     bucket: config.bucket,
     ...config.uploader,
     s3ClientConfig: {
@@ -38,7 +38,7 @@ export function awsRemote(config: AwsRemoteConfig): AwsRemote {
       ...config.uploader?.s3ClientConfig,
     },
   });
-  const deployer = awsRemoteDeployer({
+  const deployer = awsDeployer({
     bucket: config.bucket,
     ...config.deployer,
     s3ClientConfig: {

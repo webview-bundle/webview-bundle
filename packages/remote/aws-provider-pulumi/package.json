@@ -39,22 +39,22 @@
     "typecheck": "tsc --noEmit",
     "test-lambda-codegen": "tsx ./test-lambda-codegen.ts"
   },
+  "peerDependencies": {
+    "@pulumi/aws": "^7",
+    "@pulumi/pulumi": "^3"
+  },
   "dependencies": {
     "@wvb/remote-aws-provider": "workspace:^",
-    "es-toolkit": "^1.37.1",
-    "rolldown": "1.0.0-beta.42"
+    "es-toolkit": "^1.52.0",
+    "rolldown": "1.2.9"
   },
   "devDependencies": {
-    "@pulumi/aws": "^7.8.0",
-    "@pulumi/pulumi": "^3.237.0",
+    "@pulumi/aws": "^7.47.0",
+    "@pulumi/pulumi": "^3.263.0",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
     "tsx": "^4.20.6",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "peerDependencies": {
-    "@pulumi/aws": "*",
-    "@pulumi/pulumi": "*"
   }
 }
