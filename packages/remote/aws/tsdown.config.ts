@@ -31,7 +31,9 @@ export default defineConfig([
       },
     },
     deps: {
-      neverBundle: [/^@aws\/*/, /^node:/],
+      alwaysBundle: [/.*/],
+      neverBundle: [/^@aws-sdk\//, /^node:/],
+      onlyImport: ['@aws-sdk/client-s3'],
       onlyBundle: false,
     },
   },
