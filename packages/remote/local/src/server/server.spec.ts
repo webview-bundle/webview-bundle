@@ -1,10 +1,12 @@
+import { once } from 'node:events';
 import fs from 'node:fs/promises';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { BundleUpdate, Current, Update, UpdateSignature } from '@wvb/remote-base';
 import { v7 as uuid } from 'uuid';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildWebviewBundleServer } from './factory.js';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { webviewBundleServer } from './server.js';
 
 let baseDir: string;
 
@@ -17,8 +19,71 @@ afterEach(async () => {
 });
 
 describe('webviewBundleRemote', () => {
+  describe('serve/shutdown', () => {
+    it('listens on the requested host and serves HTTP requests', async () => {
+      const server = webviewBundleServer({ baseDir });
+      const onListen = vi.fn();
+      const instance = server.serve({ hostname: '127.0.0.1', port: 0, onListen });
+      await using nodeServer = instance.server;
+      await once(nodeServer, 'listening');
+      const address = nodeServer.address() as AddressInfo;
+
+      expect(address.address).toBe('127.0.0.1');
+      expect(address.port).toBeGreaterThan(0);
+      expect(onListen).toHaveBeenCalledExactlyOnceWith(address);
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/update`, {
+        headers: { 'wvb-update-protocol-version': '1', 'wvb-runtime-version': '1' },
+      });
+
+      expect(response.status).toBe(204);
+      expect(await response.text()).toBe('');
+    });
+
+    it('releases the listening port when shutdown completes', async () => {
+      const server = webviewBundleServer({ baseDir });
+      const instance = server.serve({ hostname: '127.0.0.1', port: 0 });
+      const nodeServer = instance.server;
+      onTestFinished(async () => {
+        if (nodeServer.listening) {
+          await instance.shutdown();
+        }
+      });
+      await once(nodeServer, 'listening');
+      const { port } = nodeServer.address() as AddressInfo;
+
+      await expect(instance.shutdown()).resolves.toBeUndefined();
+
+      expect(nodeServer.listening).toBe(false);
+      expect(nodeServer.address()).toBeNull();
+
+      const replacement = webviewBundleServer({ baseDir });
+      await using replacementServer = replacement.serve({ hostname: '127.0.0.1', port }).server;
+      await once(replacementServer, 'listening');
+
+      expect(replacementServer.address()).toMatchObject({ address: '127.0.0.1', port });
+    });
+
+    it('rejects shutdown when the server is already stopped', async () => {
+      const server = webviewBundleServer({ baseDir });
+      const instance = server.serve({ hostname: '127.0.0.1', port: 0 });
+      const nodeServer = instance.server;
+      onTestFinished(async () => {
+        if (nodeServer.listening) {
+          await instance.shutdown();
+        }
+      });
+      await once(nodeServer, 'listening');
+      await instance.shutdown();
+
+      await expect(instance.shutdown()).rejects.toMatchObject({
+        code: 'ERR_SERVER_NOT_RUNNING',
+      });
+    });
+  });
+
   it('rejects an unsupported update protocol version', async () => {
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
     const response = await server.request('/update');
 
     expect(response.status).toBe(400);
@@ -37,7 +102,7 @@ describe('webviewBundleRemote', () => {
     'Infinity',
     '9007199254740992',
   ])('rejects an invalid runtime version: %s', async runtimeVersion => {
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
     const headers = new Headers({ 'wvb-update-protocol-version': '1' });
     if (runtimeVersion != null) {
       headers.set('wvb-runtime-version', runtimeVersion);
@@ -53,7 +118,7 @@ describe('webviewBundleRemote', () => {
 
   it('serves the current update and handles its etag', async () => {
     await writeUpdate();
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
 
     const response = await server.request('/update', {
       headers: {
@@ -94,7 +159,7 @@ describe('webviewBundleRemote', () => {
   });
 
   it('returns no content when an update does not exist', async () => {
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
     const response = await server.request('/update', {
       headers: { 'wvb-update-protocol-version': '1', 'wvb-runtime-version': '1' },
     });
@@ -106,7 +171,7 @@ describe('webviewBundleRemote', () => {
   it('selects an update by channel', async () => {
     await writeUpdate('beta', [{ name: 'app', version: '2.0.0' }]);
 
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
     const response = await server.request('/update', {
       headers: {
         'wvb-update-channel': 'beta',
@@ -124,7 +189,7 @@ describe('webviewBundleRemote', () => {
       { id: 'release', alg: 'ed25519', sig: 'c2lnbmF0dXJl' },
     ]);
 
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
     const response = await server.request('/update', {
       headers: {
         'wvb-expect-signature': 'key_id="release", alg="ed25519"',
@@ -142,7 +207,7 @@ describe('webviewBundleRemote', () => {
   it('rejects an unavailable requested signature under the optional policy', async () => {
     await writeUpdate();
 
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
     const response = await server.request('/update', {
       headers: {
         'wvb-expect-signature': 'key_id="release", alg="ed25519"',
@@ -158,7 +223,7 @@ describe('webviewBundleRemote', () => {
   it('requires a requested signature under the strict policy', async () => {
     await writeUpdate();
 
-    const server = buildWebviewBundleServer({ baseDir, signaturePolicy: 'strict' });
+    const server = webviewBundleServer({ baseDir, signaturePolicy: 'strict' });
     const response = await server.request('/update', {
       headers: { 'wvb-update-protocol-version': '1', 'wvb-runtime-version': '1' },
     });
@@ -170,7 +235,7 @@ describe('webviewBundleRemote', () => {
   it('downloads a versioned bundle', async () => {
     await writeBundle('app', '1.2.3', 'bundle-data');
 
-    const server = buildWebviewBundleServer({ baseDir });
+    const server = webviewBundleServer({ baseDir });
     const response = await server.request('/bundles/app/1.2.3');
 
     expect(response.status).toBe(200);

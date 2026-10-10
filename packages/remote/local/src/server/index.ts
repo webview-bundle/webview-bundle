@@ -1,8 +1,8 @@
 export type {
   WebviewBundleServer,
   WebviewBundleServerConfig,
-} from './factory.js';
+} from './server.js';
 export {
-  buildWebviewBundleServer,
-  buildWvbServer,
-} from './factory.js';
+  webviewBundleServer,
+  webviewBundleServer as wvbServer,
+} from './server.js';

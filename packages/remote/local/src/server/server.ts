@@ -1,4 +1,6 @@
+import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
+import { type ServerType, serve } from '@hono/node-server';
 import type { Config } from '@wvb/remote-base/server';
 import { buildServer } from '@wvb/remote-base/server';
 import type { Hono } from 'hono';
@@ -11,7 +13,18 @@ interface Env {
   Bindings: {};
 }
 
-export type WebviewBundleServer = Hono<Env>;
+export interface WebviewBundleServerInstance {
+  server: ServerType;
+  shutdown(): Promise<void>;
+}
+
+export interface WebviewBundleServerServeParams extends Omit<Parameters<typeof serve>[0], 'fetch'> {
+  onListen?: (info: AddressInfo) => void;
+}
+
+export type WebviewBundleServer = Hono<Env> & {
+  serve(params: WebviewBundleServerServeParams): WebviewBundleServerInstance;
+};
 
 export interface WebviewBundleServerConfig extends Omit<Config<Env>, 'getUpdate' | 'download'> {
   /**
@@ -20,9 +33,7 @@ export interface WebviewBundleServerConfig extends Omit<Config<Env>, 'getUpdate'
   baseDir?: string;
 }
 
-export function buildWebviewBundleServer(
-  config: WebviewBundleServerConfig = {}
-): WebviewBundleServer {
+export function webviewBundleServer(config: WebviewBundleServerConfig = {}): WebviewBundleServer {
   const { baseDir = getDefaultBaseDir(), ...serverOptions } = config;
   const server = buildServer({
     ...serverOptions,
@@ -53,7 +64,32 @@ export function buildWebviewBundleServer(
     },
   });
 
-  return server;
-}
+  Object.assign(server, {
+    serve: ({ onListen, ...options }: WebviewBundleServerServeParams) => {
+      const nodeServer = serve(
+        {
+          ...(options as any),
+          fetch: server.fetch,
+        },
+        onListen
+      );
+      const instance: WebviewBundleServerInstance = {
+        server: nodeServer,
+        shutdown(): Promise<void> {
+          return new Promise<void>((resolve, reject) => {
+            nodeServer.close(error => {
+              if (error != null) {
+                reject(error);
+              } else {
+                resolve();
+              }
+            });
+          });
+        },
+      };
+      return instance;
+    },
+  });
 
-export const buildWvbServer = buildWebviewBundleServer;
+  return server as WebviewBundleServer;
+}

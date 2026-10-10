@@ -49,6 +49,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "@wvb/config": "workspace:*",
     "@wvb/remote-base": "workspace:*",
     "es-toolkit": "^1.51.0",
