@@ -39,6 +39,10 @@
     "build-worker-script": "esbuild ./worker-script.ts --minify --bundle --format=esm --platform=neutral --target=node18 --sourcemap=external --outfile=./dist/worker-script.js",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "@pulumi/cloudflare": "^6",
+    "@pulumi/pulumi": "^3"
+  },
   "dependencies": {
     "@wvb/remote-cloudflare-provider": "workspace:^"
   },
@@ -50,9 +54,5 @@
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "peerDependencies": {
-    "@pulumi/cloudflare": "*",
-    "@pulumi/pulumi": "*"
   }
 }

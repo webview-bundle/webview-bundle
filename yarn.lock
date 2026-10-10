@@ -7831,8 +7831,8 @@ __metadata:
     typescript: "catalog:"
     vitest: "catalog:"
   peerDependencies:
-    "@pulumi/cloudflare": "*"
-    "@pulumi/pulumi": "*"
+    "@pulumi/cloudflare": ^6
+    "@pulumi/pulumi": ^3
   languageName: unknown
   linkType: soft
 
