@@ -58,7 +58,7 @@ impl TryFrom<UpdaterSignatureOptions> for updater::UpdaterSignatureOptions {
         .iter()
         .map(wvb::signature::SignatureVerifyKey::try_from)
         .collect::<Result<Vec<_>, _>>()?;
-      options = options.add_keys(keys);
+      options = options.add_keys(keys).map_err(|e| e.to_string())?;
     }
     Ok(options)
   }

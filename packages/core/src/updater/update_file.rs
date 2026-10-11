@@ -50,7 +50,6 @@ mod tests {
   use super::*;
   use crate::remote::Update;
   use crate::testing::TempDir;
-  use std::collections::HashMap;
 
   fn response(id: &str) -> RemoteUpdateResponse {
     RemoteUpdateResponse {
@@ -59,7 +58,7 @@ mod tests {
         created_at: "2026-08-08T00:00:00Z".to_owned(),
         runtime_version: 1,
         bundles: vec![],
-        metadata: HashMap::new(),
+        metadata: None,
       },
       etag: Some("\"etag-1\"".to_owned()),
       signature: None,

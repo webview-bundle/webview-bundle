@@ -5,6 +5,8 @@ use crate::remote::BundleUpdate;
 use crate::signature;
 use crate::util::cancellation::Cancellation;
 use std::collections::HashMap;
+#[cfg(feature = "signature")]
+use std::collections::HashSet;
 
 /// How bundles are checked against the integrity recorded for them
 /// in the remote manifest.
@@ -45,17 +47,73 @@ pub struct UpdaterSignatureOptions {
 #[cfg(feature = "signature")]
 impl UpdaterSignatureOptions {
   /// Adds one accepted verification key.
-  pub fn add_key(self, key_set: signature::SignatureVerifyKey) -> Self {
+  ///
+  /// Returns an error if another key with the same key id is already configured.
+  pub fn add_key(self, key_set: signature::SignatureVerifyKey) -> crate::Result<Self> {
     self.add_keys(vec![key_set])
   }
 
   /// Adds all accepted verification keys.
-  pub fn add_keys(mut self, key_sets: Vec<signature::SignatureVerifyKey>) -> Self {
+  ///
+  /// Returns an error if the resulting key list would contain duplicate key ids.
+  pub fn add_keys(mut self, key_sets: Vec<signature::SignatureVerifyKey>) -> crate::Result<Self> {
+    let mut key_ids = HashSet::new();
+    for key_set in self.keys.iter().flatten().chain(key_sets.iter()) {
+      if !key_ids.insert(key_set.id()) {
+        return Err(crate::Error::invalid_updater_config(format!(
+          "duplicate signature key_id: {}",
+          key_set.id()
+        )));
+      }
+    }
+
     self.keys = match self.keys {
       Some(original) => Some([original, key_sets].concat()),
       None => Some(key_sets),
     };
-    self
+    Ok(self)
+  }
+}
+
+#[cfg(all(test, feature = "signature"))]
+mod signature_options_tests {
+  use super::UpdaterSignatureOptions;
+  use crate::signature::{SignatureVerify, SignatureVerifyKey};
+  use std::sync::Arc;
+
+  fn key(id: Option<&str>) -> SignatureVerifyKey {
+    SignatureVerifyKey::new(
+      id,
+      SignatureVerify::Custom(Arc::new(|_, _| Box::pin(async { Ok(true) }))),
+    )
+  }
+
+  #[test]
+  fn add_key_rejects_an_existing_key_id() {
+    let options = UpdaterSignatureOptions::default()
+      .add_key(key(Some("release")))
+      .unwrap();
+
+    let error = options.add_key(key(Some("release"))).unwrap_err();
+
+    assert_eq!(error.code(), crate::ErrorCode::InvalidUpdaterConfig);
+    assert_eq!(
+      error.to_string(),
+      "invalid updater config: duplicate signature key_id: release"
+    );
+  }
+
+  #[test]
+  fn add_keys_rejects_duplicate_key_ids_in_the_new_keys() {
+    let error = UpdaterSignatureOptions::default()
+      .add_keys(vec![key(None), key(Some("default"))])
+      .unwrap_err();
+
+    assert_eq!(error.code(), crate::ErrorCode::InvalidUpdaterConfig);
+    assert_eq!(
+      error.to_string(),
+      "invalid updater config: duplicate signature key_id: default"
+    );
   }
 }
 

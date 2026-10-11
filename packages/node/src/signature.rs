@@ -82,7 +82,7 @@ pub enum SignatureKeyFormat {
 
 #[napi(object, object_to_js = false)]
 pub struct SignatureVerifyKey {
-  pub id: String,
+  pub id: Option<String>,
   #[napi(
     ts_type = "SignatureKey | ((message: Uint8Array, signature: string) => Promise<boolean>)"
   )]
@@ -91,10 +91,7 @@ pub struct SignatureVerifyKey {
 
 impl From<SignatureVerifyKey> for signature::SignatureVerifyKey {
   fn from(value: SignatureVerifyKey) -> Self {
-    Self {
-      id: value.id,
-      verify: value.verify.inner,
-    }
+    Self::new(value.id, value.verify.inner)
   }
 }
 

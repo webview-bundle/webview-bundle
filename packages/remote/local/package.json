@@ -34,7 +34,14 @@
       "import": "./dist/api/index.mjs",
       "require": "./dist/api/index.cjs"
     },
+    "./server": {
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.cjs"
+    },
     "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": "^20.17.0 || >=22.9.0"
   },
   "scripts": {
     "prepack": "yarn build",
@@ -42,12 +49,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wvb/config": "workspace:^",
-    "tinyglobby": "^0.2.14",
+    "@hono/node-server": "^2.1.1",
+    "@wvb/config": "workspace:*",
+    "@wvb/remote-base": "workspace:*",
+    "es-toolkit": "^1.51.0",
+    "hono": "^4",
+    "uuid": "^14.0.0",
+    "write-file-atomic": "7.0.1",
     "zod": "^4.0.5"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/write-file-atomic": "^4.0.3",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -2,8 +2,10 @@ import type { Buffer } from 'node:buffer';
 import { createReadStream, type ReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import writeFileAtomic from 'write-file-atomic';
 import { z } from 'zod';
-import { normalizeBundleName } from '../utils.js';
+import { lock } from './lock.js';
+import { isFileNotFoundError, normalizeBundleName } from './utils.js';
 
 interface ReadBundleStreamParams {
   baseDir: string;
@@ -11,19 +13,69 @@ interface ReadBundleStreamParams {
   version: string;
 }
 
-export function readBundleStream({ baseDir, bundle, version }: ReadBundleStreamParams): ReadStream {
+export async function readBundleStream({
+  baseDir,
+  bundle,
+  version,
+}: ReadBundleStreamParams): Promise<ReadStream | null> {
   const filePath = getBundleFilePath(baseDir, bundle, version);
+  try {
+    await fs.access(filePath);
+  } catch (e) {
+    if (isFileNotFoundError(e)) {
+      return null;
+    }
+    throw e;
+  }
   return createReadStream(filePath);
+}
+
+export const BundleVersionDataSchema = z.object({
+  integrity: z.string().optional(),
+  metadata: z.record(z.string(), z.string()).optional(),
+});
+export type BundleVersionData = z.infer<typeof BundleVersionDataSchema>;
+
+interface ReadBundleVersionDataParams {
+  baseDir: string;
+  bundle: string;
+  version: string;
+}
+
+export async function readBundleVersionData({
+  baseDir,
+  bundle,
+  version,
+}: ReadBundleVersionDataParams): Promise<BundleVersionData | null> {
+  try {
+    const filePath = getBundleVersionDataFilePath(baseDir, bundle, version);
+    const raw = await fs.readFile(filePath, 'utf8');
+
+    return BundleVersionDataSchema.parse(JSON.parse(raw));
+  } catch (e) {
+    if (isFileNotFoundError(e)) {
+      return null;
+    }
+    throw e;
+  }
 }
 
 export async function getBundleFileSize({
   baseDir,
   bundle,
   version,
-}: ReadBundleStreamParams): Promise<number> {
-  const filePath = getBundleFilePath(baseDir, bundle, version);
-  const stats = await fs.stat(filePath);
-  return stats.size;
+}: ReadBundleStreamParams): Promise<number | null> {
+  try {
+    const filePath = getBundleFilePath(baseDir, bundle, version);
+    const stats = await fs.stat(filePath);
+
+    return stats.size;
+  } catch (e) {
+    if (isFileNotFoundError(e)) {
+      return null;
+    }
+    throw e;
+  }
 }
 
 interface WriteBundleParams {
@@ -39,62 +91,48 @@ export async function writeBundle({
   version,
   data,
 }: WriteBundleParams): Promise<void> {
-  const filePath = getBundleFilePath(baseDir, bundle, version);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, data);
-}
-
-export const BundleMetadataFileSchema = z.object({
-  integrity: z.string().optional(),
-  signature: z.string().optional(),
-});
-export type BundleMetadataFile = z.infer<typeof BundleMetadataFileSchema>;
-
-interface ReadBundleMetadataParams {
-  baseDir: string;
-  bundle: string;
-  version: string;
-}
-
-export async function readBundleMetadata({
-  baseDir,
-  bundle,
-  version,
-}: ReadBundleMetadataParams): Promise<BundleMetadataFile | null> {
-  const filePath = getBundleMetadataFilePath(baseDir, bundle, version);
+  await lock.acquire();
   try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    const parsed = BundleMetadataFileSchema.parse(JSON.parse(raw));
-    return parsed;
-  } catch {
-    return null;
+    const filePath = getBundleFilePath(baseDir, bundle, version);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await writeFileAtomic(filePath, data);
+  } finally {
+    lock.release();
   }
 }
 
-interface WriteBundleMetadataParams {
+interface WriteBundleVersionDataParams {
   baseDir: string;
   bundle: string;
   version: string;
-  metadata: BundleMetadataFile;
+  data: {
+    integrity?: string;
+    metadata?: Record<string, string>;
+  };
 }
 
-export async function writeBundleMetadata({
+export async function writeBundleVersionData({
   baseDir,
   bundle,
   version,
-  metadata,
-}: WriteBundleMetadataParams): Promise<void> {
-  const filePath = getBundleMetadataFilePath(baseDir, bundle, version);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(metadata, null, 2), 'utf8');
+  data,
+}: WriteBundleVersionDataParams): Promise<void> {
+  await lock.acquire();
+  try {
+    const filePath = getBundleVersionDataFilePath(baseDir, bundle, version);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await writeFileAtomic(filePath, JSON.stringify(data, null, 2));
+  } finally {
+    lock.release();
+  }
 }
 
 function getBundleFilePath(baseDir: string, bundle: string, version: string): string {
   const bundleName = normalizeBundleName(bundle);
-  return path.join(baseDir, 'bundles', bundleName, `${bundleName}_${version}.wvb`);
+  return path.join(baseDir, 'bundles', bundleName, `${version}.wvb`);
 }
 
-function getBundleMetadataFilePath(baseDir: string, bundle: string, version: string): string {
+function getBundleVersionDataFilePath(baseDir: string, bundle: string, version: string): string {
   const bundleName = normalizeBundleName(bundle);
-  return path.join(baseDir, 'bundles', bundleName, `${bundleName}_${version}.json`);
+  return path.join(baseDir, 'bundles', bundleName, `${version}_data.json`);
 }

@@ -17,11 +17,31 @@ pub type CustomVerify = dyn Fn(
 
 #[derive(Debug, Clone)]
 pub struct SignatureVerifyKey {
-  pub id: String,
+  pub(crate) id: Option<String>,
   pub verify: SignatureVerify,
 }
 
+impl From<SignatureVerify> for SignatureVerifyKey {
+  fn from(value: SignatureVerify) -> Self {
+    Self {
+      id: None,
+      verify: value,
+    }
+  }
+}
+
 impl SignatureVerifyKey {
+  pub fn new(id: Option<impl Into<String>>, verify: SignatureVerify) -> Self {
+    Self {
+      id: id.map(Into::into),
+      verify,
+    }
+  }
+
+  pub fn id(&self) -> &str {
+    self.id.as_deref().unwrap_or("default")
+  }
+
   pub fn algorithm(&self) -> SignatureAlgorithm {
     self.verify.algorithm()
   }

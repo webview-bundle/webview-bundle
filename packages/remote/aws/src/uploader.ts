@@ -1,32 +1,33 @@
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { Configuration as UploadConfig } from '@aws-sdk/lib-storage';
-import type { BaseRemoteUploader, RemoteUploadParams } from '@wvb/config/remote';
+import type { BaseUploader, UploadParams } from '@wvb/config/remote';
 import { BundleAlreadyUploadedError } from './errors.js';
 import {
   type AwsS3ClientConfigLike,
   filterS3Metadata,
   getS3Client,
   isNotFoundError,
-} from './utils.js';
+} from './sdk.js';
 
-export interface AwsS3RemoteUploaderConfig extends AwsS3ClientConfigLike {
+export interface AwsRemoteUploaderConfig extends AwsS3ClientConfigLike {
   bucket: string;
-  key?: string | ((bundleName: string, version: string) => string);
   contentType?: string;
   cacheControl?: string;
   contentDisposition?: string;
   metadata?: Record<string, string | null | undefined>;
-  upload?: UploadConfig;
+  upload?: Omit<UploadConfig, 'client' | 'params'>;
 }
 
-class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
+export interface AwsRemoteUploader extends BaseUploader {}
+
+class AwsUploaderImpl implements AwsRemoteUploader {
   _onUploadProgress:
     | ((progress: { loaded?: number; total?: number; part?: number }) => void)
     | undefined;
 
-  constructor(private readonly config: AwsS3RemoteUploaderConfig) {}
+  constructor(private readonly config: AwsRemoteUploaderConfig) {}
 
-  async upload(params: RemoteUploadParams): Promise<void> {
+  async upload(params: UploadParams): Promise<void> {
     const {
       bucket,
       upload: uploaderConfig,
@@ -35,29 +36,22 @@ class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
       contentDisposition,
       metadata: customMetadata = {},
     } = this.config;
-    const { bundle, bundleName, version, force, integrity, signature } = params;
+    const { bundle, name: bundleName, version, versionData } = params;
+
     const s3 = await getS3Client(this.config);
-    const key = buildKey(this.config, params);
-    if (!force) {
-      await ensureObjectAbsent(s3, bucket, key, bundleName, version);
-    }
+    await this.#ensureAbsent(s3, bundleName, version);
+
     const metadata: Record<string, string | null | undefined> = {
       ...customMetadata,
-      'webview-bundle-name': bundleName,
-      'webview-bundle-version': version,
+      'wvb-bundle-name': bundleName,
+      'wvb-bundle-version': version,
     };
-    if (integrity != null) {
-      metadata['webview-bundle-integrity'] = integrity;
-    }
-    if (signature != null) {
-      metadata['webview-bundle-signature'] = signature;
-    }
     const { Upload: Uploader } = await import('@aws-sdk/lib-storage');
     const uploader = new Uploader({
       client: s3,
       params: {
         Bucket: bucket,
-        Key: key,
+        Key: this.#bundleKey(bundleName, version),
         Body: bundle,
         ContentType: contentType,
         CacheControl: cacheControl,
@@ -70,39 +64,43 @@ class AwsS3RemoteUploaderImpl implements BaseRemoteUploader {
       this._onUploadProgress?.(progress);
     });
     await uploader.done();
-  }
-}
-
-export function awsS3RemoteUploader(config: AwsS3RemoteUploaderConfig): BaseRemoteUploader {
-  return new AwsS3RemoteUploaderImpl(config);
-}
-
-async function ensureObjectAbsent(
-  s3: S3Client,
-  bucket: string,
-  key: string,
-  bundleName: string,
-  version: string
-): Promise<void> {
-  const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
-  try {
-    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-  } catch (e) {
-    if (isNotFoundError(e)) {
-      return;
+    if (versionData != null) {
+      const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: `bundles/${bundleName}/${version}.json`,
+          Body: JSON.stringify(versionData),
+          ContentType: 'application/json',
+        })
+      );
     }
-    throw e;
   }
-  throw new BundleAlreadyUploadedError(bundleName, version);
+
+  #bundleKey(bundleName: string, version: string): string {
+    return `bundles/${bundleName}/${version}.wvb`;
+  }
+
+  async #ensureAbsent(s3: S3Client, bundleName: string, version: string): Promise<void> {
+    const { bucket } = this.config;
+    const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+    try {
+      await s3.send(
+        new HeadObjectCommand({
+          Bucket: bucket,
+          Key: this.#bundleKey(bundleName, version),
+        })
+      );
+    } catch (e) {
+      if (isNotFoundError(e)) {
+        return;
+      }
+      throw e;
+    }
+    throw new BundleAlreadyUploadedError(bundleName, version);
+  }
 }
 
-function buildKey(config: AwsS3RemoteUploaderConfig, params: RemoteUploadParams): string {
-  if (typeof config.key === 'string') {
-    return config.key;
-  }
-  const { bundleName, version } = params;
-  if (typeof config.key === 'function') {
-    return config.key(bundleName, version);
-  }
-  return `bundles/${bundleName}/${bundleName}_${version}.wvb`;
+export function awsRemoteUploader(config: AwsRemoteUploaderConfig): AwsRemoteUploader {
+  return new AwsUploaderImpl(config);
 }

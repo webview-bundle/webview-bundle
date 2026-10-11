@@ -1,20 +1,28 @@
-import type { BaseRemoteDeployer, RemoteDeployParams } from '@wvb/config/remote';
-import { writeDeployment } from './api/index.js';
+import type { BaseDeployer, DeployParams } from '@wvb/config/remote';
+import { writeUpdate } from './api/index.js';
 
 export interface LocalRemoteDeployerConfig {
   baseDir: string;
 }
 
-class LocalRemoteDeployer implements BaseRemoteDeployer {
+class RemoteDeployer implements BaseDeployer {
   constructor(private readonly config: LocalRemoteDeployerConfig) {}
 
-  async deploy(params: RemoteDeployParams): Promise<void> {
+  async deploy(params: DeployParams): Promise<void> {
     const { baseDir } = this.config;
-    const { bundleName, version, channel } = params;
-    await writeDeployment({ baseDir, bundle: bundleName, version, channel });
+    const { bundles, channel, signatures, runtimeVersion, metadata } = params;
+
+    await writeUpdate({
+      baseDir,
+      bundles,
+      channel,
+      metadata,
+      signatures,
+      runtimeVersion,
+    });
   }
 }
 
-export function localRemoteDeployer(config: LocalRemoteDeployerConfig): BaseRemoteDeployer {
-  return new LocalRemoteDeployer(config);
+export function localRemoteDeployer(config: LocalRemoteDeployerConfig): BaseDeployer {
+  return new RemoteDeployer(config);
 }

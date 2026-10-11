@@ -77,7 +77,7 @@ pub struct Update {
   pub bundles: Vec<BundleUpdate>,
   /// The metadata associated with an update.
   /// Metadata should be a string-valued dictionary.
-  pub metadata: HashMap<String, String>,
+  pub metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

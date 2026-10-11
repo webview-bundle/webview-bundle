@@ -10,9 +10,7 @@ import {
   resolveOutFile,
   resolveVersion,
 } from '../config.js';
-import { c } from '../console.js';
 import { withWvbExtension } from '../fs.js';
-import { buildURL } from '../utils/url.js';
 import { BaseCommand } from './base.js';
 
 export class UploadCommand extends BaseCommand {
@@ -33,8 +31,6 @@ The upload process includes:
       ['Basic usage', '$0 remote upload'],
       ['Upload a specific bundle file', '$0 upload --file ./dist/myapp.wvb'],
       ['Upload with explicit name and version', '$0 upload myapp --version=1.2.0'],
-      ['Force overwrite existing version', '$0 upload myapp --version=1.2.0 --force'],
-      ['Deploy after upload is done', '$0 upload --deploy'],
     ],
   });
 
@@ -47,16 +43,6 @@ The upload process includes:
   });
   readonly file = Option.String('--file,-F', {
     description: 'Path to the Webview Bundle file (.wvb) to upload.',
-  });
-  readonly force = Option.String('--force', false, {
-    tolerateBoolean: true,
-    validator: isBoolean(),
-    description: 'Overwrite if the same version already exists on remote.',
-  });
-  readonly deploy = Option.String('--deploy', false, {
-    tolerateBoolean: true,
-    validator: isBoolean(),
-    description: 'Deploy the bundle to the remote endpoint after upload. [Default: false]',
   });
   readonly channel = Option.String('--channel', {
     description: `Release channel to manage and distribute different stability versions. (e.g. "beta", "alpha")
@@ -71,11 +57,6 @@ This option can be used when the deploy options is enabled.`,
     tolerateBoolean: true,
     validator: isBoolean(),
     description: 'Skip computing integrity hash for the bundle.',
-  });
-  readonly skipSignature = Option.String('--skip-signature', false, {
-    tolerateBoolean: true,
-    validator: isBoolean(),
-    description: 'Skip signing the bundle with a cryptographic signature.',
   });
   readonly configFile = Option.String('--config,-C', {
     description: 'Path to the config file.',
@@ -92,13 +73,6 @@ This option can be used when the deploy options is enabled.`,
     if (config.remote?.uploader == null) {
       this.logger.error(
         'Cannot get "remote.uploader" from config. Make sure the "remote.uploader" is defined in config.'
-      );
-      return 1;
-    }
-    if (this.deploy && config.remote?.deployer == null) {
-      this.logger.error(
-        'Deploy is enabled but cannot get "remote.deployer" from config ' +
-          'Make sure the "remote.deployer" is defined in config.'
       );
       return 1;
     }
@@ -143,28 +117,10 @@ This option can be used when the deploy options is enabled.`,
       bundleName,
       version,
       uploader: config.remote.uploader,
-      force: this.force,
       integrity: this.skipIntegrity ? false : config.remote?.integrity,
-      signature: this.skipSignature ? undefined : config.remote?.signature,
       cwd: config.root,
       logger: this.logger,
     });
-
-    if (this.deploy) {
-      await config.remote.deployer!.deploy({
-        bundleName,
-        version,
-        channel: this.channel,
-      });
-    }
-
-    const dest =
-      config.remote.endpoint != null
-        ? buildURL(config.remote.endpoint, `/bundles/${bundleName}`).toString()
-        : null;
-    if (dest != null) {
-      this.logger.info(`  Bundle Endpoint: ${c.bold(c.info(dest))}`);
-    }
   }
 
   private resolveFile(config: ResolvedConfig): string | undefined {

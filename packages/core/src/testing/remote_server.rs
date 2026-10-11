@@ -206,10 +206,10 @@ impl TestingRemoteServer {
     let keys = self.signature_keys.lock().unwrap();
     let signing_key = keys.get(key_id)?;
     let key = Ed25519::from_public_key_bytes(&signing_key.verifying_key().to_bytes()).ok()?;
-    Some(SignatureVerifyKey {
-      id: key_id.to_owned(),
-      verify: SignatureVerify::Ed25519(key),
-    })
+    Some(SignatureVerifyKey::new(
+      Some(key_id),
+      SignatureVerify::Ed25519(key),
+    ))
   }
 
   fn init(&mut self) {
@@ -246,10 +246,7 @@ impl TestingRemoteServer {
           created_at: created_at.clone(),
           runtime_version: crate::RUNTIME_VERSION,
           bundles: bundle_updates(&bundles, &versions),
-          metadata: match &channel {
-            Some(channel) => HashMap::from([("channel".to_owned(), channel.to_owned())]),
-            None => HashMap::new(),
-          },
+          metadata: channel.map(|x| HashMap::from([("channel".to_owned(), x.to_owned())])),
         };
         let body = match serde_json::to_vec(&update) {
           Ok(body) => body,

@@ -48,10 +48,10 @@
 //! use wvb::signature::{Ed25519, SignatureAlgorithm, SignatureVerify, SignatureVerifyKey};
 //!
 //! # let public_key_pem = "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----";
-//! let key_set = SignatureVerifyKey {
-//!     id: "2026-08".to_string(),
-//!     verify: SignatureVerify::Ed25519(Ed25519::from_public_key_pem(public_key_pem).unwrap()),
-//! };
+//! let key_set = SignatureVerifyKey::new(
+//!   Some("my_key"),
+//!   SignatureVerify::Ed25519(Ed25519::from_public_key_pem(public_key_pem).unwrap()),
+//! );
 //! assert_eq!(key_set.algorithm(), SignatureAlgorithm::Ed25519);
 //! # }
 //! ```

@@ -451,16 +451,17 @@ async fn an_update_signed_by_an_unexpected_key_is_rejected() {
 
   // A key published under the same id, but not the pair the server signs with.
   let other = SigningKey::from_bytes(&[9u8; 32]);
-  let key_set = SignatureVerifyKey {
-    id: "release".to_owned(),
-    verify: SignatureVerify::Ed25519(
+  let key_set = SignatureVerifyKey::new(
+    Some("release"),
+    SignatureVerify::Ed25519(
       Ed25519::from_public_key_bytes(&other.verifying_key().to_bytes()).unwrap(),
     ),
-  };
+  );
   let updater = updater_with(
     &source,
     &server.base_url(),
-    UpdaterOptions::default().signature(UpdaterSignatureOptions::default().add_key(key_set)),
+    UpdaterOptions::default()
+      .signature(UpdaterSignatureOptions::default().add_key(key_set).unwrap()),
   );
 
   let err = updater

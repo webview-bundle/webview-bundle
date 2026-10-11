@@ -42,7 +42,7 @@ pub struct Update {
   /// Bundles included in the update.
   pub bundles: Vec<BundleUpdate>,
   /// Provider-defined, string-valued update metadata.
-  pub metadata: HashMap<String, String>,
+  pub metadata: Option<HashMap<String, String>>,
 }
 
 impl From<remote::Update> for Update {

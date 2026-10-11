@@ -1,1 +1,0 @@
-# @wvb/remote-aws-provider

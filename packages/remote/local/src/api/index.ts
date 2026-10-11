@@ -1,16 +1,14 @@
-export type { BundleMetadataFile } from './bundles.js';
+export type { BundleVersionData } from './bundles.js';
 export {
-  BundleMetadataFileSchema,
+  BundleVersionDataSchema,
   getBundleFileSize,
-  readBundleMetadata,
   readBundleStream,
+  readBundleVersionData,
   writeBundle,
-  writeBundleMetadata,
+  writeBundleVersionData,
 } from './bundles.js';
-export type { DeploymentFile } from './deployment.js';
 export {
-  DeploymentFileSchema,
-  readAllDeployments,
-  readDeployment,
-  writeDeployment,
-} from './deployment.js';
+  readCurrentUpdate,
+  readUpdate,
+  writeUpdate,
+} from './update.js';

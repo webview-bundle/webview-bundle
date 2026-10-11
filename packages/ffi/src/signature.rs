@@ -9,7 +9,7 @@ pub trait SignatureCustomVerify: Send + Sync {
 
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct SignatureVerifyKey {
-  pub id: String,
+  pub id: Option<String>,
   pub verify: SignatureVerify,
 }
 
@@ -61,10 +61,7 @@ impl TryFrom<SignatureVerifyKey> for signature::SignatureVerifyKey {
   type Error = crate::Error;
 
   fn try_from(value: SignatureVerifyKey) -> Result<Self, Self::Error> {
-    Ok(Self {
-      id: value.id,
-      verify: value.verify.try_into()?,
-    })
+    Ok(Self::new(value.id, value.verify.try_into()?))
   }
 }
 

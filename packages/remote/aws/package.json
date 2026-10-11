@@ -30,24 +30,68 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./lambda": {
+      "import": "./dist/lambda/index.mjs",
+      "require": "./dist/lambda/index.cjs"
+    },
+    "./pulumi": {
+      "import": "./dist/pulumi/index.mjs",
+      "require": "./dist/pulumi/index.cjs"
+    },
+    "./cdk": {
+      "import": "./dist/cdk/index.mjs",
+      "require": "./dist/cdk/index.cjs"
+    }
   },
   "scripts": {
     "prepack": "yarn build",
     "build": "tsdown",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "@pulumi/aws": "^7",
+    "@pulumi/pulumi": "^3",
+    "aws-cdk-lib": "^2",
+    "constructs": "^10"
+  },
+  "peerDependenciesMeta": {
+    "@pulumi/aws": {
+      "optional": true
+    },
+    "@pulumi/pulumi": {
+      "optional": true
+    },
+    "aws-cdk-lib": {
+      "optional": true
+    },
+    "constructs": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "@aws-sdk/client-cloudfront": "^3.975.0",
     "@aws-sdk/client-kms": "^3.975.0",
     "@aws-sdk/client-s3": "^3.975.0",
     "@aws-sdk/lib-storage": "^3.975.0",
-    "@wvb/config": "workspace:^"
+    "@types/aws-lambda": "^8.10.159",
+    "@wvb/config": "workspace:*",
+    "@wvb/remote-base": "workspace:*",
+    "hono": "^4"
   },
   "devDependencies": {
+    "@pulumi/aws": "^7.47.0",
+    "@pulumi/pulumi": "^3.263.0",
+    "@smithy/util-stream": "4.5.12",
     "@types/node": "catalog:",
+    "aws-cdk-lib": "2.273.0",
+    "aws-sdk-client-mock": "4.1.0",
+    "constructs": "10.8.1",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

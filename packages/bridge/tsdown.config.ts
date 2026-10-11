@@ -4,7 +4,7 @@ const config: UserConfig = defineConfig({
   entry: ['./src/index.ts', './src/testing/index.ts'],
   format: ['esm', 'cjs'],
   platform: 'neutral',
-  target: ['node18', 'es2020'],
+  target: ['node20', 'es2020'],
   dts: true,
   clean: true,
   deps: {

@@ -2,7 +2,7 @@ import { defineConfig, type UserConfig } from 'tsdown';
 
 const shared = {
   platform: 'node',
-  target: 'node18',
+  target: 'node20',
   clean: false,
 } satisfies Partial<UserConfig>;
 

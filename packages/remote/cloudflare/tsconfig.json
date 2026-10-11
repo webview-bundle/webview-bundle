@@ -1,6 +1,8 @@
 {
   "extends": "../../../tsconfig.json",
   "compilerOptions": {
-    "isolatedDeclarations": false
+    "isolatedDeclarations": false,
+    "lib": ["ESNext"],
+    "types": ["node", "@cloudflare/workers-types"]
   }
 }
