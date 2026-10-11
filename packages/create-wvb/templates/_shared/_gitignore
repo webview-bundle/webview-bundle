@@ -1,0 +1,9 @@
+node_modules
+dist
+
+# The wvb CLI transpiles your config into here on every run, and `wvb pack`
+# writes the packed bundle here by default.
+.wvb/
+
+*.log
+.DS_Store

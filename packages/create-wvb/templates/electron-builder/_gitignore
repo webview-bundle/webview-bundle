@@ -1,0 +1,11 @@
+node_modules/
+dist/
+
+# `wvb` transpiles the config here on every run, and stages the packed bundle here.
+.wvb/
+
+# Produced by `wvb builtin` — regenerate it, never commit it.
+bundles/
+
+.DS_Store
+*.log

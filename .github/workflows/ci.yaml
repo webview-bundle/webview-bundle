@@ -284,4 +284,4 @@ jobs:
         uses: ./.github/actions/node-setup
       - run: yarn install --immutable
       - name: Run attw
-        run: node ./xtask/cli.ts attw --include='packages/*' --exclude='**/npm/*'
+        run: node ./xtask/cli.ts attw --include='packages/*' --exclude='**/npm/*' --exclude='packages/create-*'
