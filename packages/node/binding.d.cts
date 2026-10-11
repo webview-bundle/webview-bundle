@@ -651,11 +651,17 @@ export interface BundleSourceVersion {
   version: string
 }
 
+/** One bundle advertised by an update document. */
 export interface BundleUpdate {
+  /** Bundle name. */
   name: string
+  /** Bundle version. */
   version: string
+  /** Absolute download URL, when the provider overrides the default endpoint. */
   downloadUrl?: string
+  /** Serialized integrity value for the downloaded bundle. */
   integrity?: string
+  /** Provider-defined, string-valued bundle metadata. */
   metadata?: Record<string, string>
 }
 
@@ -1004,15 +1010,23 @@ export declare function readBundle(filepath: string): Promise<Bundle>
  */
 export declare function readBundleFromBuffer(buffer: Buffer): Bundle
 
+/** Options used to construct a [`Remote`] client. */
 export interface RemoteConfig {
+  /** Base URL of the update service. */
   baseUrl: string
+  /** Optional HTTP client configuration. */
   http?: HttpOptions
+  /** Callback invoked as a bundle download progresses. */
   onDownload?: (data: RemoteOnDownloadData) => void
 }
 
+/** Options for requesting the current update document. */
 export interface RemoteGetUpdateOptions {
+  /** ETag of the previously received update document. */
   etag?: string
+  /** Release channel to request. */
   channel?: string
+  /** Public key that must sign the response. */
   expectSignature?: SignatureVerifyKey
 }
 
@@ -1029,9 +1043,13 @@ export interface RemoteOnDownloadData {
   url: string
 }
 
+/** A validated update response returned by [`Remote::get_update`]. */
 export interface RemoteUpdateResponse {
+  /** Parsed update document. */
   update: Update
+  /** HTTP entity tag returned by the update server, when supplied. */
   etag?: string
+  /** Signature metadata returned by the update server, when supplied. */
   signature?: UpdateSignature
 }
 
@@ -1156,11 +1174,17 @@ export interface SourceOptions {
   removeBundleChunkSize?: number
 }
 
+/** An atomically published set of bundle updates. */
 export interface Update {
+  /** Unique update identifier. */
   id: string
+  /** ISO 8601 time at which the update was published. */
   createdAt: string
+  /** Update-model version required to process this document. */
   runtimeVersion: number
+  /** Bundles included in the update. */
   bundles: Array<BundleUpdate>
+  /** Provider-defined, string-valued update metadata. */
   metadata: Record<string, string>
 }
 
@@ -1241,9 +1265,13 @@ export interface UpdaterSignatureOptions {
   keys?: Array<SignatureVerifyKey>
 }
 
+/** Signature metadata for an update response. */
 export interface UpdateSignature {
+  /** Identifier of the public key used to verify the signature. */
   keyId: string
+  /** Base64-encoded signature of the raw update response body. */
   sig: string
+  /** Signature algorithm used for [`UpdateSignature::sig`]. */
   alg: string
 }
 
