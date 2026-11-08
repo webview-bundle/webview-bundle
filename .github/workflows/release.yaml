@@ -27,14 +27,21 @@ jobs:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
         with:
-          fetch-depth: '0'
-          fetch-tags: 'true'
-      - name: Setup Node.js
-        uses: ./.github/actions/node-setup
-      - run: yarn install --immutable
+          fetch-depth: '2'
+      # A merged `prp prepare` pull request adds its release file under `.prp/releases`.
       - name: Detect release commit
         id: detect
-        run: node ./xtask/cli.ts release --check
+        run: |
+          record=$(git diff --name-only --diff-filter=A HEAD^ HEAD -- .prp/releases | head -n 1)
+          if [ -z "$record" ]; then
+            echo "release_commit=false" >> "$GITHUB_OUTPUT"
+            echo "release_packages=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          packages=$(sed -n 's/^\[packages\."\(.*\)"\]$/\1/p' "$record" | jq -R . | jq -cs .)
+          echo "release_commit=true" >> "$GITHUB_OUTPUT"
+          echo "release_packages=$packages" >> "$GITHUB_OUTPUT"
+          echo "$record: $packages"
 
   build-napi:
     name: build-napi (${{ matrix.settings.host }}, ${{ matrix.settings.target }})
@@ -131,7 +138,7 @@ jobs:
     needs: [detect]
     # Prereleases (workflow_dispatch) release every package, so always build. Stable releases build
     # ffi only when the `ffi` package is among this commit's release targets.
-    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'ffi')
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'packages/ffi')
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
@@ -178,7 +185,7 @@ jobs:
     needs: [detect]
     # Prereleases (workflow_dispatch) release every package, so always build. Stable releases build
     # ffi only when the `ffi` package is among this commit's release targets.
-    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'ffi')
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'packages/ffi')
     steps:
       - name: Git checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
@@ -215,7 +222,7 @@ jobs:
     name: build-deno (${{ matrix.settings.target }})
     runs-on: ${{ matrix.settings.host }}
     needs: [detect]
-    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'deno')
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'packages/deno')
     strategy:
       fail-fast: false
       matrix:
@@ -310,9 +317,10 @@ jobs:
         run: node ./xtask/cli.ts artifacts spread
         shell: bash
       - name: Release
-        run: node ./xtask/cli.ts release --github-token=${{ github.token }}
+        run: yarn prp release
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           WVB_BUNDLE_NATIVE_STRICT: "1"
 

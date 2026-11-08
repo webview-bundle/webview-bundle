@@ -22,8 +22,9 @@ relative to the package directory. For example, this entry excludes project temp
 }
 ```
 
-The patterns apply to `prepare-release`, `prerelease`, and `release`. Changes to excluded files
-still count as package changes. This option does not affect which files the package distributes.
+The patterns apply to `prerelease`; releases read their manifests from
+[`.prp/config.toml`](../.prp/config.toml). Changes to excluded files still count as package
+changes. This option does not affect which files the package distributes.
 
 ## Features
 
@@ -34,35 +35,20 @@ picks up the new version. Contributors are not required to follow any commit con
 
 ### Releasing
 
-1. A maintainer runs `just xtask prepare-release` locally. It lists, per package, the commits
-   since its last tag (`<name>/<version>`), lets you pick which go in the changelog and the
-   version bump, propagates through the dependency graph, then commits the bumps + changelogs to a
-   content-addressed `release/<hash>` branch and opens (or updates) a PR via the `gh` CLI.
+Releases are made with [prp](https://github.com/seokju-na/prp) (`please-release-please`),
+configured in [`.prp/config.toml`](../.prp/config.toml).
 
-   The bump is `patch`/`minor`/`major` — each shown with the version it lands on — or **`exact
-   version`**, which asks for the next version outright. Use it when no rule expresses the intent,
-   for example to upgrade one package from `0.1.0` directly to `0.3.0`. Each package's version is
-   chosen independently. The version has to be ahead of the
-   package's current one (`release` only publishes what the merge commit *raised*), and it applies
-   to every manifest the package owns, so a package whose manifests have drifted apart (e.g. the
-   napi platform packages) is realigned on the way.
+1. A maintainer runs `yarn prp prepare` on an up-to-date `main`, with a `GITHUB_TOKEN`
+   (e.g. `GITHUB_TOKEN=$(gh auth token) yarn prp prepare`). It shows, per package, the commits
+   since its last tag (`<name>/<version>`) and the bump they ask for, and lets you exclude
+   changes, skip packages, or choose another bump or an exact version. Dependents follow through
+   the dependency graph. It then commits the bumps, changelogs and a release file under
+   `.prp/releases/main/` to a release branch and opens (or updates) a pull request.
 
-   Run `just xtask prepare-release` and choose `exact version` in the package's bump menu:
-
-   ```text
-   ? [bridge] Select version bump (direct changes)
-     patch (0.1.1)
-     minor (0.2.0)
-     major (1.0.0)
-   > exact version (enter a specific version)
-     skip (do not release)
-   ? [bridge] Exact version (current 0.1.0) 0.3.0
-   ```
-
-2. Merging that PR is the trigger: on the base branch the CI runs `just xtask release`, which
-   publishes every package bumped by the merge commit, tags the merge commit, pushes the tags, and
-   creates GitHub releases (uploading each package's configured assets). Every step skips work
-   that is already done, so a partial failure is recoverable by re-running the job.
+2. Merging that pull request is the trigger: CI sees the added release file and runs
+   `yarn prp release`, which publishes the packages, tags the commit, pushes the tags, and creates
+   GitHub releases with the configured assets. Every step skips work that is already done, so a
+   partial failure is recoverable by re-running the job.
 
 > [!NOTE]
 > npm package will be [staged](https://docs.npmjs.com/staged-publishing) published when releasing to a stable channel.
