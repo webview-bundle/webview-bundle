@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -11,35 +12,27 @@ if (!process.env.APPIUM_HOME) {
 }
 
 /**
- * Driver versions, pinned to the last releases that support the Appium server in
- * `package.json` (3.x). Unpinned installs take the latest driver, which now requires Appium 4.
+ * Driver versions from `appium-drivers.json`, pinned to releases that support the Appium server in
+ * `package.json` (3.x). Unpinned installs take the latest driver, which may require a newer Appium.
+ * CI keys the `~/.appium` cache on these versions.
  */
-export const APPIUM_DRIVERS = {
-  uiautomator2: '8.7.3',
-  xcuitest: '12.22.8',
-} as const;
-
-export type AppiumDriver = keyof typeof APPIUM_DRIVERS;
+export const APPIUM_DRIVERS: Record<string, string> = JSON.parse(
+  readFileSync(new URL('./appium-drivers.json', import.meta.url), 'utf8')
+);
 
 /**
- * Ensures the given Appium drivers are installed into `APPIUM_HOME` (default `~/.appium`) at their
- * pinned versions. A driver at another version (e.g. restored from an older cache) is reinstalled.
+ * Ensures the given Appium drivers are installed into `APPIUM_HOME` (default `~/.appium`), at the
+ * versions pinned in `appium-drivers.json`.
  */
-export async function ensureAppiumDrivers(drivers: AppiumDriver[]): Promise<void> {
+export async function ensureAppiumDrivers(drivers: string[]): Promise<void> {
   const installed = await listInstalledDrivers();
   for (const driver of drivers) {
-    const version = APPIUM_DRIVERS[driver];
-    const current = (installed[driver] as { version?: string } | undefined)?.version;
-    if (current === version) {
+    if (driver in installed) {
       continue;
     }
-    if (current != null) {
-      console.log(`[appium] uninstalling driver: ${driver}@${current}`);
-      await execa('appium', ['driver', 'uninstall', driver], {
-        preferLocal: true,
-        stdout: 'inherit',
-        stderr: 'inherit',
-      });
+    const version = APPIUM_DRIVERS[driver];
+    if (version == null) {
+      throw new Error(`No version pinned for Appium driver "${driver}" in appium-drivers.json`);
     }
     console.log(`[appium] installing driver: ${driver}@${version}`);
     await execa('appium', ['driver', 'install', `${driver}@${version}`], {

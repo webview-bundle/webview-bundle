@@ -62,12 +62,16 @@ jobs:
         run: yarn workspace wvb-ffi run build-ffi-android --target x86_64-linux-android
       - name: Test ffi android
         run: yarn workspace wvb-ffi run test-ffi-android
+      - name: Read Appium driver version
+        id: appium-driver
+        run: echo "version=$(jq -r '.uiautomator2' packages/ffi/e2e/appium-drivers.json)" >> "$GITHUB_OUTPUT"
       - name: Cache Appium drivers
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
           path: ~/.appium
-          key: ${{ runner.os }}-appium-android-${{ hashFiles('packages/ffi/package.json', 'packages/ffi/e2e/appium.ts') }}
-          restore-keys: ${{ runner.os }}-appium-android-
+          # Keyed on the pinned driver version only (no restore-keys), so a pin change starts a
+          # fresh cache instead of restoring the previous driver.
+          key: ${{ runner.os }}-appium-uiautomator2-${{ steps.appium-driver.outputs.version }}
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -112,11 +116,15 @@ jobs:
         run: yarn workspace wvb-ffi run build-ffi-apple
       - name: Test ffi apple
         run: yarn workspace wvb-ffi run test-ffi-apple
+      - name: Read Appium driver version
+        id: appium-driver
+        run: echo "version=$(jq -r '.xcuitest' packages/ffi/e2e/appium-drivers.json)" >> "$GITHUB_OUTPUT"
       - name: Cache Appium drivers
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
           path: ~/.appium
-          key: ${{ runner.os }}-appium-apple-${{ hashFiles('packages/ffi/package.json', 'packages/ffi/e2e/appium.ts') }}
-          restore-keys: ${{ runner.os }}-appium-apple-
+          # Keyed on the pinned driver version only (no restore-keys), so a pin change starts a
+          # fresh cache instead of restoring the previous driver.
+          key: ${{ runner.os }}-appium-xcuitest-${{ steps.appium-driver.outputs.version }}
       - name: Run e2e test
         run: yarn workspace wvb-ffi run e2e-ffi-apple
