@@ -11,16 +11,38 @@ if (!process.env.APPIUM_HOME) {
 }
 
 /**
- * Ensures the given Appium drivers are installed into `APPIUM_HOME` (default `~/.appium`).
+ * Driver versions, pinned to the last releases that support the Appium server in
+ * `package.json` (3.x). Unpinned installs take the latest driver, which now requires Appium 4.
  */
-export async function ensureAppiumDrivers(drivers: string[]): Promise<void> {
+export const APPIUM_DRIVERS = {
+  uiautomator2: '8.7.3',
+  xcuitest: '12.22.8',
+} as const;
+
+export type AppiumDriver = keyof typeof APPIUM_DRIVERS;
+
+/**
+ * Ensures the given Appium drivers are installed into `APPIUM_HOME` (default `~/.appium`) at their
+ * pinned versions. A driver at another version (e.g. restored from an older cache) is reinstalled.
+ */
+export async function ensureAppiumDrivers(drivers: AppiumDriver[]): Promise<void> {
   const installed = await listInstalledDrivers();
   for (const driver of drivers) {
-    if (driver in installed) {
+    const version = APPIUM_DRIVERS[driver];
+    const current = (installed[driver] as { version?: string } | undefined)?.version;
+    if (current === version) {
       continue;
     }
-    console.log(`[appium] installing driver: ${driver}`);
-    await execa('appium', ['driver', 'install', driver], {
+    if (current != null) {
+      console.log(`[appium] uninstalling driver: ${driver}@${current}`);
+      await execa('appium', ['driver', 'uninstall', driver], {
+        preferLocal: true,
+        stdout: 'inherit',
+        stderr: 'inherit',
+      });
+    }
+    console.log(`[appium] installing driver: ${driver}@${version}`);
+    await execa('appium', ['driver', 'install', `${driver}@${version}`], {
       preferLocal: true,
       stdout: 'inherit',
       stderr: 'inherit',

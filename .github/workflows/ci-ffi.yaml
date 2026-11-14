@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
           path: ~/.appium
-          key: ${{ runner.os }}-appium-android-${{ hashFiles('packages/ffi/package.json') }}
+          key: ${{ runner.os }}-appium-android-${{ hashFiles('packages/ffi/package.json', 'packages/ffi/e2e/appium.ts') }}
           restore-keys: ${{ runner.os }}-appium-android-
       - name: Enable KVM
         run: |
@@ -116,7 +116,7 @@ jobs:
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
           path: ~/.appium
-          key: ${{ runner.os }}-appium-apple-${{ hashFiles('packages/ffi/package.json') }}
+          key: ${{ runner.os }}-appium-apple-${{ hashFiles('packages/ffi/package.json', 'packages/ffi/e2e/appium.ts') }}
           restore-keys: ${{ runner.os }}-appium-apple-
       - name: Run e2e test
         run: yarn workspace wvb-ffi run e2e-ffi-apple
