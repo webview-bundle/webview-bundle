@@ -60,6 +60,14 @@ jobs:
           cargo install cargo-ndk
       - name: Build ffi android
         run: yarn workspace wvb-ffi run build-ffi-android --target x86_64-linux-android
+      - name: Collect native binary sizes
+        run: node ./xtask/cli.ts size collect --out size-report/ffi-android.json
+      - name: Upload size report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: size-report-ffi-android
+          path: size-report
+          if-no-files-found: error
       - name: Test ffi android
         run: yarn workspace wvb-ffi run test-ffi-android
       - name: Cache Appium drivers
@@ -110,6 +118,14 @@ jobs:
           install_args: "tuist"
       - name: Build ffi apple
         run: yarn workspace wvb-ffi run build-ffi-apple
+      - name: Collect native binary sizes
+        run: node ./xtask/cli.ts size collect --out size-report/ffi-apple.json
+      - name: Upload size report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: size-report-ffi-apple
+          path: size-report
+          if-no-files-found: error
       - name: Test ffi apple
         run: yarn workspace wvb-ffi run test-ffi-apple
       - name: Cache Appium drivers
@@ -120,3 +136,33 @@ jobs:
           restore-keys: ${{ runner.os }}-appium-apple-
       - name: Run e2e test
         run: yarn workspace wvb-ffi run e2e-ffi-apple
+  ffi-size-report:
+    needs: [detect-changes, ffi-test-android, ffi-test-apple]
+    # Report whatever was measured, even if a test step failed after the build.
+    if: ${{ !cancelled() && needs.detect-changes.outputs.ffi == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Download size reports
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+        with:
+          pattern: size-report-ffi-*
+          merge-multiple: true
+          path: size-report
+      - name: Compare with latest release
+        run: >-
+          node ./xtask/cli.ts size compare
+          --current size-report
+          --id ffi
+          --title "Native binary size (UniFFI)"
+          --pr ${{ github.event.pull_request.number }}
+          --commit ${{ github.event.pull_request.head.sha }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
