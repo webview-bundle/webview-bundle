@@ -195,7 +195,7 @@ jobs:
             x86_64-apple-ios \
             x86_64-apple-darwin
       - name: Install tuist
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "tuist"
       - name: Build ffi apple
@@ -242,7 +242,7 @@ jobs:
           targets: ${{ matrix.settings.target }}
           cache-key: deno-${{ matrix.settings.target }}-${{ matrix.settings.host }}
       - name: Setup Deno
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "deno"
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # 2.2.1
@@ -297,7 +297,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
       - name: Setup Deno
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "deno"
       - name: Download artifacts
@@ -334,7 +334,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
       - name: Setup Deno
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "deno"
       - name: Download artifacts
