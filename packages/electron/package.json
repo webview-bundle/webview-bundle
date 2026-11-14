@@ -56,11 +56,11 @@
     "@wvb-playground/testdriver": "0.0.1",
     "@wvb-playground/webview-hacker-news": "0.2.0",
     "@wvb/node": "workspace:^",
-    "electron": "^42.5.1",
+    "electron": "^42.11.16",
     "playwright-core": "1.61.1",
     "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vite": "^8.1.5",
+    "vite": "^8.1.6",
     "vitest": "catalog:"
   }
 }
