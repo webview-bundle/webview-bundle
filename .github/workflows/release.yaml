@@ -310,6 +310,9 @@ jobs:
         run: node ./xtask/cli.ts artifacts spread
         shell: bash
       - name: Collect native binary sizes
+        # Size tracking is informational: a failure here must not skip the release. Without a
+        # report, `release` warns and publishes without the `sizes.json` asset.
+        continue-on-error: true
         run: node ./xtask/cli.ts size collect --merge-dir artifacts-merged --out size-report.json
         shell: bash
       - name: Release
