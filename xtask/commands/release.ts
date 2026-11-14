@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { Command, Option } from 'clipanion';
 import { openRepository, type Repository } from 'es-git';
 import { type Action, runActions } from '../action.ts';
@@ -7,7 +9,7 @@ import { ColorModeOption, c, setColorMode } from '../console.ts';
 import { ROOT_DIR } from '../consts.ts';
 import { resolveAssets } from '../github.ts';
 import { Package } from '../package.ts';
-import { createPorts, type GitHubRelease, type Ports } from '../ports.ts';
+import { type AssetFile, createPorts, type GitHubRelease, type Ports } from '../ports.ts';
 import {
   describeReleasedPackage,
   formatPublishStatus,
@@ -16,6 +18,7 @@ import {
   publishPackages,
   type ReleasedPackage,
 } from '../releasing.ts';
+import { parseReport, SIZE_REPORT_ASSET, type SizeReport, sliceReport } from '../size.ts';
 
 /** The GitHub release created for a package. */
 interface ReleaseInfo {
@@ -52,6 +55,10 @@ export class ReleaseCommand extends Command {
   readonly githubStepSummary = Option.String('--github-step-summary', {
     required: false,
     env: 'GITHUB_STEP_SUMMARY',
+  });
+  readonly sizeReport = Option.String('--size-report', {
+    required: false,
+    description: `Size report (\`xtask size collect\`) to attach to each release as ${SIZE_REPORT_ASSET}`,
   });
   readonly check = Option.Boolean('--check', false);
   readonly dryRun = Option.Boolean('--dry-run', false);
@@ -200,6 +207,7 @@ export class ReleaseCommand extends Command {
     failures: Map<string, string>
   ): Promise<Map<string, ReleaseInfo>> {
     const releases = new Map<string, ReleaseInfo>();
+    const sizeReport = await this.loadSizeReport();
     for (const pkg of packages) {
       const tagName = pkg.versionedGitTag.tagName;
       // A throw while resolving assets/changelog is isolated to this package (like a failed
@@ -214,7 +222,11 @@ export class ReleaseCommand extends Command {
             body,
             targetCommitish: commitish,
           },
-          { type: 'uploadAssets', tag: tagName, assets: await resolveAssets(pkg) },
+          {
+            type: 'uploadAssets',
+            tag: tagName,
+            assets: [...(await resolveAssets(pkg)), ...(await this.sizeAsset(pkg, sizeReport))],
+          },
         ];
         const result = await runActions(actions, {
           name: pkg.name,
@@ -244,6 +256,31 @@ export class ReleaseCommand extends Command {
       }
     }
     return releases;
+  }
+
+  private async loadSizeReport(): Promise<SizeReport | null> {
+    if (this.sizeReport == null) {
+      return null;
+    }
+    try {
+      return parseReport(await fs.readFile(this.sizeReport, 'utf8'));
+    } catch (e) {
+      // Size tracking is informational; never block a release on it.
+      console.error(`${c.warn('[root]')} size report unavailable: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /** The package's slice of the size report, staged as a `sizes.json` release asset. */
+  private async sizeAsset(pkg: Package, report: SizeReport | null): Promise<AssetFile[]> {
+    const slice = report != null ? sliceReport(report, pkg.name) : null;
+    if (slice == null) {
+      return [];
+    }
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), `wvb-size-${pkg.name}-`));
+    const file = path.join(dir, SIZE_REPORT_ASSET);
+    await fs.writeFile(file, `${JSON.stringify(slice, null, 2)}\n`, 'utf8');
+    return [{ path: file, name: SIZE_REPORT_ASSET }];
   }
 
   /**
