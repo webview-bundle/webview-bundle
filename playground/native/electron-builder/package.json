@@ -18,10 +18,10 @@
     "@wvb-playground/env": "workspace:*",
     "@wvb/cli": "workspace:^",
     "@wvb/electron-builder": "workspace:^",
-    "electron": "^42.5.1",
+    "electron": "^42.11.16",
     "electron-builder": "26.15.3",
     "typescript": "catalog:",
-    "vite": "^8.1.5"
+    "vite": "^8.1.6"
   },
   "version": "1.0.0",
   "description": "Webview Bundle Electron builder playground",
