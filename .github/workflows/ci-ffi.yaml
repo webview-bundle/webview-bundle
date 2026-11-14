@@ -69,8 +69,6 @@ jobs:
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
           path: ~/.appium
-          # Keyed on the pinned driver version only (no restore-keys), so a pin change starts a
-          # fresh cache instead of restoring the previous driver.
           key: ${{ runner.os }}-appium-uiautomator2-${{ steps.appium-driver.outputs.version }}
       - name: Enable KVM
         run: |
@@ -123,8 +121,6 @@ jobs:
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # 5.0.3
         with:
           path: ~/.appium
-          # Keyed on the pinned driver version only (no restore-keys), so a pin change starts a
-          # fresh cache instead of restoring the previous driver.
           key: ${{ runner.os }}-appium-xcuitest-${{ steps.appium-driver.outputs.version }}
       - name: Run e2e test
         run: yarn workspace wvb-ffi run e2e-ffi-apple

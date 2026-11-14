@@ -11,18 +11,12 @@ if (!process.env.APPIUM_HOME) {
   process.env.APPIUM_HOME = path.join(os.homedir(), '.appium');
 }
 
-/**
- * Driver versions from `appium-drivers.json`, pinned to releases that support the Appium server in
- * `package.json` (3.x). Unpinned installs take the latest driver, which may require a newer Appium.
- * CI keys the `~/.appium` cache on these versions.
- */
 export const APPIUM_DRIVERS: Record<string, string> = JSON.parse(
   readFileSync(new URL('./appium-drivers.json', import.meta.url), 'utf8')
 );
 
 /**
- * Ensures the given Appium drivers are installed into `APPIUM_HOME` (default `~/.appium`), at the
- * versions pinned in `appium-drivers.json`.
+ * Ensures the given Appium drivers are installed into `APPIUM_HOME` (default `~/.appium`).
  */
 export async function ensureAppiumDrivers(drivers: string[]): Promise<void> {
   const installed = await listInstalledDrivers();
