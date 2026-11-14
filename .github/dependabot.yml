@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    # `/` covers `.github/workflows`; the local composite actions need their own entries.
+    directories:
+      - "/"
+      - "/.github/actions/*"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
