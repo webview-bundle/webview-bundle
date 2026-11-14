@@ -134,11 +134,13 @@ jobs:
         uses: ./.github/actions/tauri-linux-setup
       - name: Tauri web driver (Linux)
         if: ${{ !matrix.settings.build_only && matrix.settings.host == 'ubuntu-latest' }}
+        # Ubuntu 26.04 renamed `webkit2gtk-driver` to `webkitgtk-webdriver`; fall back to the old
+        # name so older runner images keep working.
         run: |
-          sudo apt-get update &&
-          sudo apt-get install -y \
-          webkit2gtk-driver \
-          xvfb
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
+          command -v WebKitWebDriver
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # 2.2.1
         if: ${{ contains(matrix.settings.target, 'musl') }}
         with:
