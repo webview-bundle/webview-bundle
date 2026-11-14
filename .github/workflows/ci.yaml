@@ -126,7 +126,7 @@ jobs:
             packages/tauri/e2e/fixtures/app/src-tauri -> target
       - name: Setup Deno
         if: ${{ !matrix.settings.build_only }}
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "deno"
       - name: Setup tauri for linux
@@ -272,7 +272,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
       - name: Setup Deno
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "deno"
       - run: yarn install --immutable
