@@ -17,6 +17,7 @@
     "@taplo/cli": "0.7.0",
     "@yarnpkg/types": "^4.0.1",
     "lefthook": "2.2.2",
+    "please-release-please": "0.1.0",
     "typescript": "catalog:",
     "vite": "^8.1.5",
     "vitest": "catalog:"

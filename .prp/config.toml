@@ -1,0 +1,80 @@
+[git]
+default_branch = "main"
+release_tag_format = "{package_name}/{version}"
+
+[github]
+owner = "webview-bundle"
+repo = "webview-bundle"
+
+[changelog]
+commit_templates = ["- {summary} ({sha})"]
+
+[packages]
+includes = ["packages/*", "packages/remote/*"]
+
+# Names follow the existing release tags, such as `core/0.3.0` and `base/0.3.0`.
+[packages."packages/bridge"]
+name = "bridge"
+
+[packages."packages/cli"]
+name = "cli"
+
+[packages."packages/config"]
+name = "config"
+
+[packages."packages/core"]
+name = "core"
+
+[packages."packages/create-webview-bundle"]
+name = "create-webview-bundle"
+
+# The templates are generated apps, not part of the package release.
+[packages."packages/create-wvb"]
+name = "create-wvb"
+manifests = ["package.json"]
+
+[packages."packages/deno"]
+name = "deno"
+assets = [
+  ".output/libwvb_deno-*.dylib",
+  ".output/libwvb_deno-*.so",
+  ".output/wvb_deno-*.dll",
+  ".output/*.sha256",
+]
+
+[packages."packages/electron"]
+name = "electron"
+
+[packages."packages/electron-builder"]
+name = "electron-builder"
+
+[packages."packages/electron-forge"]
+name = "electron-forge"
+
+[packages."packages/ffi"]
+name = "ffi"
+assets = [".output/android.zip", ".output/apple.zip", ".output/WebViewBundleFFI.xcframework.zip"]
+
+[packages."packages/node"]
+name = "node"
+manifests = ["package.json", "Cargo.toml", "npm/*/package.json"]
+before_publish_scripts = [{ command = "yarn", args = ["artifacts"] }]
+assets = ["artifacts/*.node"]
+
+[packages."packages/remote/aws"]
+name = "aws"
+
+[packages."packages/remote/base"]
+name = "base"
+
+[packages."packages/remote/cloudflare"]
+name = "cloudflare"
+
+[packages."packages/remote/local"]
+name = "local"
+
+[packages."packages/tauri"]
+name = "tauri"
+
+[registry.npm]
+publish_command = "yarn npm publish --access public --provenance"

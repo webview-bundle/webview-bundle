@@ -16078,6 +16078,77 @@ __metadata:
   languageName: node
   linkType: hard
 
+"please-release-please-darwin-arm64@npm:0.1.0":
+  version: 0.1.0
+  resolution: "please-release-please-darwin-arm64@npm:0.1.0"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"please-release-please-darwin-x64@npm:0.1.0":
+  version: 0.1.0
+  resolution: "please-release-please-darwin-x64@npm:0.1.0"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"please-release-please-linux-arm64@npm:0.1.0":
+  version: 0.1.0
+  resolution: "please-release-please-linux-arm64@npm:0.1.0"
+  conditions: os=linux & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"please-release-please-linux-x64@npm:0.1.0":
+  version: 0.1.0
+  resolution: "please-release-please-linux-x64@npm:0.1.0"
+  conditions: os=linux & cpu=x64
+  languageName: node
+  linkType: hard
+
+"please-release-please-win32-arm64@npm:0.1.0":
+  version: 0.1.0
+  resolution: "please-release-please-win32-arm64@npm:0.1.0"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"please-release-please-win32-x64@npm:0.1.0":
+  version: 0.1.0
+  resolution: "please-release-please-win32-x64@npm:0.1.0"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"please-release-please@npm:0.1.0":
+  version: 0.1.0
+  resolution: "please-release-please@npm:0.1.0"
+  dependencies:
+    please-release-please-darwin-arm64: "npm:0.1.0"
+    please-release-please-darwin-x64: "npm:0.1.0"
+    please-release-please-linux-arm64: "npm:0.1.0"
+    please-release-please-linux-x64: "npm:0.1.0"
+    please-release-please-win32-arm64: "npm:0.1.0"
+    please-release-please-win32-x64: "npm:0.1.0"
+  dependenciesMeta:
+    please-release-please-darwin-arm64:
+      optional: true
+    please-release-please-darwin-x64:
+      optional: true
+    please-release-please-linux-arm64:
+      optional: true
+    please-release-please-linux-x64:
+      optional: true
+    please-release-please-win32-arm64:
+      optional: true
+    please-release-please-win32-x64:
+      optional: true
+  bin:
+    prp: bin/prp.js
+  checksum: 10c0/df0badebaed96823f301fdbe69d23edb22f33c850063111d8c9307e19bb7ba240c6ff9fd87dce8b41996dfbf8e54ecd9e378b7f20a6baf21bc720db7ea861b3c
+  languageName: node
+  linkType: hard
+
 "plist@npm:3.1.0":
   version: 3.1.0
   resolution: "plist@npm:3.1.0"
@@ -19479,6 +19550,7 @@ __metadata:
     "@taplo/cli": "npm:0.7.0"
     "@yarnpkg/types": "npm:^4.0.1"
     lefthook: "npm:2.2.2"
+    please-release-please: "npm:0.1.0"
     typescript: "catalog:"
     vite: "npm:^8.1.5"
     vitest: "catalog:"
