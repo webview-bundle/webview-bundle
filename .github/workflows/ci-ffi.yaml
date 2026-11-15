@@ -63,7 +63,7 @@ jobs:
       - name: Collect native binary sizes
         run: node ./xtask/cli.ts size collect --out size-report/ffi-android.json
       - name: Upload size report
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # 7.0.2
         with:
           name: size-report-ffi-android
           path: size-report
@@ -123,7 +123,7 @@ jobs:
       - name: Collect native binary sizes
         run: node ./xtask/cli.ts size collect --out size-report/ffi-apple.json
       - name: Upload size report
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # 7.0.2
         with:
           name: size-report-ffi-apple
           path: size-report
