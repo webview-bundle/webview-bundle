@@ -4,7 +4,6 @@ import semver from 'semver';
 import { glob } from 'tinyglobby';
 import { GITHUB_REPO, ROOT_DIR } from './consts.ts';
 import type { GitHubClient } from './github.ts';
-import type { Package } from './package.ts';
 
 /**
  * Native binary sizes, per package, keyed by the file's path relative to the package's artifact
@@ -91,35 +90,46 @@ async function measureFile(key: string, absolutePath: string): Promise<Record<st
   return {};
 }
 
+export interface SizeTarget {
+  /** Release name of the package; its tags are `<name>/<version>`. */
+  name: string;
+  /** Directory the builds leave the files in, relative to the repository root. */
+  dir: string;
+  patterns: string[];
+}
+
 /**
- * Measure the native binaries of every package with `artifacts` configured.
- *
- * Without `mergeDir`, files are read where builds leave them (each artifact's `src` + `patterns`);
- * with it, from the `xtask artifacts merge` layout (`<mergeDir>/<package path>/**`). Both yield the
- * same keys, so reports from CI builds and from the release job are comparable.
+ * Where each package's native binaries are left by its build. File paths relative to `dir` are
+ * the report keys, which match the package's GitHub release asset names.
  */
-export async function collectSizes(packages: Package[], mergeDir?: string): Promise<SizeReport> {
+export const SIZE_TARGETS: readonly SizeTarget[] = [
+  { name: 'node', dir: 'packages/node', patterns: ['*.node'] },
+  {
+    name: 'ffi',
+    dir: 'packages/ffi/.output',
+    patterns: ['apple.zip', 'WebViewBundleFFI.xcframework.zip', 'android.zip'],
+  },
+  {
+    name: 'deno',
+    dir: 'packages/deno/.output',
+    patterns: ['libwvb_deno-*.dylib', 'libwvb_deno-*.so', 'wvb_deno-*.dll'],
+  },
+];
+
+/** Measure the native binaries of every target found in this checkout. */
+export async function collectSizes(
+  targets: readonly SizeTarget[] = SIZE_TARGETS
+): Promise<SizeReport> {
   const report = emptyReport();
-  for (const pkg of packages) {
-    if (pkg.artifacts.length === 0) {
-      continue;
-    }
+  for (const target of targets) {
+    const dir = path.resolve(ROOT_DIR, target.dir);
     const sizes: Record<string, number> = {};
-    const sources =
-      mergeDir != null
-        ? [{ dir: path.resolve(ROOT_DIR, mergeDir, pkg.path), patterns: ['**/*'] }]
-        : pkg.artifacts.map(a => ({
-            dir: path.join(ROOT_DIR, pkg.path, a.src),
-            patterns: a.patterns,
-          }));
-    for (const source of sources) {
-      const files = await glob(source.patterns, { cwd: source.dir, onlyFiles: true });
-      for (const file of files.sort()) {
-        Object.assign(sizes, await measureFile(file, path.join(source.dir, file)));
-      }
+    const files = await glob(target.patterns, { cwd: dir, onlyFiles: true });
+    for (const file of files.sort()) {
+      Object.assign(sizes, await measureFile(file, path.join(dir, file)));
     }
     if (Object.keys(sizes).length > 0) {
-      report.packages[pkg.name] = sizes;
+      report.packages[target.name] = sizes;
     }
   }
   return report;

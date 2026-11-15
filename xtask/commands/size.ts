@@ -5,7 +5,6 @@ import { glob } from 'tinyglobby';
 import { ColorModeOption, colors, setColorMode } from '../console.ts';
 import { ROOT_DIR } from '../consts.ts';
 import { createGitHubClient } from '../github.ts';
-import { Package } from '../package.ts';
 import {
   type Baseline,
   collectSizes,
@@ -26,16 +25,11 @@ export class SizeCollectCommand extends Command {
   readonly out = Option.String('--out', 'size-report.json', {
     description: 'Path to write the size report to',
   });
-  readonly mergeDir = Option.String('--merge-dir', {
-    required: false,
-    description: 'Read from an `artifacts merge` directory instead of the build outputs',
-  });
   readonly colorMode = ColorModeOption;
 
   async execute() {
     setColorMode(this.colorMode);
-    const packages = await Package.loadAll();
-    const report = await collectSizes(packages, this.mergeDir);
+    const report = await collectSizes();
     for (const [pkg, sizes] of Object.entries(report.packages)) {
       for (const [name, size] of Object.entries(sizes)) {
         console.log(`${colors.info(`[${pkg}]`)} ${name}: ${formatBytes(size)}`);

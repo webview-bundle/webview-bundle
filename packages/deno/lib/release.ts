@@ -39,9 +39,26 @@ export function releaseAssetName(target: string): string {
   return `${prefix(os)}wvb_deno-${target}.${ext(os)}`;
 }
 
-/** Default release base for a version: `<repo>/releases/download/deno/<version>` (no trailing slash). */
+/**
+ * Prerelease prefix of snapshot versions, kept in sync with `snapshot.prerelease_format` in
+ * `.prp/config.toml`.
+ */
+const SNAPSHOT_PRERELEASE_PREFIX = 'snapshot-';
+
+/**
+ * GitHub release tag holding a version's assets. Releases are tagged `deno/<version>`. A snapshot
+ * (`x.y.z-snapshot-<sha>-<yyyymmdd>`) shares one GitHub prerelease with every other package,
+ * tagged with the prerelease alone (`snapshot-<sha>-<yyyymmdd>`).
+ */
+export function releaseTag(version: string): string {
+  const dash = version.indexOf('-');
+  const prerelease = dash < 0 ? '' : version.slice(dash + 1).split('+')[0]!;
+  return prerelease.startsWith(SNAPSHOT_PRERELEASE_PREFIX) ? prerelease : `deno/${version}`;
+}
+
+/** Default release base for a version: `<repo>/releases/download/<tag>` (no trailing slash). */
 export function releaseBaseUrl(version: string): string {
-  return `${DEFAULT_RELEASE_BASE}/deno/${version}`;
+  return `${DEFAULT_RELEASE_BASE}/${releaseTag(version)}`;
 }
 
 type CrossRecord = Record<string, Record<string, string>>;
