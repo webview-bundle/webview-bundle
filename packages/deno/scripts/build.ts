@@ -8,6 +8,8 @@
 //
 // `--target` defaults to the host (`Deno.build.target`). Pass `--zigbuild` to cross-compile via
 // `cargo zigbuild` (used for the aarch64 Linux target in CI); otherwise plain `cargo build` is used.
+// Pass `--prebuilt` to skip cargo and stage the host build already in `target/release/` (CI uses
+// this to measure the binary its tests built, for the size report).
 import { fromFileUrl } from '@std/path';
 import { libFileName } from '../lib/ffi.ts';
 import { osOfTarget, releaseAssetName, sha256Hex } from '../lib/release.ts';
@@ -27,21 +29,25 @@ function flag(name: string): string | undefined {
 async function main(): Promise<void> {
   const target = flag('target') ?? Deno.build.target;
   const subcommand = Deno.args.includes('--zigbuild') ? 'zigbuild' : 'build';
+  const prebuilt = Deno.args.includes('--prebuilt');
 
-  console.log(`wvb: cargo ${subcommand} -p wvb-deno --release --target ${target}`);
-  const build = new Deno.Command('cargo', {
-    args: [subcommand, '-p', 'wvb-deno', '--release', '--target', target],
-    cwd: ROOT_DIR,
-    stdout: 'inherit',
-    stderr: 'inherit',
-  });
-  const { code } = await build.output();
-  if (code !== 0) {
-    Deno.exit(code);
+  if (!prebuilt) {
+    console.log(`wvb: cargo ${subcommand} -p wvb-deno --release --target ${target}`);
+    const build = new Deno.Command('cargo', {
+      args: [subcommand, '-p', 'wvb-deno', '--release', '--target', target],
+      cwd: ROOT_DIR,
+      stdout: 'inherit',
+      stderr: 'inherit',
+    });
+    const { code } = await build.output();
+    if (code !== 0) {
+      Deno.exit(code);
+    }
   }
 
   const assetName = releaseAssetName(target);
-  const src = `${ROOT_DIR}target/${target}/release/${libFileName(osOfTarget(target))}`;
+  const releaseDir = prebuilt ? 'target/release' : `target/${target}/release`;
+  const src = `${ROOT_DIR}${releaseDir}/${libFileName(osOfTarget(target))}`;
   const outDir = `${PKG_DIR}.output`;
   const dest = `${outDir}/${assetName}`;
   await Deno.mkdir(outDir, { recursive: true });

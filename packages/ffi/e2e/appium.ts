@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -10,6 +11,10 @@ if (!process.env.APPIUM_HOME) {
   process.env.APPIUM_HOME = path.join(os.homedir(), '.appium');
 }
 
+export const APPIUM_DRIVERS: Record<string, string> = JSON.parse(
+  readFileSync(new URL('./appium-drivers.json', import.meta.url), 'utf8')
+);
+
 /**
  * Ensures the given Appium drivers are installed into `APPIUM_HOME` (default `~/.appium`).
  */
@@ -19,8 +24,12 @@ export async function ensureAppiumDrivers(drivers: string[]): Promise<void> {
     if (driver in installed) {
       continue;
     }
-    console.log(`[appium] installing driver: ${driver}`);
-    await execa('appium', ['driver', 'install', driver], {
+    const version = APPIUM_DRIVERS[driver];
+    if (version == null) {
+      throw new Error(`No version pinned for Appium driver "${driver}" in appium-drivers.json`);
+    }
+    console.log(`[appium] installing driver: ${driver}@${version}`);
+    await execa('appium', ['driver', 'install', `${driver}@${version}`], {
       preferLocal: true,
       stdout: 'inherit',
       stderr: 'inherit',
