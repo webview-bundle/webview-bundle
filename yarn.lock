@@ -8481,7 +8481,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@wvb/cli@workspace:^, @wvb/cli@workspace:packages/cli":
+"@wvb/cli@workspace:*, @wvb/cli@workspace:^, @wvb/cli@workspace:packages/cli":
   version: 0.0.0-use.local
   resolution: "@wvb/cli@workspace:packages/cli"
   dependencies:
@@ -8513,7 +8513,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@wvb/config@workspace:*, @wvb/config@workspace:^, @wvb/config@workspace:packages/config":
+"@wvb/config@workspace:*, @wvb/config@workspace:packages/config":
   version: 0.0.0-use.local
   resolution: "@wvb/config@workspace:packages/config"
   dependencies:
@@ -8532,8 +8532,8 @@ __metadata:
   resolution: "@wvb/electron-builder@workspace:packages/electron-builder"
   dependencies:
     "@types/node": "catalog:"
-    "@wvb/cli": "workspace:^"
-    "@wvb/config": "workspace:^"
+    "@wvb/cli": "workspace:*"
+    "@wvb/config": "workspace:*"
     tsdown: "catalog:"
     typescript: "catalog:"
   peerDependencies:
@@ -8551,8 +8551,8 @@ __metadata:
     "@electron-forge/plugin-base": "npm:^7"
     "@electron-forge/shared-types": "npm:^7"
     "@types/node": "catalog:"
-    "@wvb/cli": "workspace:^"
-    "@wvb/config": "workspace:^"
+    "@wvb/cli": "workspace:*"
+    "@wvb/config": "workspace:*"
     tsdown: "catalog:"
     typescript: "catalog:"
   languageName: unknown
@@ -8578,73 +8578,73 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@wvb/node-android-arm-eabi@workspace:^, @wvb/node-android-arm-eabi@workspace:packages/node/npm/android-arm-eabi":
+"@wvb/node-android-arm-eabi@workspace:*, @wvb/node-android-arm-eabi@workspace:packages/node/npm/android-arm-eabi":
   version: 0.0.0-use.local
   resolution: "@wvb/node-android-arm-eabi@workspace:packages/node/npm/android-arm-eabi"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-android-arm64@workspace:^, @wvb/node-android-arm64@workspace:packages/node/npm/android-arm64":
+"@wvb/node-android-arm64@workspace:*, @wvb/node-android-arm64@workspace:packages/node/npm/android-arm64":
   version: 0.0.0-use.local
   resolution: "@wvb/node-android-arm64@workspace:packages/node/npm/android-arm64"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-darwin-arm64@workspace:^, @wvb/node-darwin-arm64@workspace:packages/node/npm/darwin-arm64":
+"@wvb/node-darwin-arm64@workspace:*, @wvb/node-darwin-arm64@workspace:packages/node/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "@wvb/node-darwin-arm64@workspace:packages/node/npm/darwin-arm64"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-darwin-x64@workspace:^, @wvb/node-darwin-x64@workspace:packages/node/npm/darwin-x64":
+"@wvb/node-darwin-x64@workspace:*, @wvb/node-darwin-x64@workspace:packages/node/npm/darwin-x64":
   version: 0.0.0-use.local
   resolution: "@wvb/node-darwin-x64@workspace:packages/node/npm/darwin-x64"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-linux-arm-gnueabihf@workspace:^, @wvb/node-linux-arm-gnueabihf@workspace:packages/node/npm/linux-arm-gnueabihf":
+"@wvb/node-linux-arm-gnueabihf@workspace:*, @wvb/node-linux-arm-gnueabihf@workspace:packages/node/npm/linux-arm-gnueabihf":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-arm-gnueabihf@workspace:packages/node/npm/linux-arm-gnueabihf"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-linux-arm64-gnu@workspace:^, @wvb/node-linux-arm64-gnu@workspace:packages/node/npm/linux-arm64-gnu":
+"@wvb/node-linux-arm64-gnu@workspace:*, @wvb/node-linux-arm64-gnu@workspace:packages/node/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-arm64-gnu@workspace:packages/node/npm/linux-arm64-gnu"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-linux-arm64-musl@workspace:^, @wvb/node-linux-arm64-musl@workspace:packages/node/npm/linux-arm64-musl":
+"@wvb/node-linux-arm64-musl@workspace:*, @wvb/node-linux-arm64-musl@workspace:packages/node/npm/linux-arm64-musl":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-arm64-musl@workspace:packages/node/npm/linux-arm64-musl"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-linux-x64-gnu@workspace:^, @wvb/node-linux-x64-gnu@workspace:packages/node/npm/linux-x64-gnu":
+"@wvb/node-linux-x64-gnu@workspace:*, @wvb/node-linux-x64-gnu@workspace:packages/node/npm/linux-x64-gnu":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-x64-gnu@workspace:packages/node/npm/linux-x64-gnu"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-linux-x64-musl@workspace:^, @wvb/node-linux-x64-musl@workspace:packages/node/npm/linux-x64-musl":
+"@wvb/node-linux-x64-musl@workspace:*, @wvb/node-linux-x64-musl@workspace:packages/node/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "@wvb/node-linux-x64-musl@workspace:packages/node/npm/linux-x64-musl"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-win32-arm64-msvc@workspace:^, @wvb/node-win32-arm64-msvc@workspace:packages/node/npm/win32-arm64-msvc":
+"@wvb/node-win32-arm64-msvc@workspace:*, @wvb/node-win32-arm64-msvc@workspace:packages/node/npm/win32-arm64-msvc":
   version: 0.0.0-use.local
   resolution: "@wvb/node-win32-arm64-msvc@workspace:packages/node/npm/win32-arm64-msvc"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-win32-ia32-msvc@workspace:^, @wvb/node-win32-ia32-msvc@workspace:packages/node/npm/win32-ia32-msvc":
+"@wvb/node-win32-ia32-msvc@workspace:*, @wvb/node-win32-ia32-msvc@workspace:packages/node/npm/win32-ia32-msvc":
   version: 0.0.0-use.local
   resolution: "@wvb/node-win32-ia32-msvc@workspace:packages/node/npm/win32-ia32-msvc"
   languageName: unknown
   linkType: soft
 
-"@wvb/node-win32-x64-msvc@workspace:^, @wvb/node-win32-x64-msvc@workspace:packages/node/npm/win32-x64-msvc":
+"@wvb/node-win32-x64-msvc@workspace:*, @wvb/node-win32-x64-msvc@workspace:packages/node/npm/win32-x64-msvc":
   version: 0.0.0-use.local
   resolution: "@wvb/node-win32-x64-msvc@workspace:packages/node/npm/win32-x64-msvc"
   languageName: unknown
@@ -8658,18 +8658,18 @@ __metadata:
     "@napi-rs/cli": "npm:3.1.5"
     "@types/node": "catalog:"
     "@types/yargs": "npm:^17.0.35"
-    "@wvb/node-android-arm-eabi": "workspace:^"
-    "@wvb/node-android-arm64": "workspace:^"
-    "@wvb/node-darwin-arm64": "workspace:^"
-    "@wvb/node-darwin-x64": "workspace:^"
-    "@wvb/node-linux-arm-gnueabihf": "workspace:^"
-    "@wvb/node-linux-arm64-gnu": "workspace:^"
-    "@wvb/node-linux-arm64-musl": "workspace:^"
-    "@wvb/node-linux-x64-gnu": "workspace:^"
-    "@wvb/node-linux-x64-musl": "workspace:^"
-    "@wvb/node-win32-arm64-msvc": "workspace:^"
-    "@wvb/node-win32-ia32-msvc": "workspace:^"
-    "@wvb/node-win32-x64-msvc": "workspace:^"
+    "@wvb/node-android-arm-eabi": "workspace:*"
+    "@wvb/node-android-arm64": "workspace:*"
+    "@wvb/node-darwin-arm64": "workspace:*"
+    "@wvb/node-darwin-x64": "workspace:*"
+    "@wvb/node-linux-arm-gnueabihf": "workspace:*"
+    "@wvb/node-linux-arm64-gnu": "workspace:*"
+    "@wvb/node-linux-arm64-musl": "workspace:*"
+    "@wvb/node-linux-x64-gnu": "workspace:*"
+    "@wvb/node-linux-x64-musl": "workspace:*"
+    "@wvb/node-win32-arm64-msvc": "workspace:*"
+    "@wvb/node-win32-ia32-msvc": "workspace:*"
+    "@wvb/node-win32-x64-msvc": "workspace:*"
     get-port: "npm:^7.1.0"
     hono: "npm:^4.13.16"
     tinyglobby: "npm:^0.2.14"
