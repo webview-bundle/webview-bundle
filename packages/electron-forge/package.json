@@ -41,8 +41,8 @@
   "dependencies": {
     "@electron-forge/plugin-base": "^7",
     "@electron-forge/shared-types": "^7",
-    "@wvb/cli": "workspace:^",
-    "@wvb/config": "workspace:^"
+    "@wvb/cli": "workspace:*",
+    "@wvb/config": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

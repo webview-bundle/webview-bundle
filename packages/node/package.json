@@ -63,18 +63,18 @@
     "yargs": "^18.0.0"
   },
   "optionalDependencies": {
-    "@wvb/node-android-arm-eabi": "workspace:^",
-    "@wvb/node-android-arm64": "workspace:^",
-    "@wvb/node-darwin-arm64": "workspace:^",
-    "@wvb/node-darwin-x64": "workspace:^",
-    "@wvb/node-linux-arm-gnueabihf": "workspace:^",
-    "@wvb/node-linux-arm64-gnu": "workspace:^",
-    "@wvb/node-linux-arm64-musl": "workspace:^",
-    "@wvb/node-linux-x64-gnu": "workspace:^",
-    "@wvb/node-linux-x64-musl": "workspace:^",
-    "@wvb/node-win32-arm64-msvc": "workspace:^",
-    "@wvb/node-win32-ia32-msvc": "workspace:^",
-    "@wvb/node-win32-x64-msvc": "workspace:^"
+    "@wvb/node-android-arm-eabi": "workspace:*",
+    "@wvb/node-android-arm64": "workspace:*",
+    "@wvb/node-darwin-arm64": "workspace:*",
+    "@wvb/node-darwin-x64": "workspace:*",
+    "@wvb/node-linux-arm-gnueabihf": "workspace:*",
+    "@wvb/node-linux-arm64-gnu": "workspace:*",
+    "@wvb/node-linux-arm64-musl": "workspace:*",
+    "@wvb/node-linux-x64-gnu": "workspace:*",
+    "@wvb/node-linux-x64-musl": "workspace:*",
+    "@wvb/node-win32-arm64-msvc": "workspace:*",
+    "@wvb/node-win32-ia32-msvc": "workspace:*",
+    "@wvb/node-win32-x64-msvc": "workspace:*"
   },
   "napi": {
     "binaryName": "wvb-node",

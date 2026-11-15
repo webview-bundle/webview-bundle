@@ -47,8 +47,8 @@
     }
   },
   "dependencies": {
-    "@wvb/cli": "workspace:^",
-    "@wvb/config": "workspace:^"
+    "@wvb/cli": "workspace:*",
+    "@wvb/config": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
