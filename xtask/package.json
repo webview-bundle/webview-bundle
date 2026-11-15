@@ -22,7 +22,7 @@
     "kleur": "^4.1.5",
     "micromatch": "^4.0.8",
     "mime-types": "^3.0.2",
-    "minimatch": "^10.2.5",
+    "minimatch": "^11.0.1",
     "p-all": "^5.0.0",
     "semver": "^7",
     "supports-color": "^10.0.0",
@@ -30,7 +30,7 @@
     "ts-pattern": "^5.9.0",
     "typanion": "^3.14.0",
     "type-fest": "^4.40.1",
-    "zod": "^4.0.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/color-support": "^1",
@@ -40,7 +40,7 @@
     "@types/node": "catalog:",
     "@types/semver": "^7",
     "typescript": "catalog:",
-    "vite": "^8.1.5",
+    "vite": "^8.1.6",
     "vitest": "catalog:"
   }
 }
