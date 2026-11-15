@@ -39,6 +39,7 @@ export interface InstallOptions {
   /**
    * Release base URL
    * @default https://github.com/webview-bundle/webview-bundle/releases/download/deno/<version>
+   * (`.../download/snapshot-<sha>-<yyyymmdd>` for a snapshot version)
    */
   url?: string;
   /**

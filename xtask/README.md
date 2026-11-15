@@ -2,41 +2,11 @@
 
 A command-line tool for managing and automating tasks in a project.
 
-## Configuration
+## Releasing
 
-Packages are declared in the root [`xtask.config.ts`](../xtask.config.ts), loaded with a native
-`import()` and validated strictly (unknown fields are an error). Each `packages` entry is either a
-glob of package directories (released with the default config) or an object with a `path` plus
-per-package config (`artifacts`, `assets`, `beforePublishScripts`, …) — the object form wins when
-both match the same directory. A directory counts as a package only when it directly holds a
-`package.json`/`Cargo.toml`/`deno.json`; manifests below it (e.g. napi platform packages under
-`packages/node/npm/*`) are versioned as part of that package.
-
-To exclude manifests from versioning and publishing, set `versionedFilesIgnore` to glob patterns
-relative to the package directory. For example, this entry excludes project templates:
-
-```ts
-{
-  path: 'packages/create-wvb',
-  versionedFilesIgnore: ['template-*/**'],
-}
-```
-
-The patterns apply to `prerelease`; releases read their manifests from
-[`.prp/config.toml`](../.prp/config.toml). Changes to excluded files still count as package
-changes. This option does not affect which files the package distributes.
-
-## Features
-
-Which packages changed is determined from the `package.json`/`Cargo.toml` **dependency graph**,
-not conventional-commit scopes: a commit that touches files under a package's directory marks
-that package changed, and every package that (transitively) depends on it is released too so it
-picks up the new version. Contributors are not required to follow any commit convention.
-
-### Releasing
-
-Releases are made with [prp](https://github.com/seokju-na/prp) (`please-release-please`),
-configured in [`.prp/config.toml`](../.prp/config.toml).
+Releases are made with [prp](https://github.com/seokju-na/prp) (`please-release-please`), not
+xtask. Packages, their manifests, assets and publish scripts are configured in
+[`.prp/config.toml`](../.prp/config.toml).
 
 1. A maintainer runs `yarn prp prepare` on an up-to-date `main`, with a `GITHUB_TOKEN`
    (e.g. `GITHUB_TOKEN=$(gh auth token) yarn prp prepare`). It shows, per package, the commits
@@ -54,22 +24,27 @@ configured in [`.prp/config.toml`](../.prp/config.toml).
 > npm package will be [staged](https://docs.npmjs.com/staged-publishing) published when releasing to a stable channel.
 > Author must approve staged packages via [npmjs.com](https://npmjs.com).
 
-### Pre-Releasing
+### Snapshots
 
-On every other base-branch commit, CI runs `just xtask prerelease`. It computes the affected
-packages (directly changed since their last tag, plus dependency-graph propagation), bumps them to
-`x.y.z-next.<short-sha>`, and publishes under the `next` channel — without committing
-(`cargo publish --allow-dirty`). Each target's publish status (including failures) is reported
-via the job output (`prereleased`, `packages`) and the step summary. Re-running the job on the
-same commit retries only what is missing.
+Running the [`release` workflow](../.github/workflows/release.yaml) manually builds every native
+target and runs `yarn prp snapshot`. It publishes every package at its current version plus a
+snapshot prerelease (`x.y.z-snapshot-<sha>-<yyyymmdd>`) without committing, under the `snapshot`
+npm dist-tag. Internal dependencies are pinned to the exact snapshot versions, so install a
+snapshot by its exact version. The packages' assets, including the Android/Swift FFI archives that aren't published to a
+registry, are attached to one GitHub prerelease tagged with the snapshot prerelease
+(`snapshot-<sha>-<yyyymmdd>`), where `@wvb/deno` looks up its native libraries. Re-running
+the workflow on the same commit and day retries only what is missing.
 
-This workflow is used to test a package's behavior prior to the official release.
+This is used to test a package's behavior prior to the official release.
 
-### Artifacts
+## Commands
 
-In a monorepo configuration, it performs the task of merging artifacts generated from multiple packages into a single one or spreading them back to their original locations.
+### Native binary size
 
-This is used in conjunction with the artifact action in GitHub Actions.
+`xtask size collect` measures the native binaries the builds leave in this checkout (the targets
+are listed in [`size.ts`](./size.ts)) and writes a JSON report. `xtask size compare` compares
+reports against each package's latest stable GitHub release, and posts the result to the step
+summary and a sticky PR comment.
 
 ### Attw
 

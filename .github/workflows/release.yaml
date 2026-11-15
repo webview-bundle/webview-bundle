@@ -4,11 +4,6 @@ on:
     branches:
       - "main"
   workflow_dispatch:
-    inputs:
-      id:
-        description: "Prerelease channel id (e.g. \"next\")"
-        required: false
-        default: "next"
 permissions:
   attestations: write
   contents: write
@@ -46,7 +41,7 @@ jobs:
   build-napi:
     name: build-napi (${{ matrix.settings.host }}, ${{ matrix.settings.target }})
     needs: [detect]
-    # Build only when something will consume it: a release commit, or a manual prerelease.
+    # Build only when something will consume it: a release commit, or a manual snapshot.
     if: github.event_name == 'workflow_dispatch' || needs.detect.outputs.release_commit == 'true'
     strategy:
       fail-fast: false
@@ -121,14 +116,11 @@ jobs:
       - name: Run build
         run: ${{ matrix.settings.build }}
         shell: bash
-      - name: Merge artifacts
-        run: node ./xtask/cli.ts artifacts merge
-        shell: bash
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
-          name: artifacts-${{ github.ref_name }}-${{ matrix.settings.host }}-${{ matrix.settings.target }}
-          path: artifacts-merged
+          name: node-${{ matrix.settings.host }}-${{ matrix.settings.target }}
+          path: packages/node/*.node
           if-no-files-found: error
           overwrite: true
 
@@ -136,8 +128,6 @@ jobs:
     runs-on: ubuntu-latest
     name: build-ffi-android
     needs: [detect]
-    # Prereleases (workflow_dispatch) release every package, so always build. Stable releases build
-    # ffi only when the `ffi` package is among this commit's release targets.
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'packages/ffi')
     steps:
       - name: Git checkout
@@ -169,22 +159,17 @@ jobs:
           cargo install cargo-ndk
       - name: Build ffi android
         run: yarn workspace wvb-ffi run build-ffi-android
-      - name: Merge artifacts
-        run: node ./xtask/cli.ts artifacts merge
-        shell: bash
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
-          name: artifacts-${{ github.ref_name }}-ffi-android
-          path: artifacts-merged
+          name: ffi-android
+          path: packages/ffi/.output/android.zip
           if-no-files-found: error
           overwrite: true
 
   build-ffi-apple:
     runs-on: macos-latest
     needs: [detect]
-    # Prereleases (workflow_dispatch) release every package, so always build. Stable releases build
-    # ffi only when the `ffi` package is among this commit's release targets.
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(needs.detect.outputs.release_packages || '[]'), 'packages/ffi')
     steps:
       - name: Git checkout
@@ -207,14 +192,13 @@ jobs:
           install_args: "tuist"
       - name: Build ffi apple
         run: yarn workspace wvb-ffi run build-ffi-apple
-      - name: Merge artifacts
-        run: node ./xtask/cli.ts artifacts merge
-        shell: bash
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
-          name: artifacts-${{ github.ref_name }}-ffi-apple
-          path: artifacts-merged
+          name: ffi-apple
+          path: |
+            packages/ffi/.output/apple.zip
+            packages/ffi/.output/WebViewBundleFFI.xcframework.zip
           if-no-files-found: error
           overwrite: true
 
@@ -268,14 +252,15 @@ jobs:
         run: deno run --allow-read --allow-write --allow-run --allow-env ./scripts/build.ts --target ${{ matrix.settings.target }} ${{ matrix.settings.zigbuild && '--zigbuild' || '' }}
         working-directory: packages/deno
         shell: bash
-      - name: Merge artifacts
-        run: node ./xtask/cli.ts artifacts merge
-        shell: bash
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
-          name: artifacts-${{ github.ref_name }}-deno-${{ matrix.settings.target }}
-          path: artifacts-merged
+          name: deno-${{ matrix.settings.target }}
+          path: |
+            packages/deno/.output/libwvb_deno-*.dylib
+            packages/deno/.output/libwvb_deno-*.so
+            packages/deno/.output/wvb_deno-*.dll
+            packages/deno/.output/*.sha256
           if-no-files-found: error
 
   release:
@@ -307,21 +292,24 @@ jobs:
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
         with:
           install_args: "deno"
-      - name: Download artifacts
+      - name: Download node artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
         with:
-          pattern: artifacts-${{ github.ref_name }}-*
+          pattern: node-*
           merge-multiple: true
-          path: artifacts-merged
-      - name: Spread artifacts
-        run: node ./xtask/cli.ts artifacts spread
-        shell: bash
-      - name: Collect native binary sizes
-        # Size tracking is informational: a failure here must not skip the release. Without a
-        # report, `release` warns and publishes without the `sizes.json` asset.
-        continue-on-error: true
-        run: node ./xtask/cli.ts size collect --merge-dir artifacts-merged --out size-report.json
-        shell: bash
+          path: packages/node/artifacts
+      - name: Download ffi artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+        with:
+          pattern: ffi-*
+          merge-multiple: true
+          path: packages/ffi/.output
+      - name: Download deno artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+        with:
+          pattern: deno-*
+          merge-multiple: true
+          path: packages/deno/.output
       - name: Release
         run: yarn prp release
         shell: bash
@@ -330,7 +318,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           WVB_BUNDLE_NATIVE_STRICT: "1"
 
-  prerelease:
+  snapshot:
     runs-on: ubuntu-latest
     needs: [detect, build-napi, build-ffi-android, build-ffi-apple, build-deno]
     if: github.event_name == 'workflow_dispatch'
@@ -351,18 +339,28 @@ jobs:
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
         with:
           install_args: "deno"
-      - name: Download artifacts
+      - name: Download node artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
         with:
-          pattern: artifacts-${{ github.ref_name }}-*
+          pattern: node-*
           merge-multiple: true
-          path: artifacts-merged
-      - name: Spread artifacts
-        run: node ./xtask/cli.ts artifacts spread
-        shell: bash
-      - name: Prerelease
-        run: node ./xtask/cli.ts prerelease --id=${{ inputs.id }} --github-token=${{ github.token }}
+          path: packages/node/artifacts
+      - name: Download ffi artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+        with:
+          pattern: ffi-*
+          merge-multiple: true
+          path: packages/ffi/.output
+      - name: Download deno artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+        with:
+          pattern: deno-*
+          merge-multiple: true
+          path: packages/deno/.output
+      - name: Snapshot
+        run: yarn prp snapshot
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           WVB_BUNDLE_NATIVE_STRICT: "1"

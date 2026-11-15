@@ -76,5 +76,9 @@ name = "local"
 [packages."packages/tauri"]
 name = "tauri"
 
+[snapshot]
+prerelease_format = "snapshot-<sha>-<yyyymmdd>"
+enable_github_release = true
+
 [registry.npm]
 publish_command = "yarn npm publish --access public --provenance"

@@ -1,8 +1,5 @@
 import { Cli } from 'clipanion';
-import { ArtifactsMergeCommand } from './commands/artifacts-merge.ts';
-import { ArtifactsSpreadCommand } from './commands/artifacts-spread.ts';
 import { AttwCommand } from './commands/attw.ts';
-import { PrereleaseCommand } from './commands/prerelease.ts';
 import { ResolveLockfileCommand } from './commands/resolve-lockfile.ts';
 import { SizeCollectCommand, SizeCompareCommand } from './commands/size.ts';
 
@@ -14,9 +11,6 @@ const cli = new Cli({
   binaryVersion: '0.0.0',
 });
 
-cli.register(PrereleaseCommand);
-cli.register(ArtifactsSpreadCommand);
-cli.register(ArtifactsMergeCommand);
 cli.register(AttwCommand);
 cli.register(ResolveLockfileCommand);
 cli.register(SizeCollectCommand);
