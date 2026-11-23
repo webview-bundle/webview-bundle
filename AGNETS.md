@@ -14,7 +14,7 @@ Do not write comments that used to separate code sections.
 
 - PR title format: `<type>(<scope>): <subject>`
   - Type follows the conventional commit format. (e.g. feat, fix, refactor, chore, etc.)
-  - Scope is the name of the package or module that the commit affects, which is the package's directory name (e.g. `core`, `node`, `remote`). Packages are declared in the root `xtask.config.ts`.
+  - Scope is the name of the package or module that the commit affects, which is the package's directory name (e.g. `core`, `node`, `remote`). Packages are declared in [`.prp/config.toml`](.prp/config.toml).
     - If this PR does not affect any package, leave it empty. (e.g. `chore: update dependencies`)
   - Subject should be a short description of the change, no more than 50 characters.
 - PR description follows the [repo PR template](https://github.com/webview-bundle/webview-bundle/blob/main/.github/PULL_REQUEST_TEMPLATE.md)

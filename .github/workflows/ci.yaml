@@ -12,7 +12,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
         with:
@@ -113,7 +113,7 @@ jobs:
       CFLAGS_aarch64_unknown_linux_gnu: ${{ matrix.settings.target == 'aarch64-unknown-linux-gnu' && '-D__ARM_ARCH=8' || '' }}
     steps:
       - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
       - name: Setup Node.js
         uses: ./.github/actions/node-setup
       - name: Setup Rust
@@ -126,7 +126,7 @@ jobs:
             packages/tauri/e2e/fixtures/app/src-tauri -> target
       - name: Setup Deno
         if: ${{ !matrix.settings.build_only }}
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "deno"
       - name: Setup tauri for linux
@@ -172,6 +172,20 @@ jobs:
         if: ${{ !matrix.settings.build_only }}
         run: cargo build -p wvb-deno --release
         shell: bash
+      - name: Stage wvb-deno cdylib (for size report)
+        if: ${{ !matrix.settings.build_only }}
+        run: deno task build --target ${{ matrix.settings.target }} --prebuilt
+        working-directory: packages/deno
+        shell: bash
+      - name: Collect native binary sizes
+        run: node ./xtask/cli.ts size collect --out size-report/${{ matrix.settings.target }}.json
+        shell: bash
+      - name: Upload size report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # 7.0.2
+        with:
+          name: size-report-${{ matrix.settings.target }}
+          path: size-report
+          if-no-files-found: error
       - name: Run deno test
         if: ${{ !matrix.settings.build_only }}
         run: deno task test
@@ -200,12 +214,42 @@ jobs:
         if: ${{ !matrix.settings.build_only && matrix.settings.host != 'ubuntu-latest' }}
         run: yarn vitest run --config vitest.e2e.workspace.ts
         shell: bash
+  size-report:
+    needs: [test]
+    # Report whatever the matrix managed to measure, even if some test legs failed.
+    if: ${{ !cancelled() && github.event.pull_request != null }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+      - name: Setup Node.js
+        uses: ./.github/actions/node-setup
+      - run: yarn install --immutable
+      - name: Download size reports
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+        with:
+          pattern: size-report-*
+          merge-multiple: true
+          path: size-report
+      - name: Compare with latest releases
+        run: >-
+          node ./xtask/cli.ts size compare
+          --current size-report
+          --id native
+          --title "Native binary size (Node.js / Deno)"
+          --pr ${{ github.event.pull_request.number }}
+          --commit ${{ github.event.pull_request.head.sha }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
   lint-rust:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
       - name: Setup tauri for linux
         uses: ./.github/actions/tauri-linux-setup
       - name: Setup Rust
@@ -232,7 +276,7 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
       - name: Setup tauri for linux
         if: ${{ matrix.settings.host == 'ubuntu-latest' }}
         uses: ./.github/actions/tauri-linux-setup
@@ -264,7 +308,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
       - name: Setup tauri for linux
         uses: ./.github/actions/tauri-linux-setup
       - name: Setup Node.js
@@ -272,7 +316,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/rust-setup
       - name: Setup Deno
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # 4.0.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # 5.2.7
         with:
           install_args: "deno"
       - run: yarn install --immutable
@@ -290,7 +334,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
       - name: Setup Node.js
         uses: ./.github/actions/node-setup
       - run: yarn install --immutable
@@ -301,7 +345,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Git checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # 6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
       - name: Setup Node.js
         uses: ./.github/actions/node-setup
       - run: yarn install --immutable

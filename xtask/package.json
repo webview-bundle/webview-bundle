@@ -7,40 +7,30 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.2.0",
-    "@ltd/j-toml": "^1.38.0",
     "@octokit/core": "^7.0.6",
     "@octokit/plugin-retry": "^8.0.3",
     "@octokit/rest": "^22.0.1",
-    "@taplo/lib": "^0.5.0",
     "ci-info": "^4.2.0",
     "clipanion": "^4.0.0-rc.4",
-    "diff": "^8.0.3",
     "es-git": "0.7.0",
     "es-toolkit": "^1.37.1",
     "execa": "^9.6.1",
     "kleur": "^4.1.5",
     "micromatch": "^4.0.8",
-    "mime-types": "^3.0.2",
-    "minimatch": "^10.2.5",
     "p-all": "^5.0.0",
     "semver": "^7",
     "supports-color": "^10.0.0",
     "tinyglobby": "^0.2.14",
-    "ts-pattern": "^5.9.0",
     "typanion": "^3.14.0",
-    "type-fest": "^4.40.1",
-    "zod": "^4.0.5"
+    "type-fest": "^4.40.1"
   },
   "devDependencies": {
     "@types/color-support": "^1",
-    "@types/diff": "^7",
     "@types/micromatch": "^4",
-    "@types/mime-types": "^3",
     "@types/node": "catalog:",
     "@types/semver": "^7",
     "typescript": "catalog:",
-    "vite": "^8.1.5",
+    "vite": "^8.1.6",
     "vitest": "catalog:"
   }
 }

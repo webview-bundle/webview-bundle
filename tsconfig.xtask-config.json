@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "rewriteRelativeImportExtensions": true,
-    "allowImportingTsExtensions": true,
-    "isolatedDeclarations": false
-  },
-  "include": ["./xtask.config.ts"]
-}
