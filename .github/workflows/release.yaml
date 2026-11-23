@@ -117,7 +117,7 @@ jobs:
         run: ${{ matrix.settings.build }}
         shell: bash
       - name: Upload artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # 7.0.2
         with:
           name: node-${{ matrix.settings.host }}-${{ matrix.settings.target }}
           path: packages/node/*.node
@@ -160,7 +160,7 @@ jobs:
       - name: Build ffi android
         run: yarn workspace wvb-ffi run build-ffi-android
       - name: Upload artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # 7.0.2
         with:
           name: ffi-android
           path: packages/ffi/.output/android.zip
@@ -193,7 +193,7 @@ jobs:
       - name: Build ffi apple
         run: yarn workspace wvb-ffi run build-ffi-apple
       - name: Upload artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # 7.0.2
         with:
           name: ffi-apple
           path: |
@@ -253,7 +253,7 @@ jobs:
         working-directory: packages/deno
         shell: bash
       - name: Upload artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # 7.0.2
         with:
           name: deno-${{ matrix.settings.target }}
           path: |
