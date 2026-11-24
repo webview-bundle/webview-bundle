@@ -7890,7 +7890,7 @@ __metadata:
   dependencies:
     "@types/node": "catalog:"
     es-toolkit: "npm:^1.43.0"
-    zod: "npm:^4.6.6"
+    zod: "npm:^4.6.7"
   bin:
     wvb-playground-env-setup-remote-info: ./bin/setup-remote-info.ts
   languageName: unknown
@@ -8533,7 +8533,7 @@ __metadata:
     vite: "npm:^8.1.6"
     vitest: "catalog:"
     write-file-atomic: "npm:7.0.1"
-    zod: "npm:^4.6.6"
+    zod: "npm:^4.6.7"
   languageName: unknown
   linkType: soft
 
@@ -15505,9 +15505,10 @@ __metadata:
   linkType: hard
 
 "pacote@npm:^21.0.0, pacote@npm:^21.0.2":
-  version: 21.3.1
-  resolution: "pacote@npm:21.3.1"
+  version: 21.5.3
+  resolution: "pacote@npm:21.5.3"
   dependencies:
+    "@gar/promise-retry": "npm:^1.0.0"
     "@npmcli/git": "npm:^7.0.0"
     "@npmcli/installed-package-contents": "npm:^4.0.0"
     "@npmcli/package-json": "npm:^7.0.0"
@@ -15521,13 +15522,12 @@ __metadata:
     npm-pick-manifest: "npm:^11.0.1"
     npm-registry-fetch: "npm:^19.0.0"
     proc-log: "npm:^6.0.0"
-    promise-retry: "npm:^2.0.1"
     sigstore: "npm:^4.0.0"
     ssri: "npm:^13.0.0"
     tar: "npm:^7.4.3"
   bin:
     pacote: bin/index.js
-  checksum: 10c0/395d4ce333e61ea44f9563ab68be9c64b00a823ff3f6d276358caddd4c472b0fdcbda129a8c27d8a0242c17e97a8c41cfe9f802d8989626fc9c272c003eaa468
+  checksum: 10c0/39567d3c36c40c448958042711b54624505ffbb180ae3d362011c56eec9642bfe386b2001c92358aed23c577c5dcb2588edfed472ff23db5e076292fea5f3d90
   languageName: node
   linkType: hard
 
@@ -19621,7 +19621,7 @@ __metadata:
     vitest: "catalog:"
     webdriverio: "npm:9.27.2"
     yazl: "npm:^3.3.1"
-    zod: "npm:^4.6.6"
+    zod: "npm:^4.6.7"
   languageName: unknown
   linkType: soft
 
@@ -20047,7 +20047,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zod@npm:^4.6.6":
+"zod@npm:^4.6.7":
   version: 4.6.7
   resolution: "zod@npm:4.6.7"
   checksum: 10c0/4ce2eb14034317b7254e347ca37b5ad591cf8333147030cf05b9b5d31692d45073f7f2747aa50cf8c6b29012194d2b22978cecc89969cf34a0d18e89d0ee7d7b
