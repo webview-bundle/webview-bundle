@@ -106,7 +106,7 @@ jobs:
         with:
           version: 0.14.1
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@288875dd3d64326724fa6d9593062d9f8ba0b131 # 2.67.30
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # 2.90.8
         if: ${{ contains(matrix.settings.target, 'musl') }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -241,7 +241,7 @@ jobs:
         with:
           version: 0.14.1
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@288875dd3d64326724fa6d9593062d9f8ba0b131 # 2.67.30
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # 2.90.8
         if: ${{ matrix.settings.zigbuild }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
